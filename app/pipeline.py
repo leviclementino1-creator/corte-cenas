@@ -48,6 +48,32 @@ STAGES = [
 ]
 
 
+def _clip_needs_download(model_name: str, pretrained: str) -> bool:
+    """Return True if the open_clip weights aren't in the local cache yet.
+    Shows a helpful 'first-run download' message when we know we'd hit the
+    network. False on lookup failure — better to say nothing than to warn
+    incorrectly. open_clip today caches through huggingface_hub for the
+    OpenAI-hosted checkpoints (repo `timm/vit_*_clip_224.openai`), so we
+    ask huggingface_hub whether the file is already there.
+    """
+    try:
+        import open_clip
+        from huggingface_hub import try_to_load_from_cache
+
+        cfg = open_clip.get_pretrained_cfg(model_name, pretrained) or {}
+        hf_hub = cfg.get("hf_hub") if isinstance(cfg, dict) else None
+        if not hf_hub:
+            return False
+        repo_id = hf_hub.rstrip("/")
+        for filename in ("open_clip_model.safetensors", "open_clip_pytorch_model.bin"):
+            hit = try_to_load_from_cache(repo_id=repo_id, filename=filename)
+            if hit and hit != "_CACHED_NO_EXIST":
+                return False
+        return True
+    except Exception:
+        return False
+
+
 @dataclass
 class PipelineResult:
     episode_root: Path
@@ -230,7 +256,13 @@ class Pipeline:
             )
 
         # 5) Embeddings
-        cb("embed_refs", -1.0, "Carregando modelo CLIP...")
+        clip_msg = "Carregando modelo CLIP..."
+        if _clip_needs_download(cfg.clip_model, cfg.clip_pretrained):
+            clip_msg = (
+                "Baixando modelo CLIP (~890 MB) — só na primeira execução, "
+                "depois fica cacheado. Pode demorar 1-3 min."
+            )
+        cb("embed_refs", -1.0, clip_msg)
         engine = EmbeddingEngine(
             model_name=cfg.clip_model,
             pretrained=cfg.clip_pretrained,
@@ -526,16 +558,36 @@ class Pipeline:
         """
         cfg = self.cfg
         cb("embed_refs", -1.0, "Carregando conexão com IA...")
-        if not cfg.navyai_api_key.strip():
+        primary_key = cfg.navyai_api_key.strip()
+        gemini_key = cfg.gemini_api_key.strip()
+        if not primary_key and not gemini_key:
             raise RuntimeError(
-                "Modo IA requer a API key da NavyAI no painel Avançado."
+                "Modo IA requer uma API key (NavyAI ou Gemini) em Configurações."
             )
 
-        client = NavyAIClient(
-            api_key=cfg.navyai_api_key,
-            base_url=cfg.navyai_base_url,
-            model=cfg.navyai_model,
-        )
+        # Build the fallback (Gemini native) if the key is set. It's a
+        # NavyAIClient pointed at Google's OpenAI-compatible endpoint.
+        from .ai_review import GEMINI_OPENAI_BASE
+        fallback = None
+        if gemini_key:
+            fallback = NavyAIClient(
+                api_key=gemini_key,
+                base_url=GEMINI_OPENAI_BASE,
+                model=cfg.gemini_model or "gemini-2.0-flash",
+            )
+
+        # If the user only has a Gemini key, run against Gemini directly
+        # (no fallback). Otherwise NavyAI is primary and Gemini is fallback.
+        if primary_key:
+            client = NavyAIClient(
+                api_key=primary_key,
+                base_url=cfg.navyai_base_url,
+                model=cfg.navyai_model,
+                fallback=fallback,
+            )
+        else:
+            client = fallback  # Gemini-only path
+            fallback = None
 
         # Face detector for hybrid mode (YOLO -> face crops -> Gemini).
         face_det = None

@@ -20,9 +20,17 @@ from typing import Callable
 import httpx
 
 
+GEMINI_OPENAI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+
 class NavyAIClient:
     """Minimal OpenAI-compatible client for NavyAI / any gateway that
     speaks the same schema. Supports image_url inline data URLs.
+
+    Optionally takes a `fallback` (another NavyAIClient, typically pointing
+    at Gemini's native OpenAI-compatible endpoint). If the primary POST
+    fails after retries — 5xx, timeout, rate-limit — we hand the same
+    content off to the fallback and return whatever it produces.
     """
 
     def __init__(
@@ -31,10 +39,12 @@ class NavyAIClient:
         base_url: str = "https://api.navy/v1",
         model: str = "gemini-2.0-flash",
         timeout: float = 60.0,
+        fallback: "NavyAIClient | None" = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.fallback = fallback
         self.client = httpx.Client(
             timeout=timeout,
             headers={
@@ -45,6 +55,8 @@ class NavyAIClient:
 
     def close(self) -> None:
         self.client.close()
+        if self.fallback is not None:
+            self.fallback.close()
 
     @staticmethod
     def _data_url(img_bytes: bytes, mime: str = "image/jpeg") -> str:
@@ -75,12 +87,12 @@ class NavyAIClient:
         return raw_content, usage
 
     def _post_with_retry(self, payload: dict, retries: int = 2) -> dict:
-        """Post to /chat/completions with simple retry for 5xx errors."""
+        """Post to /chat/completions with simple retry for 5xx / 429 errors."""
         last_err: Exception | None = None
         for attempt in range(retries + 1):
             try:
                 r = self.client.post(f"{self.base_url}/chat/completions", json=payload)
-                if r.status_code >= 500:
+                if r.status_code == 429 or r.status_code >= 500:
                     last_err = RuntimeError(f"HTTP {r.status_code}")
                     time.sleep(0.5 * (attempt + 1))
                     continue
@@ -89,7 +101,32 @@ class NavyAIClient:
             except httpx.HTTPError as e:
                 last_err = e
                 time.sleep(0.5 * (attempt + 1))
-        raise RuntimeError(f"NavyAI API error after {retries + 1} attempts: {last_err}")
+        raise RuntimeError(f"AI API error after {retries + 1} attempts: {last_err}")
+
+    def post_content(
+        self, content: list[dict], max_tokens: int = 300, retries: int = 2
+    ) -> dict:
+        """Build payload with THIS client's model, POST it, and if the whole
+        retry loop fails AND we have a fallback, hand the same content off to
+        the fallback (which rebuilds the payload with its own model). This is
+        the single entry point classify_* should use — never call
+        _post_with_retry directly, or the fallback won't kick in.
+        """
+        payload = self._build_payload(content, max_tokens=max_tokens)
+        try:
+            return self._post_with_retry(payload, retries=retries)
+        except Exception as primary_err:
+            if self.fallback is None:
+                raise
+            try:
+                return self.fallback.post_content(
+                    content, max_tokens=max_tokens, retries=retries
+                )
+            except Exception as fallback_err:
+                raise RuntimeError(
+                    f"Primary AI failed ({primary_err}); "
+                    f"fallback also failed ({fallback_err})"
+                ) from fallback_err
 
     @staticmethod
     def _parse_json_response(content: str) -> dict | None:
@@ -163,7 +200,7 @@ def classify_frame(
             for ref in refs[:1]:  # one ref per char to keep prompt tight
                 content.append({"type": "image_url", "image_url": {"url": client._data_url(ref)}})
 
-    data = client._post_with_retry(client._build_payload(content))
+    data = client.post_content(content)
     raw_content, usage = client._extract_content_and_usage(data)
     if raw_content is None:
         return None, 0.0, None, usage
@@ -242,7 +279,7 @@ def classify_face_crops(
             for ref in refs[:1]:
                 content.append({"type": "image_url", "image_url": {"url": client._data_url(ref)}})
 
-    data = client._post_with_retry(client._build_payload(content, max_tokens=400))
+    data = client.post_content(content, max_tokens=400)
     raw, usage = client._extract_content_and_usage(data)
     if raw is None:
         return [], usage

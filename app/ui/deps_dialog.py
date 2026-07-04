@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -133,3 +135,50 @@ class MissingDepsDialog(QDialog):
         if self._thread is not None:
             self._thread.deleteLater()
             self._thread = None
+
+
+class FFmpegMissingDialog(QDialog):
+    """Shown at startup when `ffmpeg` isn't on PATH. Can't auto-install
+    (needs manual PATH edit), so we just explain and open the download page.
+    """
+
+    _DOWNLOAD_URL = "https://www.gyan.dev/ffmpeg/builds/"
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("FFmpeg não encontrado")
+        self.setMinimumWidth(560)
+        root = QVBoxLayout(self)
+
+        msg = QLabel(
+            "<b>FFmpeg não foi encontrado no PATH do Windows.</b><br><br>"
+            "O Corte Cenas precisa dele pra cortar os shots dos vídeos e gerar as "
+            "versões verticais (Reels/TikTok). Sem ele, a análise trava na etapa "
+            "de <i>corte</i>.<br><br>"
+            "<b>Como instalar (uma vez só):</b>"
+            "<ol>"
+            "<li>Clique em <b>Abrir página de download</b> abaixo.</li>"
+            "<li>Baixe <i>ffmpeg-release-essentials.zip</i> (Windows builds by BtbN).</li>"
+            "<li>Extraia numa pasta permanente, tipo <code>C:\\ffmpeg</code>.</li>"
+            "<li>Adicione <code>C:\\ffmpeg\\bin</code> ao <b>PATH</b> do sistema:<br>"
+            "<code>Iniciar → 'variáveis de ambiente' → Path → Editar → Novo</code></li>"
+            "<li>Feche e reabra o Corte Cenas.</li>"
+            "</ol>"
+        )
+        msg.setWordWrap(True)
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        root.addWidget(msg)
+
+        buttons = QDialogButtonBox()
+        dl_btn = QPushButton("Abrir página de download")
+        dl_btn.setDefault(True)
+        dl_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(self._DOWNLOAD_URL))
+        )
+        buttons.addButton(dl_btn, QDialogButtonBox.ButtonRole.ActionRole)
+
+        skip_btn = QPushButton("Continuar mesmo assim")
+        skip_btn.clicked.connect(self.accept)
+        buttons.addButton(skip_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+
+        root.addWidget(buttons)

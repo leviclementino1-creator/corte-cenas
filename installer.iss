@@ -12,7 +12,7 @@
 ; ============================================================
 
 #define AppName        "Corte Cenas"
-#define AppVersion     "0.1.0"
+#define AppVersion     "0.1.1"
 #define AppPublisher   "Levi Clementino"
 #define AppExeName     "CorteCenas.exe"
 #define AppId          "{{7A3F8B21-4C5D-4E6F-9A1B-2C3D4E5F6A7B}"
@@ -29,6 +29,7 @@ UninstallDisplayIcon={app}\{#AppExeName}
 DisableProgramGroupPage=yes
 OutputDir=releases
 OutputBaseFilename=CorteCenas-Setup-{#AppVersion}
+SetupIconFile=app\assets\icon.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern

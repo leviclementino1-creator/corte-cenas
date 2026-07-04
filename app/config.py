@@ -29,6 +29,8 @@ _PERSISTED_FIELDS = (
     "navyai_api_key",
     "navyai_base_url",
     "navyai_model",
+    "gemini_api_key",
+    "gemini_model",
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -103,11 +105,18 @@ class Config:
     last_season: int = 1
     last_episode: int = 1
 
-    # AI review (Gemini via NavyAI, OpenAI-compatible). Optional, disabled if
-    # no API key is set.
+    # AI review — primary provider (NavyAI, OpenAI-compatible gateway).
+    # Optional; if no key is set, the AI features are disabled.
     navyai_api_key: str = ""
     navyai_base_url: str = "https://api.navy/v1"
     navyai_model: str = "gemini-2.0-flash"
+
+    # AI review — fallback provider (Gemini native, hit directly via Google's
+    # OpenAI-compatible endpoint). Kicks in automatically if NavyAI returns
+    # 5xx / rate-limits / errors. Useful with the free tier of both — when one
+    # exhausts, the other picks up the slack.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
 
     @classmethod
     def load(cls) -> "Config":

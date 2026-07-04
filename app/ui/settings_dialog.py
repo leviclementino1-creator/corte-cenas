@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -16,7 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import __version__
 from ..config import Config
+from ..updater import check_and_offer_update
 
 
 class SettingsDialog(QDialog):
@@ -67,8 +70,8 @@ class SettingsDialog(QDialog):
 
         root.addWidget(out_group)
 
-        # --- AI (NavyAI) ---
-        ai_group = QGroupBox("AI Review (NavyAI / OpenAI-compatible)")
+        # --- Primary AI: NavyAI ---
+        ai_group = QGroupBox("AI principal (NavyAI / OpenAI-compatible)")
         ai_form = QFormLayout(ai_group)
 
         self.key_edit = QLineEdit(self.config.navyai_api_key)
@@ -97,15 +100,86 @@ class SettingsDialog(QDialog):
         ai_form.addRow("Endpoint:", self.base_edit)
 
         info = QLabel(
-            "A API key fica salva em <code>~/AppData/Local/CorteCenas/config.json</code>. "
-            "Usada pelos botões <b>Analisar com IA</b> (pipeline completa via Gemini) "
-            "e <b>Revisar com AI</b> (desempate dos shots ambíguos)."
+            "Usado por padrão pelos botões <b>Analisar com IA</b>. "
+            "Se falhar (rate-limit, quota, 5xx), cai automaticamente no Gemini abaixo."
         )
         info.setWordWrap(True)
         info.setStyleSheet("color:#aaa;font-size:11px;")
         ai_form.addRow("", info)
 
         root.addWidget(ai_group)
+
+        # --- Fallback AI: Gemini direto ---
+        gem_group = QGroupBox("AI fallback (Gemini direto, plano free)")
+        gem_form = QFormLayout(gem_group)
+
+        self.gem_key_edit = QLineEdit(self.config.gemini_api_key)
+        self.gem_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.gem_key_edit.setPlaceholderText("AIza...")
+        show_gem_key = QPushButton("Mostrar")
+        show_gem_key.setCheckable(True)
+        show_gem_key.setFixedWidth(80)
+        show_gem_key.toggled.connect(
+            lambda on: self.gem_key_edit.setEchoMode(
+                QLineEdit.EchoMode.Normal if on else QLineEdit.EchoMode.Password
+            )
+        )
+        gem_row = QHBoxLayout()
+        gem_row.setContentsMargins(0, 0, 0, 0)
+        gem_row.addWidget(self.gem_key_edit, 1)
+        gem_row.addWidget(show_gem_key)
+        gem_wrap = QWidget()
+        gem_wrap.setLayout(gem_row)
+        gem_form.addRow("API key:", gem_wrap)
+
+        self.gem_model_edit = QLineEdit(self.config.gemini_model or "gemini-2.0-flash")
+        gem_form.addRow("Modelo:", self.gem_model_edit)
+
+        gem_info = QLabel(
+            "Pega a key gratuita em <a href='https://aistudio.google.com/apikey' style='color:#7FCC7F'>"
+            "aistudio.google.com/apikey</a>. "
+            "Se as duas keys estiverem preenchidas, NavyAI é usada primeiro e o Gemini "
+            "só entra em ação se ela falhar. Se só uma tiver, ela é usada sozinha. "
+            "As keys ficam salvas em <code>~/AppData/Local/CorteCenas/config.json</code>."
+        )
+        gem_info.setOpenExternalLinks(True)
+        gem_info.setWordWrap(True)
+        gem_info.setStyleSheet("color:#aaa;font-size:11px;")
+        gem_form.addRow("", gem_info)
+
+        root.addWidget(gem_group)
+
+        # --- App / Atualizações ---
+        app_group = QGroupBox("Sobre / Atualizações")
+        app_layout = QVBoxLayout(app_group)
+
+        version_row = QHBoxLayout()
+        version_label = QLabel(
+            f"Corte Cenas <b>v{__version__}</b> — "
+            "<a href='https://github.com/leviclementino1-creator/corte-cenas/releases' "
+            "style='color:#7FCC7F'>ver histórico de versões</a>"
+        )
+        version_label.setOpenExternalLinks(True)
+        version_row.addWidget(version_label)
+        version_row.addStretch(1)
+        app_layout.addLayout(version_row)
+
+        update_row = QHBoxLayout()
+        self.update_btn = QPushButton("🔄  Verificar atualizações agora")
+        self.update_btn.clicked.connect(self._check_updates)
+        update_row.addWidget(self.update_btn)
+        update_row.addStretch(1)
+        app_layout.addLayout(update_row)
+
+        upd_info = QLabel(
+            "O app já verifica automaticamente ao abrir. Clique aqui pra checar "
+            "manualmente sem reiniciar."
+        )
+        upd_info.setWordWrap(True)
+        upd_info.setStyleSheet("color:#aaa;font-size:11px;")
+        app_layout.addWidget(upd_info)
+
+        root.addWidget(app_group)
 
         # --- buttons ---
         btns = QDialogButtonBox(
@@ -125,6 +199,15 @@ class SettingsDialog(QDialog):
         if path:
             self.output_edit.setText(path)
 
+    def _check_updates(self) -> None:
+        self.update_btn.setEnabled(False)
+        self.update_btn.setText("Verificando...")
+        try:
+            check_and_offer_update(parent=self, verbose=True)
+        finally:
+            self.update_btn.setEnabled(True)
+            self.update_btn.setText("🔄  Verificar atualizações agora")
+
     def _save(self) -> None:
         out_path = self.output_edit.text().strip()
         if out_path:
@@ -132,5 +215,7 @@ class SettingsDialog(QDialog):
         self.config.navyai_api_key = self.key_edit.text().strip()
         self.config.navyai_model = self.model_edit.text().strip() or "gemini-2.0-flash"
         self.config.navyai_base_url = self.base_edit.text().strip() or "https://api.navy/v1"
+        self.config.gemini_api_key = self.gem_key_edit.text().strip()
+        self.config.gemini_model = self.gem_model_edit.text().strip() or "gemini-2.0-flash"
         self.config.save()
         self.accept()

@@ -40,6 +40,14 @@ hidden += [
 
 # --- Data files -------------------------------------------------------------
 datas = []
+# App icon (all sizes) — needed at runtime for QApplication.setWindowIcon().
+datas += [("app/assets/icon.ico", "app/assets")]
+datas += [("app/assets/icon_256.png", "app/assets")]
+datas += [("app/assets/icon_128.png", "app/assets")]
+datas += [("app/assets/icon_64.png", "app/assets")]
+datas += [("app/assets/icon_48.png", "app/assets")]
+datas += [("app/assets/icon_32.png", "app/assets")]
+datas += [("app/assets/icon_16.png", "app/assets")]
 datas += collect_data_files("open_clip")
 datas += collect_data_files("ultralytics")
 datas += collect_data_files("torchvision")
@@ -75,6 +83,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="CorteCenas",
+    icon="app/assets/icon.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

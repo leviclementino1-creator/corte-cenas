@@ -375,9 +375,12 @@ class AnalyzeTab(QWidget):
         if not out:
             self.status_label.setText("⚠ Escolha uma pasta de saída.")
             return
-        if use_ai and not (self.config.navyai_api_key or "").strip():
+        if use_ai and not (
+            (self.config.navyai_api_key or "").strip()
+            or (self.config.gemini_api_key or "").strip()
+        ):
             self.status_label.setText(
-                "⚠ Modo IA precisa da API key. Clica em ⚙ Configurações no topo direito."
+                "⚠ Modo IA precisa de uma API key (NavyAI ou Gemini). Abre em ⚙ Configurações."
             )
             return
 

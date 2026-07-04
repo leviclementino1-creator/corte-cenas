@@ -30,3 +30,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local scratch scripts
+_build_all.bat

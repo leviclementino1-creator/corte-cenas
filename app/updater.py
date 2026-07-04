@@ -89,19 +89,43 @@ class _DownloadThread(QThread):
             self.failed.emit(str(e))
 
 
-def check_and_offer_update(parent: QWidget | None = None) -> None:
-    """Called once on app startup. Returns as soon as the check settles;
-    if an update is applied, quits the QApplication so the installer can run."""
+def check_and_offer_update(
+    parent: QWidget | None = None,
+    verbose: bool = False,
+) -> None:
+    """Called on app startup (verbose=False, silent no-ops) or from a manual
+    'Verificar atualizações' button (verbose=True, shows 'up to date' /
+    error dialogs even in the no-update path).
+
+    If an update is applied, quits the QApplication so the installer can run.
+    """
     release = _fetch_latest_release()
     if not release:
+        if verbose:
+            QMessageBox.warning(
+                parent, "Sem conexão",
+                "Não consegui checar a versão mais recente no GitHub.\n"
+                "Verifique sua conexão e tente de novo."
+            )
         return
 
     remote_tag = release.get("tag_name") or ""
     if _parse_version(remote_tag) <= _parse_version(__version__):
+        if verbose:
+            QMessageBox.information(
+                parent, "Tudo em dia",
+                f"Você já está na versão mais recente: <b>{__version__}</b>."
+            )
         return
 
     installer_url = _find_installer_url(release)
     if not installer_url:
+        if verbose:
+            QMessageBox.information(
+                parent, "Atualização não empacotada",
+                f"A versão {remote_tag} está publicada, mas ainda não tem um "
+                "instalador anexado. Tente daqui a alguns minutos."
+            )
         return
 
     notes = (release.get("body") or "").strip()

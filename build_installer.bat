@@ -34,18 +34,20 @@ if not exist "%ISCC%" (
 
 call .venv\Scripts\activate.bat
 
+set "PROJDIR=%~dp0"
+
 echo.
 echo ============================================================
 echo  [1/2] Rodando PyInstaller (5-10 min, empacotando torch/cuda)
 echo ============================================================
-call build.bat
+call "%PROJDIR%build.bat"
 if errorlevel 1 (
     echo [ERRO] PyInstaller falhou.
     pause
     exit /b 1
 )
 
-if not exist "dist\CorteCenas\CorteCenas.exe" (
+if not exist "%PROJDIR%dist\CorteCenas\CorteCenas.exe" (
     echo [ERRO] dist\CorteCenas\CorteCenas.exe nao gerado.
     pause
     exit /b 1
@@ -55,8 +57,8 @@ echo.
 echo ============================================================
 echo  [2/2] Rodando Inno Setup (2-5 min, comprimindo tudo)
 echo ============================================================
-if not exist "releases" mkdir releases
-"%ISCC%" installer.iss
+if not exist "%PROJDIR%releases" mkdir "%PROJDIR%releases"
+"%ISCC%" "%PROJDIR%installer.iss"
 if errorlevel 1 (
     echo [ERRO] Inno Setup falhou.
     pause

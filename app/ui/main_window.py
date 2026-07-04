@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QMainWindow, QMessageBox, QPushButton, QTabWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..config import Config
 from ..pipeline import PipelineResult
@@ -41,19 +48,35 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.analyze, "Analisar")
         self.tabs.addTab(self.results, "Resultados")
 
-        # Gear button in the tab bar's top-right corner
+        # Top bar: stretch on the left pushes the Settings button to the right.
+        # Kept above (not inside) the tab widget so it doesn't collide with the
+        # tab bar or the window title on any Qt style.
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(8, 6, 8, 0)
+        top_bar.addStretch(1)
+
         self.settings_btn = QPushButton("⚙  Configurações")
-        self.settings_btn.setFlat(True)
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.settings_btn.setStyleSheet(
-            "QPushButton{padding:6px 10px;color:#ccc;}"
-            "QPushButton:hover{color:#fff;background:#3a3d43;}"
+            "QPushButton{"
+            "background:#2b2d31;color:#ddd;border:1px solid #3a3d43;"
+            "border-radius:4px;padding:5px 12px;font-size:12px;"
+            "}"
+            "QPushButton:hover{background:#3a3d43;color:#fff;}"
         )
         self.settings_btn.clicked.connect(self._open_settings)
-        self.tabs.setCornerWidget(self.settings_btn, Qt.Corner.TopRightCorner)
+        top_bar.addWidget(self.settings_btn)
+
+        central = QWidget()
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
+        root.addLayout(top_bar)
+        root.addWidget(self.tabs)
 
         self.analyze.pipeline_finished.connect(self._on_pipeline_finished)
 
-        self.setCentralWidget(self.tabs)
+        self.setCentralWidget(central)
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.config, self)

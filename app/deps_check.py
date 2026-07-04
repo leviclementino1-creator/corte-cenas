@@ -8,6 +8,7 @@ in the exact environment the app runs under).
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 
@@ -26,6 +27,12 @@ def missing_optional_deps() -> list[str]:
         except ImportError:
             missing.append(mod)
     return missing
+
+
+def ffmpeg_available() -> bool:
+    """Return True iff `ffmpeg` is on PATH. Uses shutil.which which is fast
+    and correctly resolves .exe on Windows."""
+    return shutil.which("ffmpeg") is not None
 
 
 def install_with_pip(
