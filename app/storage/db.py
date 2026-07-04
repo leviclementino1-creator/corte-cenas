@@ -1,0 +1,299 @@
+from __future__ import annotations
+
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS anime (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    anilist_id INTEGER UNIQUE,
+    mal_id INTEGER,
+    title TEXT NOT NULL,
+    title_english TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS episode (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    anime_id INTEGER NOT NULL REFERENCES anime(id) ON DELETE CASCADE,
+    season INTEGER NOT NULL,
+    episode INTEGER NOT NULL,
+    source_file TEXT,
+    processed_at TIMESTAMP,
+    UNIQUE(anime_id, season, episode)
+);
+
+CREATE TABLE IF NOT EXISTS character (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    anilist_id INTEGER UNIQUE,
+    mal_id INTEGER,
+    anime_id INTEGER NOT NULL REFERENCES anime(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    role TEXT,
+    threshold REAL DEFAULT 0.74,
+    reference_count INTEGER DEFAULT 0,
+    embedding BLOB
+);
+
+CREATE TABLE IF NOT EXISTS shot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_id INTEGER NOT NULL REFERENCES episode(id) ON DELETE CASCADE,
+    idx INTEGER NOT NULL,
+    file TEXT NOT NULL,
+    keyframe TEXT,
+    start REAL NOT NULL,
+    end REAL NOT NULL,
+    duration REAL NOT NULL,
+    UNIQUE(episode_id, idx)
+);
+
+CREATE TABLE IF NOT EXISTS shot_character (
+    shot_id INTEGER NOT NULL REFERENCES shot(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+    confidence REAL NOT NULL,
+    reviewed INTEGER DEFAULT 0,
+    approved INTEGER,
+    PRIMARY KEY (shot_id, character_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shot_char_shot ON shot_character(shot_id);
+CREATE INDEX IF NOT EXISTS idx_shot_char_char ON shot_character(character_id);
+CREATE INDEX IF NOT EXISTS idx_character_anime ON character(anime_id);
+"""
+
+
+class Database:
+    def __init__(self, path: Path | str) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.connect() as c:
+            c.executescript(SCHEMA)
+
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+    # --- anime / episode ---
+
+    def upsert_anime(
+        self,
+        anilist_id: int | None,
+        title: str,
+        mal_id: int | None = None,
+        title_english: str | None = None,
+    ) -> int:
+        with self.connect() as c:
+            if anilist_id is not None:
+                row = c.execute("SELECT id FROM anime WHERE anilist_id = ?", (anilist_id,)).fetchone()
+                if row:
+                    c.execute(
+                        "UPDATE anime SET title=?, mal_id=?, title_english=? WHERE id=?",
+                        (title, mal_id, title_english, row["id"]),
+                    )
+                    return row["id"]
+            row = c.execute("SELECT id FROM anime WHERE title = ? COLLATE NOCASE", (title,)).fetchone()
+            if row:
+                return row["id"]
+            cur = c.execute(
+                "INSERT INTO anime(anilist_id, mal_id, title, title_english) VALUES(?,?,?,?)",
+                (anilist_id, mal_id, title, title_english),
+            )
+            return cur.lastrowid
+
+    def upsert_episode(self, anime_id: int, season: int, episode: int, source: str) -> int:
+        with self.connect() as c:
+            row = c.execute(
+                "SELECT id FROM episode WHERE anime_id=? AND season=? AND episode=?",
+                (anime_id, season, episode),
+            ).fetchone()
+            if row:
+                c.execute(
+                    "UPDATE episode SET source_file=?, processed_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (source, row["id"]),
+                )
+                return row["id"]
+            cur = c.execute(
+                "INSERT INTO episode(anime_id, season, episode, source_file, processed_at) "
+                "VALUES(?,?,?,?,CURRENT_TIMESTAMP)",
+                (anime_id, season, episode, source),
+            )
+            return cur.lastrowid
+
+    def clear_episode_shots(self, episode_id: int) -> None:
+        with self.connect() as c:
+            c.execute("DELETE FROM shot WHERE episode_id=?", (episode_id,))
+
+    # --- characters ---
+
+    def upsert_character(
+        self,
+        anime_id: int,
+        name: str,
+        anilist_id: int | None,
+        mal_id: int | None = None,
+        role: str | None = None,
+    ) -> int:
+        with self.connect() as c:
+            if anilist_id is not None:
+                row = c.execute(
+                    "SELECT id FROM character WHERE anilist_id = ?", (anilist_id,)
+                ).fetchone()
+                if row:
+                    c.execute(
+                        "UPDATE character SET name=?, role=?, mal_id=? WHERE id=?",
+                        (name, role, mal_id, row["id"]),
+                    )
+                    return row["id"]
+            row = c.execute(
+                "SELECT id FROM character WHERE anime_id=? AND name=? COLLATE NOCASE",
+                (anime_id, name),
+            ).fetchone()
+            if row:
+                return row["id"]
+            cur = c.execute(
+                "INSERT INTO character(anilist_id, mal_id, anime_id, name, role) VALUES(?,?,?,?,?)",
+                (anilist_id, mal_id, anime_id, name, role),
+            )
+            return cur.lastrowid
+
+    def set_character_embedding(
+        self, character_id: int, embedding_bytes: bytes, reference_count: int
+    ) -> None:
+        with self.connect() as c:
+            c.execute(
+                "UPDATE character SET embedding=?, reference_count=? WHERE id=?",
+                (embedding_bytes, reference_count, character_id),
+            )
+
+    def get_characters_for_anime(self, anime_id: int) -> list[dict]:
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT id, anilist_id, mal_id, name, role, threshold, reference_count, embedding "
+                "FROM character WHERE anime_id=? ORDER BY role, name",
+                (anime_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def set_character_threshold(self, character_id: int, threshold: float) -> None:
+        with self.connect() as c:
+            c.execute("UPDATE character SET threshold=? WHERE id=?", (threshold, character_id))
+
+    # --- shots ---
+
+    def insert_shot(
+        self,
+        episode_id: int,
+        idx: int,
+        file: str,
+        keyframe: str | None,
+        start: float,
+        end: float,
+    ) -> int:
+        with self.connect() as c:
+            cur = c.execute(
+                "INSERT INTO shot(episode_id, idx, file, keyframe, start, end, duration) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (episode_id, idx, file, keyframe, start, end, end - start),
+            )
+            return cur.lastrowid
+
+    def assign_character(self, shot_id: int, character_id: int, confidence: float) -> None:
+        with self.connect() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO shot_character(shot_id, character_id, confidence) "
+                "VALUES(?,?,?)",
+                (shot_id, character_id, confidence),
+            )
+
+    def shots_for_character(
+        self, character_id: int, episode_id: int | None = None
+    ) -> list[dict]:
+        """Return shots tagged with this character.
+        If `episode_id` is set, restricts to that episode (prevents shots
+        from other runs from leaking into the current view)."""
+        query = (
+            "SELECT s.id, s.idx, s.file, s.keyframe, s.start, s.end, s.duration, "
+            "sc.confidence, sc.approved "
+            "FROM shot s JOIN shot_character sc ON sc.shot_id = s.id "
+            "WHERE sc.character_id = ?"
+        )
+        args: list = [character_id]
+        if episode_id is not None:
+            query += " AND s.episode_id = ?"
+            args.append(episode_id)
+        query += " ORDER BY sc.confidence DESC"
+        with self.connect() as c:
+            rows = c.execute(query, args).fetchall()
+            return [dict(r) for r in rows]
+
+    def shots_for_episode(self, episode_id: int) -> list[dict]:
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT id, idx, file, keyframe, start, end, duration FROM shot "
+                "WHERE episode_id=? ORDER BY idx",
+                (episode_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def characters_in_shot(self, shot_id: int) -> list[dict]:
+        with self.connect() as c:
+            rows = c.execute(
+                """SELECT c.id, c.name, sc.confidence, sc.approved
+                   FROM shot_character sc
+                   JOIN character c ON c.id = sc.character_id
+                   WHERE sc.shot_id = ?
+                   ORDER BY sc.confidence DESC""",
+                (shot_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def set_assignment_review(self, shot_id: int, character_id: int, approved: bool) -> None:
+        with self.connect() as c:
+            c.execute(
+                "UPDATE shot_character SET reviewed=1, approved=? WHERE shot_id=? AND character_id=?",
+                (1 if approved else 0, shot_id, character_id),
+            )
+
+    def remove_shot_character(self, shot_id: int, character_id: int) -> None:
+        with self.connect() as c:
+            c.execute(
+                "DELETE FROM shot_character WHERE shot_id = ? AND character_id = ?",
+                (shot_id, character_id),
+            )
+
+    def move_shot_to_character(
+        self, shot_id: int, old_character_id: int, new_character_id: int, confidence: float | None = None
+    ) -> None:
+        """Reassign a shot from one character to another (manual correction).
+        Preserves confidence if the new pair already exists."""
+        with self.connect() as c:
+            c.execute(
+                "DELETE FROM shot_character WHERE shot_id = ? AND character_id = ?",
+                (shot_id, old_character_id),
+            )
+            existing = c.execute(
+                "SELECT 1 FROM shot_character WHERE shot_id = ? AND character_id = ?",
+                (shot_id, new_character_id),
+            ).fetchone()
+            if existing is None:
+                c.execute(
+                    "INSERT INTO shot_character(shot_id, character_id, confidence, reviewed, approved) "
+                    "VALUES(?,?,?,1,1)",
+                    (shot_id, new_character_id, float(confidence or 1.0)),
+                )
+            else:
+                c.execute(
+                    "UPDATE shot_character SET reviewed=1, approved=1 "
+                    "WHERE shot_id=? AND character_id=?",
+                    (shot_id, new_character_id),
+                )

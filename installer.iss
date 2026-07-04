@@ -1,0 +1,92 @@
+; ============================================================
+;  Corte Cenas - Inno Setup script
+; ============================================================
+;  Wraps dist\CorteCenas\ (PyInstaller onedir output) into a
+;  proper Windows installer: Start Menu / Desktop shortcuts,
+;  Add/Remove Programs entry, upgrade-in-place support.
+;
+;  Build via build_installer.bat (which runs PyInstaller first,
+;  then invokes ISCC.exe on this file).
+;
+;  Requires Inno Setup 6+  ->  https://jrsoftware.org/isdl.php
+; ============================================================
+
+#define AppName        "Corte Cenas"
+#define AppVersion     "0.1.0"
+#define AppPublisher   "Levi Clementino"
+#define AppExeName     "CorteCenas.exe"
+#define AppId          "{{7A3F8B21-4C5D-4E6F-9A1B-2C3D4E5F6A7B}"
+
+[Setup]
+AppId={#AppId}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppPublisher={#AppPublisher}
+DefaultDirName={autopf}\CorteCenas
+DefaultGroupName=Corte Cenas
+UninstallDisplayName={#AppName}
+UninstallDisplayIcon={app}\{#AppExeName}
+DisableProgramGroupPage=yes
+OutputDir=releases
+OutputBaseFilename=CorteCenas-Setup-{#AppVersion}
+Compression=lzma2/max
+SolidCompression=yes
+WizardStyle=modern
+PrivilegesRequired=admin
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
+; Same AppId across versions => "install over" behavior (upgrade in place).
+CloseApplications=force
+RestartApplications=no
+
+[Languages]
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[Files]
+; Copy the entire PyInstaller onedir tree into {app}\
+Source: "dist\CorteCenas\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\Corte Cenas";        Filename: "{app}\{#AppExeName}"
+Name: "{group}\Desinstalar Corte Cenas"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Corte Cenas";  Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\{#AppExeName}"; Description: "Abrir Corte Cenas"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; Nothing beyond what [Files] tracked. The user's cache/output stays in
+; %LOCALAPPDATA%\CorteCenas and their Output folder — we don't touch those.
+Type: filesandordirs; Name: "{app}\_internal\__pycache__"
+
+; ============================================================
+;  Pre-install checks: FFmpeg on PATH (warning, not blocking).
+; ============================================================
+[Code]
+function FfmpegOnPath(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{cmd}'), '/c where ffmpeg >nul 2>&1', '',
+                 SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if not FfmpegOnPath() then
+  begin
+    if MsgBox(
+      'FFmpeg nao foi encontrado no PATH do Windows.' + #13#10 + #13#10 +
+      'O Corte Cenas precisa dele pra cortar os shots dos videos.' + #13#10 +
+      'Baixe em https://www.gyan.dev/ffmpeg/builds/ (release essentials),' + #13#10 +
+      'extraia e adicione a pasta "bin" ao PATH.' + #13#10 + #13#10 +
+      'Continuar mesmo assim?',
+      mbConfirmation, MB_YESNO) = IDNO then
+      Result := False;
+  end;
+end;

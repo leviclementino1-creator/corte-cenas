@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# PyInstaller output
+build/
+dist/
+
+# Inno Setup output
+releases/
+
+# Runtime cache & outputs (per-user, huge)
+cache/
+Output/
+models/
+
+# Model weights sometimes checked in during dev; keep them out of the repo
+*.pt
+*.onnx
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
