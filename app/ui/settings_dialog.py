@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__
 from ..config import Config
+from ..deps_check import cuda_available, gpu_name
 from ..updater import check_and_offer_update
 
 
@@ -163,6 +164,15 @@ class SettingsDialog(QDialog):
         version_row.addWidget(version_label)
         version_row.addStretch(1)
         app_layout.addLayout(version_row)
+
+        # GPU / device status
+        if cuda_available():
+            gpu_html = f"GPU: <span style='color:#7FCC7F'>{gpu_name() or 'CUDA'}</span>"
+        else:
+            gpu_html = "GPU: <span style='color:#DDB077'>não detectada — rodando em CPU (~20x mais lento)</span>"
+        gpu_label = QLabel(gpu_html)
+        gpu_label.setStyleSheet("font-size:11px;")
+        app_layout.addWidget(gpu_label)
 
         update_row = QHBoxLayout()
         self.update_btn = QPushButton("🔄  Verificar atualizações agora")

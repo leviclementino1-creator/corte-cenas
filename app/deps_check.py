@@ -30,9 +30,34 @@ def missing_optional_deps() -> list[str]:
 
 
 def ffmpeg_available() -> bool:
-    """Return True iff `ffmpeg` is on PATH. Uses shutil.which which is fast
-    and correctly resolves .exe on Windows."""
+    """Return True iff we can invoke ffmpeg — either bundled with the
+    install (preferred) or on the user's PATH (fallback for source runs)."""
+    from .ffmpeg_locate import is_bundled
+    if is_bundled():
+        return True
     return shutil.which("ffmpeg") is not None
+
+
+def cuda_available() -> bool:
+    """True iff torch was built with CUDA AND a working NVIDIA GPU is
+    visible. Anything else means the app will silently run on CPU."""
+    try:
+        import torch
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
+
+def gpu_name() -> str | None:
+    """Return the first GPU's name when CUDA is up; None otherwise. Used
+    by the settings dialog to confirm 'GPU: NVIDIA GeForce RTX 5080'."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_name(0)
+    except Exception:
+        pass
+    return None
 
 
 def install_with_pip(

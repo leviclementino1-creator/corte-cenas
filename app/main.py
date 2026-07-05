@@ -7,8 +7,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from .config import Config
-from .deps_check import ffmpeg_available, missing_optional_deps
-from .ui.deps_dialog import FFmpegMissingDialog, MissingDepsDialog
+from .deps_check import cuda_available, ffmpeg_available, missing_optional_deps
+from .ui.deps_dialog import FFmpegMissingDialog, MissingDepsDialog, NoGpuDialog
 from .ui.main_window import MainWindow
 from .updater import check_and_offer_update
 
@@ -44,6 +44,15 @@ def main() -> int:
     # Warn if FFmpeg is missing before user gets frustrated mid-analysis.
     if not ffmpeg_available():
         FFmpegMissingDialog().exec()
+
+    # Warn about CPU-only mode (no NVIDIA GPU with CUDA). App still runs,
+    # just ~20x slower. Once dismissed with "don't ask again", we stay quiet.
+    if not cuda_available() and not cfg.gpu_warning_dismissed:
+        dlg = NoGpuDialog()
+        dlg.exec()
+        if dlg.dont_ask_again:
+            cfg.gpu_warning_dismissed = True
+            cfg.save()
 
     win = MainWindow(cfg)
     win.show()

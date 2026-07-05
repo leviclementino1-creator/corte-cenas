@@ -40,6 +40,11 @@ hidden += [
 
 # --- Data files -------------------------------------------------------------
 datas = []
+# Bundled FFmpeg (~200 MB). Put next to the app so users don't have to
+# install ffmpeg separately or add anything to PATH. Populated by
+# fetch_ffmpeg.py before this spec runs (see _build_all.bat).
+datas += [("bin/ffmpeg.exe", "bin")]
+datas += [("bin/ffprobe.exe", "bin")]
 # App icon (all sizes) — needed at runtime for QApplication.setWindowIcon().
 datas += [("app/assets/icon.ico", "app/assets")]
 datas += [("app/assets/icon_256.png", "app/assets")]

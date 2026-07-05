@@ -12,7 +12,7 @@
 ; ============================================================
 
 #define AppName        "Corte Cenas"
-#define AppVersion     "0.1.1"
+#define AppVersion     "0.1.2"
 #define AppPublisher   "Levi Clementino"
 #define AppExeName     "CorteCenas.exe"
 #define AppId          "{{7A3F8B21-4C5D-4E6F-9A1B-2C3D4E5F6A7B}"
@@ -65,29 +65,7 @@ Filename: "{app}\{#AppExeName}"; Description: "Abrir Corte Cenas"; Flags: nowait
 Type: filesandordirs; Name: "{app}\_internal\__pycache__"
 
 ; ============================================================
-;  Pre-install checks: FFmpeg on PATH (warning, not blocking).
+;  FFmpeg is now bundled inside the installer (bin\ffmpeg.exe),
+;  so no external check is needed. The app resolves the bundled
+;  binary via app/ffmpeg_locate.py.
 ; ============================================================
-[Code]
-function FfmpegOnPath(): Boolean;
-var
-  ResultCode: Integer;
-begin
-  Result := Exec(ExpandConstant('{cmd}'), '/c where ffmpeg >nul 2>&1', '',
-                 SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
-end;
-
-function InitializeSetup(): Boolean;
-begin
-  Result := True;
-  if not FfmpegOnPath() then
-  begin
-    if MsgBox(
-      'FFmpeg nao foi encontrado no PATH do Windows.' + #13#10 + #13#10 +
-      'O Corte Cenas precisa dele pra cortar os shots dos videos.' + #13#10 +
-      'Baixe em https://www.gyan.dev/ffmpeg/builds/ (release essentials),' + #13#10 +
-      'extraia e adicione a pasta "bin" ao PATH.' + #13#10 + #13#10 +
-      'Continuar mesmo assim?',
-      mbConfirmation, MB_YESNO) = IDNO then
-      Result := False;
-  end;
-end;

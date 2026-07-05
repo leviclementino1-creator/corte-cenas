@@ -7,6 +7,7 @@ from typing import Callable
 import cv2
 import ffmpeg
 
+from .ffmpeg_locate import ffmpeg_binary
 from .shot_detection import ShotBounds
 
 
@@ -46,7 +47,7 @@ def cut_shot(
             avoid_negative_ts="make_zero",
             loglevel="error",
         )
-    stream.run(overwrite_output=True, quiet=True)
+    stream.run(cmd=ffmpeg_binary(), overwrite_output=True, quiet=True)
 
 
 def extract_keyframes(

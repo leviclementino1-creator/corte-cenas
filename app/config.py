@@ -31,6 +31,7 @@ _PERSISTED_FIELDS = (
     "navyai_model",
     "gemini_api_key",
     "gemini_model",
+    "gpu_warning_dismissed",
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -117,6 +118,10 @@ class Config:
     # exhausts, the other picks up the slack.
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
+
+    # Whether the user has already seen the "no NVIDIA GPU, will run on CPU"
+    # warning. Once dismissed, we don't nag on every startup.
+    gpu_warning_dismissed: bool = False
 
     @classmethod
     def load(cls) -> "Config":

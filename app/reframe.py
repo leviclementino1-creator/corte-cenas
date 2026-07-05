@@ -8,6 +8,7 @@ import cv2
 import ffmpeg
 import numpy as np
 
+from .ffmpeg_locate import ffmpeg_binary
 from .matching.face_detector import AnimeFaceDetector
 
 
@@ -201,7 +202,7 @@ def reframe_one(
                 movflags="+faststart",
                 loglevel="error",
             )
-            .run(overwrite_output=True, quiet=True)
+            .run(cmd=ffmpeg_binary(), overwrite_output=True, quiet=True)
         )
         return True
     except ffmpeg.Error:
@@ -221,7 +222,7 @@ def reframe_one(
                     movflags="+faststart",
                     loglevel="error",
                 )
-                .run(overwrite_output=True, quiet=True)
+                .run(cmd=ffmpeg_binary(), overwrite_output=True, quiet=True)
             )
             return True
         except ffmpeg.Error:

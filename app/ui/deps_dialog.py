@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QLabel,
@@ -182,3 +183,49 @@ class FFmpegMissingDialog(QDialog):
         buttons.addButton(skip_btn, QDialogButtonBox.ButtonRole.AcceptRole)
 
         root.addWidget(buttons)
+
+
+class NoGpuDialog(QDialog):
+    """Shown at startup when torch reports no CUDA GPU. Explains what will
+    happen (CPU fallback, ~20x slower), and lets the user check 'don't ask
+    again' so we stop nagging on every startup.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("GPU NVIDIA não detectada")
+        self.setMinimumWidth(560)
+        self.dont_ask_again = False
+
+        root = QVBoxLayout(self)
+        msg = QLabel(
+            "<b>Nenhuma GPU NVIDIA com CUDA foi detectada.</b><br><br>"
+            "O Corte Cenas vai <b>rodar mesmo assim, em CPU</b>. A análise "
+            "ainda funciona, mas fica <b>~20x mais lenta</b> — pode levar "
+            "10-20 minutos por episódio em vez de 30 segundos.<br><br>"
+            "<b>Se você tem GPU NVIDIA:</b>"
+            "<ul>"
+            "<li>Confira se o driver da GeForce Experience está atualizado.</li>"
+            "<li>RTX 20xx ou mais nova, com driver CUDA 12.8+.</li>"
+            "<li>Reinicie o PC depois de atualizar o driver.</li>"
+            "</ul>"
+            "<b>Se você não tem GPU NVIDIA</b> (só integrada Intel/AMD): "
+            "roda em CPU e pronto — sem outra opção."
+        )
+        msg.setWordWrap(True)
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        root.addWidget(msg)
+
+        self.checkbox = QCheckBox("Não mostrar de novo")
+        root.addWidget(self.checkbox)
+
+        buttons = QDialogButtonBox()
+        ok_btn = QPushButton("Continuar")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self._accept)
+        buttons.addButton(ok_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        root.addWidget(buttons)
+
+    def _accept(self) -> None:
+        self.dont_ask_again = self.checkbox.isChecked()
+        self.accept()
