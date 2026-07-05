@@ -61,6 +61,17 @@ def _find_installer_url(release: dict) -> str | None:
     return None
 
 
+def _find_delta_url(release: dict) -> str | None:
+    """Prefer the small delta zip (~60 MB) over the full setup exe (~2 GB).
+    Only present in releases built from v0.1.6+; older releases only ship
+    the full setup and we transparently fall back to that."""
+    for asset in release.get("assets", []):
+        name = (asset.get("name") or "").lower()
+        if name.endswith(".zip") and "update" in name:
+            return asset.get("browser_download_url")
+    return None
+
+
 class _DownloadThread(QThread):
     progress = Signal(int)
     finished_ok = Signal(str)
@@ -87,6 +98,69 @@ class _DownloadThread(QThread):
             self.finished_ok.emit(str(self._dest))
         except Exception as e:
             self.failed.emit(str(e))
+
+
+def _find_install_dir() -> Path | None:
+    """Return the folder holding the running CorteCenas.exe. Only meaningful
+    when frozen — from source we're not installed and there's nothing to
+    overwrite."""
+    if not getattr(sys, "frozen", False):
+        return None
+    return Path(sys.executable).resolve().parent
+
+
+def _find_apply_helper() -> Path | None:
+    """Locate apply_update.ps1 that we bundled next to the app."""
+    if not getattr(sys, "frozen", False):
+        return None
+    candidates = [
+        Path(sys._MEIPASS) / "apply_update.ps1",
+        Path(sys.executable).resolve().parent / "apply_update.ps1",
+        Path(sys.executable).resolve().parent / "_internal" / "apply_update.ps1",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def _apply_delta_and_quit(zip_path: str, parent: QWidget | None) -> None:
+    """Extract the delta zip, launch the elevated PowerShell helper, quit."""
+    import ctypes
+    import shutil
+    import zipfile as _zipfile
+
+    install_dir = _find_install_dir()
+    helper = _find_apply_helper()
+    if install_dir is None or helper is None:
+        raise RuntimeError(
+            "Update delta baixado, mas o app está rodando do fonte — "
+            "aplique manualmente extraindo o zip em cima da instalação."
+        )
+
+    staging = Path(zip_path).parent / f"{Path(zip_path).stem}-extract"
+    if staging.exists():
+        shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    with _zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(staging)
+
+    # PowerShell command — quoted string args passed via -Command so paths
+    # with spaces survive. -ExecutionPolicy Bypass because the helper isn't
+    # signed. `runas` verb triggers UAC.
+    ps_cmd = (
+        f"-NoProfile -ExecutionPolicy Bypass -File \"{helper}\" "
+        f"-Source \"{staging}\" -Install \"{install_dir}\""
+    )
+    hinst = ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", "powershell.exe", ps_cmd, None, 0  # SW_HIDE
+    )
+    if int(hinst) <= 32:
+        raise RuntimeError(f"ShellExecute retornou {hinst}")
+
+    app = QApplication.instance()
+    if app is not None:
+        app.quit()
 
 
 def check_and_offer_update(
@@ -119,7 +193,11 @@ def check_and_offer_update(
         return
 
     installer_url = _find_installer_url(release)
-    if not installer_url:
+    delta_url = _find_delta_url(release)
+    # Prefer the small delta zip when available. Fall back to the full
+    # installer if the release doesn't ship one (versions <= 0.1.5) or if
+    # applying the delta fails at runtime.
+    if not installer_url and not delta_url:
         if verbose:
             QMessageBox.information(
                 parent, "Atualização não empacotada",
@@ -148,7 +226,15 @@ def check_and_offer_update(
     if box.exec() != QMessageBox.Yes:
         return
 
-    dest = Path(tempfile.gettempdir()) / f"CorteCenas-Setup-{remote_tag}.exe"
+    # Pick which asset to download. Delta first, fall back to full setup.
+    if delta_url:
+        dest = Path(tempfile.gettempdir()) / f"CorteCenas-Update-{remote_tag}.zip"
+        download_url = delta_url
+        is_delta = True
+    else:
+        dest = Path(tempfile.gettempdir()) / f"CorteCenas-Setup-{remote_tag}.exe"
+        download_url = installer_url
+        is_delta = False
 
     progress = QProgressDialog("Baixando atualização...", "Cancelar", 0, 100, parent)
     progress.setWindowTitle("Atualizando Corte Cenas")
@@ -157,17 +243,37 @@ def check_and_offer_update(
     progress.setAutoReset(False)
     progress.setValue(0)
 
-    thread = _DownloadThread(installer_url, dest)
+    thread = _DownloadThread(download_url, dest)
 
     def _launch_and_quit(path: str) -> None:
         progress.close()
         try:
-            flags = 0
             if sys.platform == "win32":
-                flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-            subprocess.Popen([path], close_fds=True, creationflags=flags)
+                if is_delta:
+                    _apply_delta_and_quit(path, parent)
+                    return
+                # Full-installer path: ShellExecuteW with lpVerb="runas" so
+                # the UAC prompt shows even from an unelevated caller. The
+                # Inno flags run the installer without wizard UI and auto-
+                # restart the app after.
+                import ctypes
+                args = (
+                    "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART "
+                    "/RESTARTAPPLICATIONS /CLOSEAPPLICATIONS"
+                )
+                hinst = ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", path, args, None, 1  # SW_SHOWNORMAL
+                )
+                if int(hinst) <= 32:
+                    raise RuntimeError(f"ShellExecute retornou {hinst}")
+            else:
+                subprocess.Popen([path], close_fds=True)
         except Exception as e:
-            QMessageBox.warning(parent, "Erro ao iniciar instalador", str(e))
+            QMessageBox.warning(
+                parent, "Erro ao iniciar instalador",
+                f"{e}\n\nO instalador foi baixado em:\n{path}\n\n"
+                "Você pode dar dois cliques nele manualmente pra atualizar."
+            )
             return
         app = QApplication.instance()
         if app is not None:

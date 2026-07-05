@@ -45,6 +45,9 @@ datas = []
 # fetch_ffmpeg.py before this spec runs (see _build_all.bat).
 datas += [("bin/ffmpeg.exe", "bin")]
 datas += [("bin/ffprobe.exe", "bin")]
+# Elevated helper for delta updates. Shipped alongside the exe so the
+# updater can hand it a source dir + target dir and let it copy files.
+datas += [("apply_update.ps1", ".")]
 # App icon (all sizes) — needed at runtime for QApplication.setWindowIcon().
 datas += [("app/assets/icon.ico", "app/assets")]
 datas += [("app/assets/icon_256.png", "app/assets")]

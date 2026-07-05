@@ -52,6 +52,29 @@ def ffprobe_binary() -> str:
     return _find("ffprobe")
 
 
+def run_ffmpeg_hidden(stream) -> None:
+    """Run an ffmpeg-python stream without popping a console window.
+
+    `stream.run(cmd=..., quiet=True)` uses subprocess.Popen but has no way
+    to pass creationflags, so on Windows a CMD flashes for every shot cut.
+    We compile the args ourselves and Popen with CREATE_NO_WINDOW.
+    Raises ffmpeg.Error on non-zero exit (drop-in replacement for .run())."""
+    import subprocess
+    import ffmpeg  # for ffmpeg.Error
+
+    args = stream.compile(cmd=ffmpeg_binary(), overwrite_output=True)
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NO_WINDOW
+    proc = subprocess.run(
+        args,
+        capture_output=True,
+        creationflags=creationflags,
+    )
+    if proc.returncode != 0:
+        raise ffmpeg.Error("ffmpeg", proc.stdout, proc.stderr)
+
+
 def is_bundled() -> bool:
     """True iff we found a shipped ffmpeg (not just PATH). Used by the
     startup check so we don't nag users we can already serve."""

@@ -8,7 +8,7 @@ import cv2
 import ffmpeg
 import numpy as np
 
-from .ffmpeg_locate import ffmpeg_binary
+from .ffmpeg_locate import run_ffmpeg_hidden
 from .matching.face_detector import AnimeFaceDetector
 
 
@@ -188,7 +188,7 @@ def reframe_one(
 
     vf = f"crop={crop_w}:{crop_h}:{x_start}:0,scale={target.width}:{target.height}"
     try:
-        (
+        stream = (
             ffmpeg
             .input(str(shot_file))
             .output(
@@ -202,13 +202,13 @@ def reframe_one(
                 movflags="+faststart",
                 loglevel="error",
             )
-            .run(cmd=ffmpeg_binary(), overwrite_output=True, quiet=True)
         )
+        run_ffmpeg_hidden(stream)
         return True
     except ffmpeg.Error:
         # Some shots might not have an audio stream — retry without acodec copy.
         try:
-            (
+            stream = (
                 ffmpeg
                 .input(str(shot_file))
                 .output(
@@ -222,8 +222,8 @@ def reframe_one(
                     movflags="+faststart",
                     loglevel="error",
                 )
-                .run(cmd=ffmpeg_binary(), overwrite_output=True, quiet=True)
             )
+            run_ffmpeg_hidden(stream)
             return True
         except ffmpeg.Error:
             return False

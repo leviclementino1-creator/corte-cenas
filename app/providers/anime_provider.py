@@ -181,20 +181,54 @@ class AnimeProvider:
 
         anime: AniListAnime | None = None
         used_query: str | None = None
+        anilist_error: Exception | None = None
         for q in queries:
             status(f"Buscando '{q}' na AniList...")
-            anime = self.anilist.search_anime(q)
+            try:
+                anime = self.anilist.search_anime(q)
+            except Exception as e:
+                # AniList API has been down for extended periods (2026 outage);
+                # keep the last error so we can log it before falling back.
+                anilist_error = e
+                anime = None
             if anime is not None:
                 used_query = q
                 break
+
+        # Jikan (MyAnimeList) fallback when AniList doesn't hit — either the
+        # anime isn't there, or the API itself is down. We lose franchise-graph
+        # traversal (no relations endpoint on Jikan search), but the core
+        # single-season flow keeps working.
         if anime is None:
-            raise RuntimeError(
-                f"Anime '{anime_name}' não foi encontrado na AniList. "
-                "Verifique o nome (sem tags de fansub ou qualidade) e tente de novo."
+            if anilist_error is not None:
+                status(f"AniList indisponível ({anilist_error}). Tentando MyAnimeList...")
+            else:
+                status("AniList sem resultado. Tentando MyAnimeList...")
+            jikan_hit = None
+            for q in queries:
+                jikan_hit = self.jikan.search_anime(q)
+                if jikan_hit is not None:
+                    used_query = q
+                    break
+            if jikan_hit is None:
+                raise RuntimeError(
+                    f"Anime '{anime_name}' não foi encontrado na AniList nem no "
+                    "MyAnimeList. Verifique o nome (sem tags de fansub ou "
+                    "qualidade) e tente de novo."
+                )
+            # Fake an AniListAnime so the rest of the flow keeps working. We
+            # use the MAL id for anilist_id too — cache paths will look like
+            # `mal<ID>` instead of `al<ID>`, which is fine (documented layout).
+            anime = AniListAnime(
+                id=0,  # sentinel: no AniList id
+                mal_id=jikan_hit.mal_id,
+                title=jikan_hit.title,
+                title_english=jikan_hit.title_english,
+                cover=jikan_hit.cover,
             )
         if used_query and used_query != anime_name:
             status(f"Resolvido: '{used_query}' -> {anime.title}")
-        anilist_id = anime.id
+        anilist_id = anime.id if anime.id else None
         mal_id = anime.mal_id
         title = anime.title
         title_en = anime.title_english
@@ -213,17 +247,27 @@ class AnimeProvider:
 
         # 1) Traverse the franchise graph so we pool characters from all
         # related seasons (Dr. Stone S4 alone has almost no refs on MAL;
-        # S1/S2 have tons).
-        status("Mapeando temporadas relacionadas...")
-        relations = self._collect_franchise(anilist_id, on_status=status)
-        franchise_mal_ids = [mal_id] + [r.mal_id for r in relations if r.mal_id]
-        franchise_anilist_ids = sorted({anilist_id, *(r.anilist_id for r in relations)})
-        # Use the smallest AniList id as the franchise root — for long-running
-        # series that's usually the earliest aired / canonical root.
-        root_id = min(franchise_anilist_ids) if franchise_anilist_ids else anilist_id
+        # S1/S2 have tons). Requires an AniList id — Jikan doesn't expose
+        # relations in the search endpoint, so a Jikan-only fallback stays
+        # single-season.
+        if anilist_id is not None:
+            status("Mapeando temporadas relacionadas...")
+            relations = self._collect_franchise(anilist_id, on_status=status)
+            franchise_mal_ids = [mal_id] + [r.mal_id for r in relations if r.mal_id]
+            franchise_anilist_ids = sorted({anilist_id, *(r.anilist_id for r in relations)})
+            # Use the smallest AniList id as the franchise root — for long-running
+            # series that's usually the earliest aired / canonical root.
+            root_id = min(franchise_anilist_ids) if franchise_anilist_ids else anilist_id
+            cache_id = f"al{root_id}"
+        else:
+            # Jikan-only fallback: no franchise pooling, just this MAL id.
+            status("Modo MyAnimeList — sem agrupamento de temporadas.")
+            relations = []
+            franchise_mal_ids = [mal_id]
+            franchise_anilist_ids: list[int] = []
+            root_id = None
+            cache_id = f"mal{mal_id}"
 
-        # Override cache_id to use franchise root so all seasons share storage.
-        cache_id = f"al{root_id}"
         cached = self.load_cached(cache_id)
         if cached is not None and cached.characters:
             status(f"Reusando banco cacheado ({len(cached.characters)} personagens).")

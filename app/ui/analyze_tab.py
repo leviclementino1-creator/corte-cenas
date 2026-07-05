@@ -49,7 +49,7 @@ PRESETS = {
 }
 
 from ..config import Config
-from ..pipeline import AIMode, PipelineResult, STAGES
+from ..pipeline_types import AIMode, PipelineResult, STAGES
 from ..storage.skip_ranges import SkipRangesStore
 from ..video_ingest import EpisodeInfo, format_mmss, parse_filename, parse_mmss
 from .worker import PipelineWorker, RefsPreviewWorker

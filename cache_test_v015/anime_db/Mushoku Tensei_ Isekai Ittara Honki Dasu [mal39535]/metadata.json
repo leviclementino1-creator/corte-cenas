@@ -1,0 +1,151 @@
+{
+  "version": 4,
+  "anilist_id": null,
+  "mal_id": 39535,
+  "title": "Mushoku Tensei: Isekai Ittara Honki Dasu",
+  "title_english": "Mushoku Tensei: Jobless Reincarnation",
+  "franchise_ids": [],
+  "franchise_root_id": null,
+  "characters": [
+    {
+      "mal_id": 111335,
+      "anilist_id": null,
+      "name": "Greyrat, Eris Boreas",
+      "role": "Main",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/14/324594.jpg",
+        "https://cdn.myanimelist.net/images/characters/3/423668.jpg",
+        "https://cdn.myanimelist.net/images/characters/6/457584.jpg",
+        "https://cdn.myanimelist.net/images/characters/11/474026.jpg",
+        "https://cdn.myanimelist.net/images/characters/10/474027.jpg",
+        "https://cdn.myanimelist.net/images/characters/9/474204.jpg",
+        "https://cdn.myanimelist.net/images/characters/10/509655.jpg",
+        "https://cdn.myanimelist.net/images/characters/9/591592.jpg",
+        "https://cdn.myanimelist.net/images/characters/5/591593.jpg",
+        "https://cdn.myanimelist.net/images/characters/13/618563.jpg",
+        "https://cdn.myanimelist.net/images/characters/11/628256.jpg"
+      ]
+    },
+    {
+      "mal_id": 111245,
+      "anilist_id": null,
+      "name": "Greyrat, Rudeus",
+      "role": "Main",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/11/267625.jpg",
+        "https://cdn.myanimelist.net/images/characters/16/288539.jpg",
+        "https://cdn.myanimelist.net/images/characters/2/423667.jpg",
+        "https://cdn.myanimelist.net/images/characters/16/448882.jpg",
+        "https://cdn.myanimelist.net/images/characters/13/454243.jpg",
+        "https://cdn.myanimelist.net/images/characters/8/454602.jpg",
+        "https://cdn.myanimelist.net/images/characters/3/463323.jpg",
+        "https://cdn.myanimelist.net/images/characters/9/468218.jpg",
+        "https://cdn.myanimelist.net/images/characters/2/474206.jpg",
+        "https://cdn.myanimelist.net/images/characters/4/521221.jpg",
+        "https://cdn.myanimelist.net/images/characters/12/549542.jpg",
+        "https://cdn.myanimelist.net/images/characters/2/603320.jpg",
+        "https://cdn.myanimelist.net/images/characters/12/625802.jpg",
+        "https://cdn.myanimelist.net/images/characters/13/628414.jpg"
+      ]
+    },
+    {
+      "mal_id": 111341,
+      "anilist_id": null,
+      "name": "Migurdia, Roxy",
+      "role": "Main",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/11/264135.jpg",
+        "https://cdn.myanimelist.net/images/characters/3/267463.jpg",
+        "https://cdn.myanimelist.net/images/characters/4/423670.jpg",
+        "https://cdn.myanimelist.net/images/characters/12/440713.jpg",
+        "https://cdn.myanimelist.net/images/characters/4/448881.jpg",
+        "https://cdn.myanimelist.net/images/characters/9/494627.jpg",
+        "https://cdn.myanimelist.net/images/characters/16/552605.jpg",
+        "https://cdn.myanimelist.net/images/characters/12/618562.jpg"
+      ]
+    },
+    {
+      "mal_id": 111337,
+      "anilist_id": null,
+      "name": "Sylphiette",
+      "role": "Main",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/9/267469.jpg",
+        "https://cdn.myanimelist.net/images/characters/14/267471.jpg",
+        "https://cdn.myanimelist.net/images/characters/10/423669.jpg",
+        "https://cdn.myanimelist.net/images/characters/9/433624.jpg",
+        "https://cdn.myanimelist.net/images/characters/9/438377.jpg",
+        "https://cdn.myanimelist.net/images/characters/3/448883.jpg",
+        "https://cdn.myanimelist.net/images/characters/10/463093.jpg",
+        "https://cdn.myanimelist.net/images/characters/10/474017.jpg",
+        "https://cdn.myanimelist.net/images/characters/16/524893.jpg",
+        "https://cdn.myanimelist.net/images/characters/10/542133.jpg",
+        "https://cdn.myanimelist.net/images/characters/11/561042.jpg",
+        "https://cdn.myanimelist.net/images/characters/16/618561.jpg"
+      ]
+    },
+    {
+      "mal_id": 117999,
+      "anilist_id": null,
+      "name": "Ada",
+      "role": "Supporting",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/16/457574.jpg",
+        "https://cdn.myanimelist.net/images/characters/4/457575.jpg"
+      ]
+    },
+    {
+      "mal_id": 118277,
+      "anilist_id": null,
+      "name": "Almanfi",
+      "role": "Supporting",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/6/267777.jpg",
+        "https://cdn.myanimelist.net/images/characters/13/460707.jpg",
+        "https://cdn.myanimelist.net/images/characters/13/460727.jpg"
+      ]
+    },
+    {
+      "mal_id": 125205,
+      "anilist_id": null,
+      "name": "Alphonse",
+      "role": "Supporting",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/5/277230.jpg",
+        "https://cdn.myanimelist.net/images/characters/13/457583.jpg"
+      ]
+    },
+    {
+      "mal_id": 219442,
+      "anilist_id": null,
+      "name": "Bachirou",
+      "role": "Supporting",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/9/491701.jpg"
+      ]
+    },
+    {
+      "mal_id": 219438,
+      "anilist_id": null,
+      "name": "Blaze",
+      "role": "Supporting",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/9/491695.jpg"
+      ]
+    },
+    {
+      "mal_id": 111741,
+      "anilist_id": null,
+      "name": "Dedoldia, Ghislaine",
+      "role": "Supporting",
+      "image_urls": [
+        "https://cdn.myanimelist.net/images/characters/3/267481.jpg",
+        "https://cdn.myanimelist.net/images/characters/16/267483.jpg",
+        "https://cdn.myanimelist.net/images/characters/15/544306.jpg",
+        "https://cdn.myanimelist.net/images/characters/15/544307.jpg",
+        "https://cdn.myanimelist.net/images/characters/13/544308.jpg",
+        "https://cdn.myanimelist.net/images/characters/14/591401.jpg"
+      ]
+    }
+  ]
+}

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import Config
-from ..pipeline import PipelineResult
+from ..pipeline_types import PipelineResult
 from ..references.reference_store import ReferenceStore
 from ..storage.db import Database
 from .character_grid import ShotGrid

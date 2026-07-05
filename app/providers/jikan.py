@@ -16,6 +16,14 @@ class JikanCharacter:
     image: str | None
 
 
+@dataclass
+class JikanAnime:
+    mal_id: int
+    title: str
+    title_english: str | None
+    cover: str | None
+
+
 class JikanClient:
     """Thin wrapper around Jikan v4. Rate-limit respectful (~3 req/s)."""
 
@@ -43,6 +51,33 @@ class JikanClient:
                 time.sleep(1.0 + attempt)
                 continue
             return None
+        return None
+
+    def search_anime(self, name: str) -> JikanAnime | None:
+        """Fallback for when the AniList API is down. Returns the first
+        TV/movie hit, ranked by MAL popularity — which is a strong enough
+        signal for well-known series."""
+        # sfw=true drops H-tag results; type=... keeps it to actual anime.
+        # We URL-encode `name` manually since httpx is passing it via path.
+        from urllib.parse import quote
+        path = f"/anime?q={quote(name)}&limit=5&sfw=true&order_by=popularity&sort=asc"
+        data = self._get(path)
+        if not data:
+            return None
+        for entry in data.get("data") or []:
+            mal_id = entry.get("mal_id")
+            if mal_id is None:
+                continue
+            # Prefer TV / movie / ONA / OVA; skip music videos, promos, etc.
+            type_ = (entry.get("type") or "").lower()
+            if type_ and type_ in ("music", "cm", "pv"):
+                continue
+            title_en = entry.get("title_english")
+            title = entry.get("title") or title_en or f"MAL {mal_id}"
+            cover = (entry.get("images") or {}).get("jpg", {}).get("large_image_url")
+            return JikanAnime(
+                mal_id=mal_id, title=title, title_english=title_en, cover=cover
+            )
         return None
 
     def anime_characters(self, mal_id: int) -> list[JikanCharacter]:

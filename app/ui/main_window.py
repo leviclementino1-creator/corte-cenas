@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import Config
-from ..pipeline import PipelineResult
+from ..pipeline_types import PipelineResult
 from .analyze_tab import AnalyzeTab
 from .results_tab import ResultsTab
 from .settings_dialog import SettingsDialog

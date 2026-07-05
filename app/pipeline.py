@@ -2,15 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
-from typing import Callable
-
-
-class AIMode(str, Enum):
-    """How the AI recognition path should look at each shot."""
-    FULL = "full"       # send the middle keyframe as a whole to the model
-    HYBRID = "hybrid"   # send only YOLO face crops
 
 import cv2
 import numpy as np
@@ -23,6 +15,10 @@ from .matching.cooccurrence import count_pairs
 from .matching.credit_detector import is_credits_frame
 from .matching.embedding_engine import EmbeddingEngine, from_bytes, to_bytes
 from .matching.face_detector import AnimeFaceDetector, ensure_cascade, smart_portrait_crop
+# Lightweight types re-exported here so callers can keep `from .pipeline
+# import AIMode, PipelineResult, STAGES` without dragging in torch just to
+# read a type name. UI modules should prefer `from .pipeline_types import ...`.
+from .pipeline_types import AIMode, PipelineResult, ProgressCb, STAGES
 from .providers.anime_provider import AnimeProvider
 from .references.reference_store import ReferenceStore
 from .shot_detection import ShotBounds, detect_shots
@@ -30,22 +26,6 @@ from .storage.db import Database
 from .storage.metadata_writer import build_shot_payload, write_characters_json, write_shots_json
 from .storage.organizer import clear_grouping, organize_by_character, organize_by_pair, sanitize
 from .video_ingest import EpisodeInfo
-
-
-ProgressCb = Callable[[str, float, str], None]
-"""(stage_id, fraction_0_to_1, message) — fraction may be -1 when indeterminate."""
-
-
-STAGES = [
-    ("parse", "Lendo arquivo"),
-    ("detect_shots", "Detectando shots"),
-    ("cut_shots", "Cortando clipes"),
-    ("fetch_characters", "Buscando personagens"),
-    ("download_refs", "Baixando referências"),
-    ("embed_refs", "Gerando embeddings das referências"),
-    ("analyze_shots", "Analisando shots"),
-    ("organize", "Organizando resultados"),
-]
 
 
 def _clip_needs_download(model_name: str, pretrained: str) -> bool:
@@ -72,19 +52,6 @@ def _clip_needs_download(model_name: str, pretrained: str) -> bool:
         return True
     except Exception:
         return False
-
-
-@dataclass
-class PipelineResult:
-    episode_root: Path
-    total_shots: int
-    total_characters: int
-    identified_characters: list[str]
-    pair_counts: dict[str, int]
-    anime_title: str
-    season: int
-    episode: int
-    episode_id: int
 
 
 def _noop(stage: str, frac: float, msg: str) -> None:
