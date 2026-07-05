@@ -7,12 +7,14 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -33,11 +35,24 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self.setWindowTitle("Configurações")
-        self.setMinimumWidth(520)
+        # Fits comfortably on a 1366×768 laptop with room for the taskbar;
+        # anything smaller gets scrolled via the scroll area.
+        self.setMinimumSize(540, 420)
+        self.resize(580, 640)
         self._build_ui()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        # OUTER layout: scroll area on top (grows), fixed buttons on bottom.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # INNER container that holds all the option groups. Wrapped in a
+        # QScrollArea so the dialog stays usable on small screens — the Save
+        # button never gets pushed offscreen.
+        inner = QWidget()
+        root = QVBoxLayout(inner)
+        root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
         # --- Output folder ---
@@ -190,8 +205,23 @@ class SettingsDialog(QDialog):
         app_layout.addWidget(upd_info)
 
         root.addWidget(app_group)
+        root.addStretch(1)  # push groups up; empty space below scrolls last
 
-        # --- buttons ---
+        # Scroll wrapper around the inner content.
+        scroll = QScrollArea()
+        scroll.setWidget(inner)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        outer.addWidget(scroll, 1)
+
+        # A subtle separator line so the fixed button bar reads as its own strip.
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color:#3a3d43;")
+        outer.addWidget(sep)
+
+        # Fixed button bar at the bottom of the dialog — never scrolls away.
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
@@ -200,7 +230,10 @@ class SettingsDialog(QDialog):
         btns.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
         btns.accepted.connect(self._save)
         btns.rejected.connect(self.reject)
-        root.addWidget(btns)
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(12, 8, 12, 12)
+        btn_row.addWidget(btns)
+        outer.addLayout(btn_row)
 
     def _pick_output_dir(self) -> None:
         path = QFileDialog.getExistingDirectory(
