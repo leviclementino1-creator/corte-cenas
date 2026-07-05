@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -12,10 +13,30 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import Config
+from ..deps_check import cuda_available, gpu_name
 from ..pipeline_types import PipelineResult
 from .analyze_tab import AnalyzeTab
 from .results_tab import ResultsTab
 from .settings_dialog import SettingsDialog
+
+
+def _device_badge_text() -> str:
+    if cuda_available():
+        # Shorten "NVIDIA GeForce RTX 5080" -> "RTX 5080" so the badge stays
+        # narrow. Fallback to "GPU" if the name doesn't fit the pattern.
+        name = gpu_name() or "GPU"
+        for token in ("GeForce ", "NVIDIA ", "Nvidia "):
+            name = name.replace(token, "")
+        return f"🟢  {name.strip()}"
+    return "🟡  CPU (lento)"
+
+
+def _device_badge_style() -> str:
+    color = "#7FCC7F" if cuda_available() else "#DDB077"
+    return (
+        f"QLabel{{color:{color};background:#2b2d31;border:1px solid #3a3d43;"
+        f"border-radius:4px;padding:5px 10px;font-size:12px;font-weight:600;}}"
+    )
 
 
 _DARK_QSS = """
@@ -48,12 +69,19 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.analyze, "Analisar")
         self.tabs.addTab(self.results, "Resultados")
 
-        # Top bar: stretch on the left pushes the Settings button to the right.
-        # Kept above (not inside) the tab widget so it doesn't collide with the
-        # tab bar or the window title on any Qt style.
+        # Top bar: GPU/CPU indicator on the left of the settings button so
+        # the user always knows which mode they're in without opening Settings.
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(8, 6, 8, 0)
         top_bar.addStretch(1)
+
+        self.device_label = QLabel(_device_badge_text())
+        self.device_label.setStyleSheet(_device_badge_style())
+        self.device_label.setToolTip(
+            "Verde: rodando em GPU NVIDIA (rápido).\n"
+            "Amarelo: sem GPU detectada, roda em CPU (~20x mais lento)."
+        )
+        top_bar.addWidget(self.device_label)
 
         self.settings_btn = QPushButton("⚙  Configurações")
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)

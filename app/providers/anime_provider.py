@@ -201,9 +201,15 @@ class AnimeProvider:
         # single-season flow keeps working.
         if anime is None:
             if anilist_error is not None:
-                status(f"AniList indisponível ({anilist_error}). Tentando MyAnimeList...")
+                status(
+                    f"⚠️ AniList indisponível ({type(anilist_error).__name__}). "
+                    "Usando MyAnimeList (sem agrupamento de temporadas)..."
+                )
             else:
-                status("AniList sem resultado. Tentando MyAnimeList...")
+                status(
+                    "⚠️ AniList sem resultado. Tentando MyAnimeList "
+                    "(sem agrupamento de temporadas)..."
+                )
             jikan_hit = None
             for q in queries:
                 jikan_hit = self.jikan.search_anime(q)

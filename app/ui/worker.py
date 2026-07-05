@@ -39,6 +39,10 @@ class PipelineWorker(QObject):
 
     def run(self) -> None:
         try:
+            # First analysis of the session pays the ~5s "torch import" tax.
+            # We emit before the import so the UI shows something instead of
+            # appearing frozen.
+            self._emit("parse", -1.0, "Preparando ambiente de análise (só na primeira vez)...")
             from ..pipeline import Pipeline  # heavy — deferred to click-time
             pipeline = Pipeline(self.config)
             result = pipeline.run(
