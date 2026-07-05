@@ -93,7 +93,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,                # UPX often breaks torch/cuda libs; disable
-    console=True,             # keep the terminal for pipeline logs
+    console=False,            # no CMD popup; crash traceback is captured
+                              # by run.py's crash handler into a log + dialog
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

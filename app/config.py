@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from platformdirs import user_config_dir
+from platformdirs import user_config_dir, user_data_dir, user_documents_dir
 
 APP_NAME = "CorteCenas"
 CONFIG_DIR = Path(user_config_dir(APP_NAME))
 CONFIG_FILE = CONFIG_DIR / "config.json"
+
+# When PyInstaller-frozen, `PROJECT_ROOT` points inside Program Files —
+# read-only for non-admins. Use the current user's Documents / LocalAppData
+# instead, so the installed app can write without UAC prompts.
+_FROZEN = getattr(sys, "frozen", False)
 
 # Only these fields are written to the JSON between sessions. Matching
 # parameters live in this file and are controlled by the code — editing
@@ -35,9 +41,43 @@ _PERSISTED_FIELDS = (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_OUTPUT = PROJECT_ROOT / "Output"
-DEFAULT_CACHE = PROJECT_ROOT / "cache"
-DEFAULT_MODELS = PROJECT_ROOT / "models"
+if _FROZEN:
+    # Installed app: write to user profile locations.
+    DEFAULT_OUTPUT = Path(user_documents_dir()) / "CorteCenas" / "Output"
+    DEFAULT_CACHE = Path(user_data_dir(APP_NAME)) / "cache"
+    DEFAULT_MODELS = Path(user_data_dir(APP_NAME)) / "models"
+else:
+    # Running from source (git clone + run.bat): keep everything project-relative
+    # so `cache/` and `Output/` stay next to the code for debugging.
+    DEFAULT_OUTPUT = PROJECT_ROOT / "Output"
+    DEFAULT_CACHE = PROJECT_ROOT / "cache"
+    DEFAULT_MODELS = PROJECT_ROOT / "models"
+
+
+def _is_writable(p: Path) -> bool:
+    """Cheap check: try creating the dir + a probe file. True on success."""
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        probe = p / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def _looks_like_program_files(path: str) -> bool:
+    """True if `path` is inside Windows' Program Files. Used to migrate
+    stale config from an early install that wrote paths there."""
+    try:
+        s = str(Path(path).resolve()).lower()
+    except OSError:
+        s = str(path).lower()
+    return (
+        "program files" in s
+        or s.startswith("c:\\windows")
+        or s.startswith("c:/windows")
+    )
 
 
 @dataclass
@@ -134,6 +174,18 @@ class Config:
                         setattr(cfg, k, data[k])
             except Exception:
                 pass
+        # Migration: if a persisted output_dir points somewhere unwritable
+        # (e.g. old install that pointed inside Program Files), reset to the
+        # current safe default. Same for cache/models.
+        if _FROZEN:
+            for attr, default in (
+                ("output_dir", DEFAULT_OUTPUT),
+                ("cache_dir", DEFAULT_CACHE),
+                ("models_dir", DEFAULT_MODELS),
+            ):
+                current = getattr(cfg, attr)
+                if _looks_like_program_files(current):
+                    setattr(cfg, attr, str(default))
         return cfg
 
     def save(self) -> None:
@@ -154,6 +206,28 @@ class Config:
         return Path(self.models_dir)
 
     def ensure_dirs(self) -> None:
-        for p in (self.output_path, self.cache_path, self.models_path):
-            p.mkdir(parents=True, exist_ok=True)
+        """Create the working dirs. If a persisted path is unwritable —
+        classic case: install upgraded across versions where old default
+        pointed into Program Files — fall back to the current safe default
+        for that path and persist the fix so we don't crash next time."""
+        fallbacks = {
+            "output_dir": DEFAULT_OUTPUT,
+            "cache_dir": DEFAULT_CACHE,
+            "models_dir": DEFAULT_MODELS,
+        }
+        dirty = False
+        for attr in fallbacks:
+            current = Path(getattr(self, attr))
+            try:
+                current.mkdir(parents=True, exist_ok=True)
+            except (OSError, PermissionError):
+                new_path = fallbacks[attr]
+                new_path.mkdir(parents=True, exist_ok=True)
+                setattr(self, attr, str(new_path))
+                dirty = True
         (self.cache_path / "anime_db").mkdir(parents=True, exist_ok=True)
+        if dirty:
+            try:
+                self.save()
+            except Exception:
+                pass
