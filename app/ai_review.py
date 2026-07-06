@@ -22,6 +22,16 @@ import httpx
 
 GEMINI_OPENAI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 
+# Substrings that mark a 429 as "gone for the day" rather than "slow down".
+# NavyAI: "You have exceeded your daily token limit. Usage resets at midnight UTC."
+# Gemini: "You exceeded your current quota, please check your plan and billing"
+_QUOTA_MARKERS = ("daily", "quota", "billing")
+
+
+class QuotaExhaustedError(RuntimeError):
+    """Daily/billing quota exhausted on this client — retrying is pointless
+    until the provider resets. Callers should stop using the client."""
+
 
 class NavyAIClient:
     """Minimal OpenAI-compatible client for NavyAI / any gateway that
@@ -45,6 +55,9 @@ class NavyAIClient:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.fallback = fallback
+        # Set when the provider says the daily quota is gone; from then on
+        # post_content skips this client and goes straight to the fallback.
+        self.dead_reason: str | None = None
         self.client = httpx.Client(
             timeout=timeout,
             headers={
@@ -80,10 +93,27 @@ class NavyAIClient:
         usage = data.get("usage") if isinstance(data, dict) else None
         if not isinstance(usage, dict):
             usage = {}
+        finish = None
         try:
-            raw_content = data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            finish = choice.get("finish_reason")
+            raw_content = choice["message"]["content"]
+            # Some gateways return content as a list of typed parts.
+            if isinstance(raw_content, list):
+                raw_content = "".join(
+                    p.get("text", "") for p in raw_content if isinstance(p, dict)
+                )
         except (KeyError, IndexError, TypeError):
             raw_content = None
+        if not raw_content:
+            # A 200 with empty content still bills the whole prompt. Classic
+            # cause: thinking model spent max_tokens on reasoning and had no
+            # budget left for the answer (finish_reason=length).
+            print(
+                f"[AI] resposta 200 mas VAZIA (finish_reason={finish}, "
+                f"usage={usage}, model={self.model})",
+                flush=True,
+            )
         return raw_content, usage
 
     def _post_with_retry(self, payload: dict, retries: int = 2) -> dict:
@@ -97,7 +127,15 @@ class NavyAIClient:
         for attempt in range(retries + 1):
             try:
                 r = self.client.post(f"{self.base_url}/chat/completions", json=payload)
-                if r.status_code == 429 or r.status_code >= 500:
+                if r.status_code == 429:
+                    body = r.text[:300]
+                    if any(m in body.lower() for m in _QUOTA_MARKERS):
+                        # Daily budget gone — no sleep will bring it back.
+                        raise QuotaExhaustedError(f"HTTP 429 (quota do dia): {body}")
+                    last_err = RuntimeError(f"HTTP 429: {body}")
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                if r.status_code >= 500:
                     last_err = RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
                     time.sleep(0.5 * (attempt + 1))
                     continue
@@ -118,21 +156,41 @@ class NavyAIClient:
         the single entry point classify_* should use — never call
         _post_with_retry directly, or the fallback won't kick in.
         """
-        payload = self._build_payload(content, max_tokens=max_tokens)
-        try:
-            return self._post_with_retry(payload, retries=retries)
-        except Exception as primary_err:
-            if self.fallback is None:
-                raise
+        primary_err: Exception
+        if self.dead_reason is not None:
+            # Quota already known-exhausted this run: don't burn a request
+            # (and 3 retry sleeps) per shot re-discovering it.
+            primary_err = QuotaExhaustedError(self.dead_reason)
+        else:
+            payload = self._build_payload(content, max_tokens=max_tokens)
             try:
-                return self.fallback.post_content(
-                    content, max_tokens=max_tokens, retries=retries
-                )
-            except Exception as fallback_err:
-                raise RuntimeError(
-                    f"Primary AI failed ({primary_err}); "
-                    f"fallback also failed ({fallback_err})"
+                return self._post_with_retry(payload, retries=retries)
+            except QuotaExhaustedError as e:
+                self.dead_reason = str(e)
+                primary_err = e
+            except Exception as e:
+                primary_err = e
+
+        if self.fallback is None:
+            raise primary_err
+        try:
+            return self.fallback.post_content(
+                content, max_tokens=max_tokens, retries=retries
+            )
+        except Exception as fallback_err:
+            # When every configured provider is out of quota for the day,
+            # surface that as QuotaExhaustedError so the pipeline can abort
+            # the run immediately with a message that actually helps.
+            if isinstance(primary_err, QuotaExhaustedError) and isinstance(
+                fallback_err, QuotaExhaustedError
+            ):
+                raise QuotaExhaustedError(
+                    f"NavyAI: {primary_err} | Gemini: {fallback_err}"
                 ) from fallback_err
+            raise RuntimeError(
+                f"Primary AI failed ({primary_err}); "
+                f"fallback also failed ({fallback_err})"
+            ) from fallback_err
 
     @staticmethod
     def _parse_json_response(content: str) -> dict | None:
@@ -206,7 +264,11 @@ def classify_frame(
             for ref in refs[:1]:  # one ref per char to keep prompt tight
                 content.append({"type": "image_url", "image_url": {"url": client._data_url(ref)}})
 
-    data = client.post_content(content)
+    # Generous cap: gemini-2.5+ are thinking models — reasoning spends from
+    # the same max_tokens budget, and a tight cap yields a 200 with EMPTY
+    # content (all budget burned before the JSON). Caps are ceilings, not
+    # costs: we only pay for tokens actually generated.
+    data = client.post_content(content, max_tokens=1536)
     raw_content, usage = client._extract_content_and_usage(data)
     if raw_content is None:
         return None, 0.0, None, usage
@@ -285,7 +347,9 @@ def classify_face_crops(
             for ref in refs[:1]:
                 content.append({"type": "image_url", "image_url": {"url": client._data_url(ref)}})
 
-    data = client.post_content(content, max_tokens=400)
+    # 2048: room for the thinking pass + one JSON entry per face (see the
+    # matching comment in classify_frame).
+    data = client.post_content(content, max_tokens=2048)
     raw, usage = client._extract_content_and_usage(data)
     if raw is None:
         return [], usage

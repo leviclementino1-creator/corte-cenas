@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .ai_review import NavyAIClient, classify_face_crops, classify_frame
+from .ai_review import NavyAIClient, QuotaExhaustedError, classify_face_crops, classify_frame
 from .config import Config
 from .keyframe_extractor import cut_all_shots
 from .matching.character_matcher import CharacterEntry, CharacterMatcher, build_centroid
@@ -618,6 +618,19 @@ class Pipeline:
 
         def _register_ai_error(shot_idx: int, err: Exception) -> None:
             nonlocal consecutive_ai_errors
+            if isinstance(err, QuotaExhaustedError):
+                # Every configured provider is out of quota for the day —
+                # each further shot would fail identically.
+                client.close()
+                raise RuntimeError(
+                    "Quota diária de IA esgotada em todos os provedores "
+                    "configurados — análise abortada.\n\n"
+                    f"Detalhe: {err}\n\n"
+                    "Opções: esperar o reset da quota (NavyAI e Gemini resetam "
+                    "1x por dia), configurar outra API key em Configurações, ou "
+                    "usar o botão 'Analisar episódio' (CLIP local, sem IA e sem "
+                    "limite de uso)."
+                )
             consecutive_ai_errors += 1
             print(f"[AI analyze] Shot #{shot_idx:04d} ERRO: {err}", flush=True)
             if consecutive_ai_errors >= max_consecutive_ai_errors:
@@ -689,12 +702,29 @@ class Pipeline:
                     _register_ai_error(shot.idx, e)
                     per_shot_names.append([])
                     continue
-                consecutive_ai_errors = 0
 
                 pt = int(usage.get("prompt_tokens") or 0)
                 ct = int(usage.get("completion_tokens") or 0)
                 total_pt += pt
                 total_ct += ct
+
+                # Faces were sent but nothing usable came back (empty content /
+                # unparseable JSON — a real "none" verdict still yields one
+                # entry per face). That's a malfunction, not a miss: count it
+                # toward the circuit breaker instead of silently burning the
+                # whole episode's quota on 200-but-empty responses.
+                if not verdicts:
+                    _register_ai_error(
+                        shot.idx,
+                        RuntimeError(
+                            f"resposta da IA sem conteúdo utilizável "
+                            f"(tokens={pt}+{ct}) — veja 'resposta 200 mas "
+                            f"VAZIA' no app.log"
+                        ),
+                    )
+                    per_shot_names.append([])
+                    continue
+                consecutive_ai_errors = 0
 
                 names_in_shot: list[str] = []
                 seen: set[str] = set()
