@@ -307,6 +307,27 @@ class Pipeline:
             print(f"[CorteCenas] Ignorados (poucas refs): {', '.join(skipped_few_refs)}")
         cb("embed_refs", 1.0, f"{len(entries)} personagens com embedding")
 
+        # Zero characters with embeddings = nothing can ever match. Seen in
+        # the wild when Jikan's pictures endpoint 504s for every character:
+        # each one falls back to a single portrait and the min_references
+        # filter drops them all. Analyzing 300+ shots against an empty bank
+        # would burn minutes of GPU to deliver a guaranteed-empty result —
+        # fail now, with the actual reason and a way out.
+        if not entries:
+            raise RuntimeError(
+                "Nenhum personagem ficou com fotos de referência suficientes "
+                f"(mínimo {cfg.min_references_per_character} por personagem) — "
+                "a análise não teria como identificar ninguém.\n\n"
+                "Causa mais comum: as fontes de imagens (Jikan/MyAnimeList) "
+                "estão instáveis ou fora do ar agora. O que fazer:\n"
+                "• Tente de novo mais tarde (os shots cortados ficam em cache, "
+                "a próxima rodada pula direto pro banco de personagens);\n"
+                "• Ou use 'Testar refs (preview)' pra conferir quantas imagens "
+                "cada personagem está conseguindo.\n\n"
+                "Detalhes por personagem no app.log (Configurações → Abrir "
+                "pasta de logs)."
+            )
+
         matcher = CharacterMatcher(entries)
 
         # 6) Analyze shots — face_det reused from step 5
@@ -571,6 +592,15 @@ class Pipeline:
 
         db_chars = {c["name"]: c for c in self.db.get_characters_for_anime(anime_id)}
         character_names = [ch.name for ch in bundle.characters if refs_per_char.get(ch.name)]
+        if not character_names:
+            raise RuntimeError(
+                "Nenhum personagem tem foto de referência — a IA não teria "
+                "nomes nem rostos pra comparar.\n\n"
+                "Causa mais comum: as fontes de imagens (Jikan/MyAnimeList) "
+                "estão instáveis ou fora do ar agora. Tente de novo mais "
+                "tarde — os shots cortados ficam em cache.\n\n"
+                "Detalhes no app.log (Configurações → Abrir pasta de logs)."
+            )
         # Send one reference per character for the top 15 by popularity.
         # We use (role_weight, ref_count) as the popularity proxy: main
         # characters first, then within each role tier the ones with more

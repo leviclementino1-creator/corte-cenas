@@ -42,15 +42,26 @@ class JikanClient:
         self._last = time.monotonic()
 
     def _get(self, path: str) -> dict | None:
+        last_status: int | str = "?"
         for attempt in range(3):
             self._throttle()
-            r = self.client.get(f"{JIKAN_BASE}{path}")
-            if r.status_code == 200:
-                return r.json()
-            if r.status_code == 429:
+            try:
+                r = self.client.get(f"{JIKAN_BASE}{path}")
+            except httpx.HTTPError as e:
+                last_status = type(e).__name__
                 time.sleep(1.0 + attempt)
                 continue
-            return None
+            if r.status_code == 200:
+                return r.json()
+            last_status = r.status_code
+            # Jikan runs on shared infra and throws transient 429/5xx under
+            # load (July 2026: whole days of 504s). Retry both — giving up on
+            # the first 504 was silently gutting the reference bank.
+            if r.status_code == 429 or r.status_code >= 500:
+                time.sleep(1.0 + attempt)
+                continue
+            break
+        print(f"[Jikan] {path} falhou apos retries (HTTP {last_status})", flush=True)
         return None
 
     def search_anime(self, name: str) -> JikanAnime | None:
