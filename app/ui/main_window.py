@@ -46,6 +46,9 @@ QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color:
 QLineEdit, QSpinBox, QListWidget { background: #2b2d31; border: 1px solid #3a3d43; border-radius: 4px; padding: 4px; }
 QPushButton { background: #3a3d43; color: #eee; border: 1px solid #4b4f57; padding: 6px 10px; border-radius: 4px; }
 QPushButton:hover { background: #4b4f57; }
+/* Disabled buttons looked identical to enabled ones — users hovered them,
+   nothing reacted, and it read as "broken" instead of "not available yet". */
+QPushButton:disabled { background: #26282c; color: #5f646c; border-color: #33363b; }
 QProgressBar { background: #2b2d31; border: 1px solid #3a3d43; border-radius: 4px; text-align: center; }
 QProgressBar::chunk { background: #4CAF50; border-radius: 4px; }
 QTabBar::tab { background: #2b2d31; color: #ccc; padding: 8px 16px; border-top-left-radius: 4px; border-top-right-radius: 4px; }
