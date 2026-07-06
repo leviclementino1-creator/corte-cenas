@@ -1,307 +1,271 @@
+<div align="center">
+
+<img src="app/assets/icon_256.png" width="130" alt="Logo do Corte Cenas">
+
 # Corte Cenas
 
-Analisador de episódios de anime pra Windows. Corta em shots automaticamente, identifica os personagens em cada shot via embeddings CLIP + YOLO anime-face, e organiza os clipes por personagem e por dupla — sem tu precisar alimentar pasta com fotos.
+**Analisador de episódios de anime pra Windows.**
+Corta o episódio em shots, identifica os personagens em cada um e organiza tudo
+em pastas por personagem e por dupla — automático, sem alimentar pasta de foto nenhuma.
+
+[![Versão](https://img.shields.io/github/v/release/leviclementino1-creator/corte-cenas?label=vers%C3%A3o&color=4CAF50)](https://github.com/leviclementino1-creator/corte-cenas/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/leviclementino1-creator/corte-cenas/total?label=downloads&color=4169E1)](https://github.com/leviclementino1-creator/corte-cenas/releases)
+![Windows](https://img.shields.io/badge/Windows-10%2F11%20x64-0078D6)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB)
+![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA%2012.8%20(opcional)-76B900)
+
+**[⬇️ Baixar a versão mais recente](https://github.com/leviclementino1-creator/corte-cenas/releases/latest)**
+
+[Instalar](#-instalar) •
+[Como usar](#-como-usar) •
+[Deu problema?](#-deu-problema) •
+[Como funciona](#%EF%B8%8F-como-funciona-por-dentro) •
+[Pra desenvolvedores](#%EF%B8%8F-rodar-do-código-fonte)
+
+</div>
 
 ---
 
-## 📥 Instalar (usuário final)
+## ✨ O que ele faz
+
+Você arrasta um episódio pra janela. O app:
+
+1. 🎬 **Detecta e corta** cada shot (mudança de cena) em um `.mp4` separado
+2. 🔍 **Busca os personagens** do anime automaticamente (AniList + MyAnimeList) — incluindo temporadas anteriores da franquia
+3. 🧠 **Reconhece quem aparece** em cada shot (YOLO detecta os rostos, CLIP compara com as fotos de referência — ou, se preferir, uma IA generativa classifica)
+4. 📁 **Organiza tudo** em `by_character/<Nome>/` e `by_pair/<A>+<B>/` usando hardlinks (sem duplicar espaço em disco)
+5. 📱 Ainda gera **versão vertical 1080×1920** de qualquer personagem pra Reels/TikTok, com enquadramento no rosto
+
+```
+Output/Dr Stone/S04E25/
+├── shots/               0001.mp4, 0002.mp4, ...        (todos os cortes)
+├── by_character/
+│   ├── Senku/           só os shots em que o Senku aparece
+│   └── Kohaku/
+├── by_pair/
+│   └── Senku+Kohaku/    shots em que os dois aparecem juntos
+└── metadata/            shots.json, characters.json
+```
+
+---
+
+## 📥 Instalar
 
 **1 arquivo, 3 cliques, ~1 minuto:**
 
-1. Baixe **[CorteCenas-Setup mais recente](https://github.com/leviclementino1-creator/corte-cenas/releases/latest)** (~2 GB, procura o `CorteCenas-Setup-X.Y.Z.exe`).
-2. Dois cliques no arquivo baixado.
-3. Wizard do Windows: **Avançar → Avançar → Instalar → Concluir**.
+1. Baixe o **[CorteCenas-Setup mais recente](https://github.com/leviclementino1-creator/corte-cenas/releases/latest)** (~2 GB — procure o `CorteCenas-Setup-X.Y.Z.exe`)
+2. Dois cliques no arquivo baixado
+3. **Avançar → Avançar → Instalar → Concluir**
 
-Aparece atalho na área de trabalho e no menu iniciar. Fim.
+Pronto: atalho na área de trabalho e no menu iniciar. O **FFmpeg já vem embutido** — nada de baixar de outro site ou mexer em PATH.
 
-O instalador já traz **FFmpeg embutido** — nada de baixar de outro site ou mexer em PATH.
+> ⚠️ Se o Windows 11 reclamar (Smart App Control / SmartScreen), é porque o instalador não tem assinatura digital paga — clique em "Mais informações → Executar assim mesmo".
 
 ### Requisitos
 
 | Item | Recomendado | Mínimo |
 |---|---|---|
-| SO | Windows 10/11 x64 | Windows 10 x64 |
-| GPU | NVIDIA RTX 20xx+ com CUDA 12.8+ | Qualquer (roda em CPU, ~20x mais lento) |
+| Sistema | Windows 10/11 x64 | Windows 10 x64 |
+| GPU | NVIDIA RTX 20xx+ (driver CUDA 12.8+) | Qualquer (roda em CPU, ~20x mais lento) |
 | RAM | 16 GB | 8 GB |
-| Disco | 8 GB livres (setup + modelos + cache) | 5 GB |
-| Internet | Necessária pra baixar modelos na primeira análise (~900 MB) e pra baixar as fotos dos personagens de cada anime | idem |
+| Disco | 8 GB livres | 5 GB |
+| Internet | Primeira análise baixa os modelos (~900 MB) e as fotos dos personagens de cada anime | idem |
 
-Sem GPU NVIDIA o app roda mesmo assim (avisa que vai ficar lento). Sem internet, o primeiro uso pra cada anime não funciona (precisa baixar refs).
+O badge no topo da janela mostra em que modo você está: 🟢 GPU ou 🟡 CPU.
 
----
+### 🔄 Atualizações são automáticas
 
-## 🔄 Atualização automática
-
-Toda vez que o app abre, ele checa o GitHub por versão nova. Se tiver, mostra:
-
-> **Corte Cenas v0.1.3 está disponível.**
-> Você tem **v0.1.2**.
-> Quer atualizar agora?
-
-Se aceitar: baixa o novo instalador em background, roda por cima da versão atual (dados/configurações preservados), pronto.
-
-Pra forçar checagem manual: **⚙ Configurações → 🔄 Verificar atualizações agora**.
+Toda vez que o app abre, ele confere se saiu versão nova. Se sim, pergunta se quer atualizar — aceita, autoriza no UAC, e em ~30 segundos reabre atualizado. **O update baixa só ~53 MB**, não os 2 GB do instalador. Suas configurações e clipes ficam intactos.
 
 ---
 
 ## 🎬 Como usar
 
-### 1. Aba "Analisar"
+### 1. Carregar o episódio
 
-- **Arquivo:** seleciona o `.mp4` do episódio.
-- **Anime / Temporada / Episódio:** o app tenta deduzir do nome do arquivo, mas confirma. Pra spin-offs / temporadas específicas (Dr. Stone S4), preencher direito ajuda.
-- **Saída:** onde ficam os clipes cortados. Trocar em ⚙ Configurações.
-- **Pular OP/ED:** timestamps `MM:SS` — o app ignora tudo antes/depois.
-- **Modo de reconhecimento:**
-  - **Muito Fiel** — threshold alto, só marca quando tem certeza. Menos shots por personagem, quase zero erro.
-  - **Auto (recomendado)** — balanceado.
-  - **Pouco Fiel** — threshold baixo, marca mais. Você filtra manualmente no fim.
+**Arraste o arquivo do episódio** (`.mp4`, `.mkv`...) pra qualquer lugar da janela — o app preenche anime, temporada e episódio a partir do nome do arquivo. Ou use o botão **Selecionar**.
 
-### 2. Botões de análise
+Confira os campos (pra temporadas específicas tipo "Dr. Stone S4", preencher certo importa) e, se quiser, informe os tempos de **OP/ED** pra pular abertura e encerramento.
 
-- **Analisar episódio** (verde) — pipeline padrão CLIP + YOLO. Rápido, gratuito, sem chamar API externa.
-- **Analisar com IA** (azul, dropdown com 2 modos) — usa Gemini pra classificar cada shot. Melhor precisão em animes menos conhecidos, mas gasta quota das API keys.
-  - **Full** — manda o keyframe inteiro pra IA.
-  - **Hybrid** — YOLO detecta rostos, IA classifica só os crops (mais barato).
+### 2. Escolher o modo e analisar
 
-### 3. Aba "Resultados"
+| Botão | O que faz | Custo |
+|---|---|---|
+| **Analisar episódio** 🟢 | Pipeline local: YOLO + CLIP comparam com fotos de referência | Grátis, ilimitado |
+| **Analisar com IA** 🔵 | Gemini classifica cada shot (dropdown com 2 modos) | Gasta quota da API key |
 
-- Lista de personagens com quantos shots cada um teve.
-- Grid de thumbnails do personagem selecionado.
-- **Duplo clique** num thumb abre o `.mp4` do shot.
-- **Botão direito** num thumb: aprovar, remover ou mover pra outro personagem.
-- Botões laterais:
-  - **Cortar vertical (Reels/TikTok)** — gera versão 1080×1920 focando no rosto do personagem.
-  - **Reforçar refs com este ep** — pega os melhores frames deste episódio e adiciona ao banco de refs. Melhora o próximo episódio.
+No modo IA, o **Híbrido (recomendado)** manda só os rostos detectados (mais barato e preciso); o **Completo** manda o frame inteiro.
+
+Presets de rigor: **Auto (recomendado)** equilibra; **Muito Fiel** quase não erra mas marca menos; **Pouco Fiel** marca mais e você filtra depois.
+
+Mudou de ideia no meio? **✕ Cancelar análise** — os shots já cortados ficam em cache e a próxima rodada continua de onde parou.
+
+### 3. Aba Resultados
+
+- Lista de personagens com a contagem de shots de cada um
+- **Duplo clique** num thumbnail abre o `.mp4` do shot
+- **Botão direito** num thumbnail: aprovar, remover ou mover pra outro personagem
+- **Exportar vertical 1080×1920** — versão Reels/TikTok focada no rosto do personagem selecionado
+- **Reforçar refs com este ep** — usa os shots identificados pra engordar o banco de referências (melhora o próximo episódio)
 
 ---
 
-## 🤖 AI Review (opcional)
+## 🆘 Deu problema?
 
-Duas providers configuráveis em ⚙ Configurações:
+O app registra tudo que acontece num arquivo de log:
 
-### NavyAI (principal)
+1. Abra **⚙ Configurações → 📂 Abrir pasta de logs**
+2. Mande o arquivo **`app.log`** pra quem te passou o app
 
-Gateway compatível com OpenAI que roteia pro Gemini 2.0. Se tu tem key `sk-navy-...`, cola em **AI principal**.
+O log diz exatamente o que aconteceu (qual API respondeu, quantas fotos cada personagem conseguiu, onde travou) — sem ele é adivinhação. Ele não contém suas API keys e nunca passa de ~8 MB.
 
-### Gemini direto (fallback)
+Situações conhecidas:
 
-Se a NavyAI falhar (429 quota, 500 erro, timeout), o app **automaticamente** cai na API direta do Gemini. Pega a key gratuita em [aistudio.google.com/apikey](https://aistudio.google.com/apikey), cola em **AI fallback**.
+| Sintoma | Causa | O que fazer |
+|---|---|---|
+| "0 personagens identificados" ou erro de refs insuficientes | As fontes de fotos (MyAnimeList/Jikan) instáveis, ou anime/temporada nova sem fotos ainda | Tentar mais tarde (os cortes ficam em cache); conferir com **Testar refs (preview)** |
+| Erro de quota da IA | Free tier do dia esgotou (um episódio inteiro consome muito) | Esperar o reset diário, ou usar o **Analisar episódio** (local, sem limite) |
+| App fecha ao abrir | Erro fatal — gera `crash.log` na mesma pasta de logs | Mandar o `crash.log` |
 
-Se só uma das duas estiver preenchida, ela é usada sozinha. Nada pra escolher, nada pra clicar — fallback é automático.
+---
+
+## 🤖 Modo IA (opcional)
+
+Duas providers configuráveis em **⚙ Configurações**, com fallback automático:
+
+- **NavyAI** (principal) — gateway OpenAI-compatível; key `sk-navy-...`
+- **Gemini direto** (fallback) — key gratuita em [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
+Se as duas estiverem preenchidas, a NavyAI é usada primeiro e o Gemini assume automaticamente quando ela falha (quota, erro, timeout). Modelo padrão: `gemini-2.5-flash` (modelos aposentados pelos provedores são migrados sozinhos).
+
+> 💡 **Free tier é apertado pra episódio inteiro**: ~400 shots ≈ 2 milhões de tokens só de prompt. Se a quota diária acabar no meio, o app para na hora e explica — não fica moendo à toa. O pipeline local (botão verde) não tem esse limite.
 
 ---
 
 ## 📂 Onde ficam as coisas
 
-**Instalação:** `C:\Program Files\CorteCenas\`
+| O quê | Onde |
+|---|---|
+| Instalação | `C:\Program Files\CorteCenas\` |
+| Configurações | `%LOCALAPPDATA%\CorteCenas\CorteCenas\config.json` |
+| Logs (`app.log`, `crash.log`) | `%LOCALAPPDATA%\CorteCenas\CorteCenas\Logs\` |
+| Cache (modelos, refs, banco) | `%LOCALAPPDATA%\CorteCenas\CorteCenas\cache\` |
+| Clipes de saída | `Documentos\CorteCenas\Output\` (muda em ⚙ Configurações) |
 
-**Config:** `C:\Users\<seu_user>\AppData\Local\CorteCenas\config.json`
-
-**Saída dos clipes** (customizável): `Output\<Anime>\SxxEyy\`
-
-```
-Output/
-  Dr Stone [al172019]/
-    S04E25/
-      shots/
-        0001.mp4        # shots cortados
-        0002.mp4
-      keyframes/
-        0001_0.jpg      # 3 keyframes por shot pra análise
-      by_character/
-        Senku/
-          0002.mp4      # hardlink NTFS, não duplica bytes
-          0007.mp4
-        Kohaku/
-          0001.mp4
-      by_pair/
-        Senku+Kohaku/
-          0007.mp4      # shot onde os dois aparecem
-      metadata/
-        shots.json
-        characters.json
-```
-
-**Cache global** (todos animes): `cache/` — reutilizado entre episódios do mesmo anime. Se tu apagar, refaz do zero.
+O cache é reaproveitado entre episódios do mesmo anime (e da mesma franquia): o segundo episódio analisa muito mais rápido. Apagar o cache só força refazer os downloads.
 
 ---
 
-## 🖥️ Rodar do código-fonte (desenvolvedor)
+## ⚙️ Como funciona por dentro
 
-Se quiser modificar o código, não precisa do instalador:
+1. **Parse** — extrai anime/temporada/episódio do nome do arquivo
+2. **Detecção de shots** — [PySceneDetect](https://github.com/Breakthrough/PySceneDetect) `ContentDetector`, com progresso em tempo real
+3. **Corte + keyframes** — FFmpeg gera o `.mp4` de cada shot + 3 keyframes JPG
+4. **Banco de personagens** — [AniList GraphQL](https://docs.anilist.co/) resolve o anime e a franquia inteira (BFS pelas relações: sequels, prequels, spin-offs); [Jikan](https://jikan.moe/) traz as fotos de cada personagem. Se o AniList estiver fora, cai no MyAnimeList (sem agrupamento de franquia)
+5. **Refs** — até 8 imagens por personagem, filtradas (manga preto-e-branco descartado); rosto de cada ref é recortado pra casar com o espaço de comparação
+6. **Embeddings** — `open_clip ViT-L/14`; centroide por personagem
+7. **Análise** — YOLO [`deepghs/anime_face_detection`](https://huggingface.co/deepghs/anime_face_detection) detecta os rostos de cada keyframe → CLIP → cosine contra os centroides → votação entre keyframes (personagem precisa aparecer em ≥2 pra valer)
+8. **Organização** — hardlinks NTFS em `by_character/` e `by_pair/`, `shots.json` + `characters.json`
+
+No modo IA, os passos 6-7 viram chamadas ao Gemini (frame inteiro ou crops YOLO), com retry, fallback de provider e circuit breaker de quota.
+
+<details>
+<summary><b>🏗️ Arquitetura de pastas do código</b> (clique pra expandir)</summary>
+
+```
+app/
+  main.py                  entrada PySide6, splash, checagens pós-janela
+  pipeline.py              orquestra o fluxo, emite progresso
+  pipeline_types.py        tipos leves (sem torch) pra UI importar
+  applog.py                log persistente + tee de stdout/stderr
+  config.py                config persistente + migrações
+  updater.py               auto-update via GitHub Releases (delta ~53 MB)
+  ai_review.py             NavyAI + Gemini fallback + circuit breaker de quota
+  video_ingest.py          parse do nome do arquivo
+  shot_detection.py        PySceneDetect com callback de progresso
+  keyframe_extractor.py    FFmpeg + OpenCV
+  ffmpeg_locate.py         resolve ffmpeg embutido vs PATH
+  reframe.py               vertical 9:16 com face-tracking
+  harvest.py               reforço de refs a partir de shots identificados
+
+  providers/               anilist.py, jikan.py, danbooru.py, anime_provider.py
+  references/              downloader async, filtros, reference_store
+  matching/                face_detector (YOLO), embedding_engine (CLIP),
+                           character_matcher, cooccurrence
+  storage/                 db (SQLite), metadata_writer, organizer (hardlinks)
+  ui/                      main_window, analyze_tab, results_tab,
+                           character_grid, settings_dialog, worker (QThreads)
+  assets/                  ícone (7 tamanhos)
+
+fetch_ffmpeg.py            baixa FFmpeg pro ./bin/ (embutido no instalador)
+pack_delta.py              gera o zip de update (~53 MB)
+apply_update.ps1           helper elevado que aplica o delta
+_build_all.bat             build completo: FFmpeg → PyInstaller → delta → Inno
+build.spec                 PyInstaller (onedir, console=False)
+installer.iss              Inno Setup 6
+```
+
+</details>
+
+<details>
+<summary><b>🧪 Escolhas técnicas</b> (clique pra expandir)</summary>
+
+- **Re-encode `libx264 ultrafast`** em vez de stream-copy — corte preciso no frame, sem flash no início do clipe
+- **open_clip ViT-L/14** — melhor discriminação de personagem que ViT-B/32; GPU em segundos, CPU em minutos
+- **YOLO deepghs anime_face** — ~3x o hit rate do `lbpcascade_animeface` clássico (que fica como fallback)
+- **Centroide por personagem** em vez de 1-NN — robusto contra refs ruins
+- **Votação entre keyframes** — personagem que só aparece em 1 de 3 keyframes é quase sempre ruído
+- **Hardlinks NTFS** — um shot em N pastas sem duplicar bytes
+- **Franchise pooling** — Dr. Stone S4 herda refs de S1-S3 via relações do AniList
+- **Toda falha externa é barulhenta** — API fora do ar, quota esgotada e modelo aposentado geram mensagens específicas e ficam no `app.log`; nada degrada em silêncio
+</details>
+
+---
+
+## 🖥️ Rodar do código-fonte
 
 ```bat
 git clone https://github.com/leviclementino1-creator/corte-cenas.git
 cd corte-cenas
-install.bat
+install.bat   :: cria .venv, instala torch+cu128 (~2.7 GB) e as deps (5-10 min)
+run.bat       :: roda direto do fonte — editar app/*.py reflete na hora
 ```
 
-O `install.bat` cria `.venv/`, instala torch+cu128 (~2.7 GB), demais deps do `requirements.txt`, ultralytics, huggingface_hub. Demora 5-10 min.
+### Buildar o instalador
 
-Depois:
+Precisa de [Inno Setup 6](https://jrsoftware.org/isdl.php). Depois:
 
 ```bat
-run.bat
+_build_all.bat
 ```
 
-O código roda **direto** do fonte. Editar `app/*.py` reflete no próximo `run.bat`.
+Roda em ordem: `fetch_ffmpeg.py` → PyInstaller (~10 min) → `pack_delta.py` (zip de update ~53 MB) → Inno Setup (~8 min). Saída em `releases/`: o setup completo **e** o zip de delta.
 
-### Buildar teu próprio instalador
+### Publicar uma release
 
-Precisa de **Inno Setup 6** ([jrsoftware.org/isdl.php](https://jrsoftware.org/isdl.php)).
+1. Bump `__version__` em [app/\_\_init\_\_.py](app/__init__.py) **e** `AppVersion` em [installer.iss](installer.iss)
+2. Commit + push
+3. `_build_all.bat`
+4. ```bat
+   gh release create vX.Y.Z releases/CorteCenas-Setup-X.Y.Z.exe releases/CorteCenas-Update-X.Y.Z.zip --title "Corte Cenas vX.Y.Z" --notes-file notas.md
+   ```
 
-```bat
-build_installer.bat
-```
-
-Roda em ordem: `fetch_ffmpeg.py` (baixa ffmpeg~200 MB) → PyInstaller (~10 min) → Inno Setup (~3 min). Saída: `releases/CorteCenas-Setup-X.Y.Z.exe`.
-
-### Publicar release nova
-
-1. Bump `__version__` em [app/\_\_init\_\_.py](app/__init__.py) → `"0.1.3"`.
-2. Bump `AppVersion` em [installer.iss](installer.iss) → `"0.1.3"`.
-3. `git commit -am "v0.1.3"` + `git push`.
-4. `git tag v0.1.3` + `git push origin v0.1.3`.
-5. `build_installer.bat`.
-6. `gh release create v0.1.3 releases/CorteCenas-Setup-0.1.3.exe --title "v0.1.3" --notes "..."`.
-
-Todos os usuários com o app instalado recebem o popup de update no próximo abrir.
+Todo mundo com o app instalado recebe a oferta de update (delta de ~53 MB) no próximo abrir.
 
 ---
 
-## ⚙️ Pipeline (o que acontece internamente)
+## 🗺️ Roadmap
 
-1. **Parse do arquivo** — extrai anime/temporada/episódio do nome do `.mp4`.
-2. **Detecção de shots** — [PySceneDetect](https://github.com/Breakthrough/PySceneDetect) `ContentDetector` no espaço HSV.
-3. **Corte + keyframes** — FFmpeg gera `.mp4` de cada shot (re-encode `libx264 ultrafast`), extrai 3 keyframes JPG.
-4. **Banco de personagens** — [AniList GraphQL](https://anilist.gitbook.io/) resolve o anime, pega lista de personagens e MAL id. [Jikan REST](https://jikan.moe/) pega múltiplas fotos por personagem. Franchise pooling: se for temporada N, BFS pelas relações do AniList pra pegar personagens das temporadas anteriores.
-5. **Download de referências** — 8 imagens por personagem (padrão), filtradas por saturação (manga preto-e-branco vai pra `_filtered/`).
-6. **Embeddings** — `open_clip ViT-L/14` (openai pretrained). Centroide por personagem (média dos embeddings de todas as refs).
-7. **Análise dos shots** — YOLO `deepghs/anime_face_detection` detecta rostos nos keyframes → CLIP no rosto → cosine contra os centroides → threshold por personagem. Fallback: se YOLO não achar rosto, CLIP no keyframe inteiro (opcional).
-8. **Organização** — cria hardlinks NTFS: `by_character/<Nome>/`, `by_pair/<A>+<B>/`. Sem duplicar bytes.
-
-Se tu usar **"Analisar com IA"**, os passos 6-7 são substituídos: pipeline manda o frame (ou o crop YOLO) pro Gemini via NavyAI/Google, ele responde qual personagem.
-
----
-
-## 🏗️ Arquitetura (pastas)
-
-```
-app/
-  main.py                  entrada PySide6 (QApplication)
-  __init__.py              __version__
-  pipeline.py              orquestra o fluxo, emite progresso
-  config.py                config persistente (AppData/Local/CorteCenas)
-  updater.py               auto-update via GitHub Releases API
-  deps_check.py            checa ultralytics/hf_hub/ffmpeg/CUDA
-  ffmpeg_locate.py         resolve bundled ffmpeg vs PATH
-  ai_review.py             NavyAI + Gemini fallback (OpenAI-compat)
-  video_ingest.py          parse do nome do arquivo
-  shot_detection.py        PySceneDetect wrapper
-  keyframe_extractor.py    FFmpeg + OpenCV
-  reframe.py               vertical crop pra Reels/TikTok
-  harvest.py               reforço de refs a partir de shots identificados
-
-  providers/
-    anilist.py             GraphQL search + relations
-    jikan.py               REST v4 (character pictures)
-    danbooru.py            (opt-in, off por padrão)
-    anime_provider.py      resolver unificado + franchise pooling
-
-  references/
-    image_downloader.py    httpx async
-    image_filters.py       saturação (drop manga refs)
-    reference_store.py     cache/anime_db/<id>/
-
-  matching/
-    face_detector.py       YOLO deepghs + lbpcascade fallback
-    embedding_engine.py    open_clip ViT-L/14, GPU/CPU
-    character_matcher.py   centroides + cosine + threshold
-    cooccurrence.py        pares (A+B) por co-ocorrência
-
-  storage/
-    db.py                  SQLite (schema + queries)
-    metadata_writer.py     shots.json, characters.json
-    organizer.py           hardlinks NTFS
-    skip_ranges.py         OP/ED time skip
-
-  ui/
-    main_window.py         topo com botão settings + tabs
-    analyze_tab.py         seleção de arquivo, presets, botão IA
-    results_tab.py         lista de personagens + grid + botões laterais
-    character_grid.py      thumbnails + right-click menu
-    settings_dialog.py     3 blocos: NavyAI, Gemini, Sobre/GPU/updater
-    deps_dialog.py         MissingDeps, FFmpeg, NoGpu
-    worker.py              QThread wrapper da pipeline
-
-  assets/
-    icon.ico + icon_*.png  ícone do app (7 tamanhos)
-
-bin/                       (não versionado — baixado por fetch_ffmpeg.py)
-  ffmpeg.exe               empacotado no instalador
-  ffprobe.exe
-
-cache/                     (não versionado)
-  index.db                 SQLite global
-  anime_db/<id>/characters/<slug>/*.jpg
-  huggingface/             modelos (YOLO, CLIP)
-
-Output/<Anime>/SxxEyy/     (customizável em Configurações)
-```
-
----
-
-## 🔧 Ajustar threshold por personagem
-
-Cada personagem tem threshold próprio no SQLite. Padrão: `0.80`. Pra subir/descer:
-
-```sql
--- cache/index.db
-UPDATE character SET threshold = 0.85 WHERE name = 'Senku';
-```
-
-O próximo `Analisar` respeita o valor novo (sem re-baixar refs, sem re-embeddar).
-
----
-
-## 🔁 Reprocessar um episódio sem refazer tudo
-
-O banco de personagens é cacheado por `anilist_id` em `cache/anime_db/<id>/`. Ao re-rodar o mesmo episódio:
-
-- **Não** refaz download de imagens de referência.
-- **Não** refaz embeddings de referência (centroides salvos no SQLite).
-- **Apaga e recria** só as linhas `shot` + `shot_character` daquele episódio.
-
-Pra forçar recomputo total: `DELETE FROM character WHERE anime_id = ?` no SQLite, ou apagar `cache/anime_db/al<ID>/characters/`.
-
----
-
-## 🧪 Escolhas técnicas
-
-- **PySceneDetect ContentDetector** — pega cortes duros, ignora variação de iluminação.
-- **Re-encode com preset ultrafast** — stream-copy seria 10x mais rápido mas corta em keyframe mais próximo (causa flash inicial). Ajustável via `Config.reencode_shots = False`.
-- **open_clip ViT-L/14** — melhor discriminação em anime que ViT-B/32. Roda em GPU (segundos) e CPU (~3-5 min/episódio).
-- **YOLO deepghs anime_face** — ~3x melhor hit rate que `lbpcascade_animeface`, 34 ms/img em GPU.
-- **Fallback pra lbpcascade** — se `ultralytics` não estiver instalado, cai no XML clássico.
-- **Hardlinks NTFS** em vez de cópia — shot entra em N categorias sem duplicar bytes. Fallback pra cópia se drives diferentes.
-- **Centroide por personagem** em vez de 1-NN contra todas as refs — mais robusto contra refs ruins.
-- **Franchise pooling** — Dr. Stone S4 puxa personagens de S1/S2/S3 automaticamente via AniList relations.
-- **NavyAI → Gemini fallback** — plano free dos dois cobre bastante volume.
-
----
-
-## 🗺️ Próximos passos
-
-- **Revisão manual UI**: o schema tem `shot_character.reviewed/approved` — falta botão "Aprovar / Rejeitar" batch.
-- **Detecção de objetos da cena** (livro, cajado, tubo de ensaio) via Grounding DINO / CLIPSeg.
-- **Transcrição** (Whisper) pra reforçar identificação por quem está falando.
-- **Ranking semântico por trecho de roteiro** — integração com apps de geração de vídeo.
-- **Jikan anime search fallback** quando AniList não conhece o título.
-- **Progress bar de download de modelos** — hoje só mostra texto.
+- [ ] **Banco de refs curadas no GitHub** — fonte de fotos controlada por nós, imune a queda de API e com designs atuais das temporadas novas
+- [ ] **Resultados em tempo real** — shots aparecendo na aba Resultados enquanto a análise roda
+- [ ] **Contador de uso do free tier** + estimativa de custo antes de rodar com IA
+- [ ] **Revisão manual em lote** — aprovar/rejeitar shots de um personagem de uma vez
+- [ ] **Barra de progresso do download do CLIP** (~890 MB na primeira análise)
+- [ ] Cascade de detecção de rosto (frontal + perfil)
+- [ ] Transcrição (Whisper) pra reforçar identificação por fala
 
 ---
 
 ## 📄 Licença
 
-MIT. Vide [LICENSE](LICENSE) (a criar).
+MIT.
