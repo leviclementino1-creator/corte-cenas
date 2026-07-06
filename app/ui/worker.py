@@ -8,9 +8,12 @@ cold app start just so the UI can render.
 """
 from __future__ import annotations
 
+import logging
 import sys
 import traceback
 from pathlib import Path
+
+_log = logging.getLogger("cortecenas")
 
 from PySide6.QtCore import QObject, QThread, Signal
 
@@ -39,6 +42,11 @@ class PipelineWorker(QObject):
 
     def run(self) -> None:
         try:
+            _log.info(
+                "=== Análise iniciada: %s (S%02dE%02d, ai=%s, modo=%s) ===",
+                self.info.anime, self.info.season, self.info.episode,
+                self.use_ai_recognition, self.ai_mode.value,
+            )
             # First analysis of the session pays the ~5s "torch import" tax.
             # We emit before the import so the UI shows something instead of
             # appearing frozen.
@@ -51,6 +59,11 @@ class PipelineWorker(QObject):
                 use_ai_recognition=self.use_ai_recognition,
                 ai_mode=self.ai_mode,
             )
+            _log.info(
+                "=== Análise concluída: %d shots, %d personagens (%s) ===",
+                result.total_shots, result.total_characters,
+                ", ".join(result.identified_characters) or "nenhum",
+            )
             self.finished.emit(result)
         except Exception as e:
             tb = traceback.format_exc()
@@ -59,6 +72,12 @@ class PipelineWorker(QObject):
             self.failed.emit(f"{e}\n\n{tb}")
 
     def _emit(self, stage: str, frac: float, msg: str) -> None:
+        # Mirror every progress message into app.log — this is the timeline
+        # that lets us reconstruct a remote user's run. Per-shot ticks
+        # ("Shot 12/332") are skipped to keep the log readable; stage
+        # boundaries and status text are what matter.
+        if msg and not msg.startswith("Shot "):
+            _log.info("[%s] %s", stage, msg)
         self.stage.emit(stage, float(frac), str(msg))
 
 
@@ -78,6 +97,11 @@ class RefsPreviewWorker(QObject):
         self.anime_name = anime_name
         self.season = season
 
+    def _status(self, msg: str) -> None:
+        if msg:
+            _log.info("[refs] %s", msg)
+        self.status.emit(msg)
+
     def run(self) -> None:
         try:
             from ..providers.anime_provider import AnimeProvider
@@ -90,14 +114,14 @@ class RefsPreviewWorker(QObject):
                     self.anime_name,
                     max_characters=self.config.max_characters_per_anime,
                     images_per_character=self.config.references_per_character,
-                    on_status=lambda m: self.status.emit(m),
+                    on_status=self._status,
                     use_danbooru=self.config.use_danbooru,
                     season=self.season,
                 )
             finally:
                 provider.close()
 
-            self.status.emit("Baixando imagens...")
+            self._status("Baixando imagens...")
             store = ReferenceStore(self.config.cache_path)
             if bundle.franchise_root_id:
                 cache_id = f"al{bundle.franchise_root_id}"
@@ -106,7 +130,7 @@ class RefsPreviewWorker(QObject):
             else:
                 cache_id = f"mal{bundle.mal_id}"
             refs = store.ensure_references(
-                cache_id, bundle, on_status=lambda m: self.status.emit(m)
+                cache_id, bundle, on_status=self._status
             )
             per_char = {name: len(paths) for name, paths in refs.items()}
             folder = str(store.anime_dir(cache_id) / "characters")

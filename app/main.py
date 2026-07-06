@@ -8,6 +8,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen
 
 from . import __version__
+from .applog import get_logger, setup as setup_logging
 from .config import Config
 from .deps_check import cuda_available, ffmpeg_available, missing_optional_deps
 from .ui.deps_dialog import FFmpegMissingDialog, MissingDepsDialog, NoGpuDialog
@@ -43,6 +44,7 @@ def _load_splash_pixmap() -> QPixmap | None:
 
 
 def main() -> int:
+    setup_logging()  # no-op if run.py already did it
     app = QApplication(sys.argv)
     app.setApplicationName("Corte Cenas")
     app.setWindowIcon(_load_app_icon())
@@ -64,6 +66,10 @@ def main() -> int:
 
     cfg = Config.load()
     cfg.ensure_dirs()
+    get_logger().info(
+        "Config: output=%s | cache=%s | models=%s",
+        cfg.output_dir, cfg.cache_path, cfg.models_path,
+    )
 
     # Ping GitHub Releases. If a newer setup.exe exists, prompt + quit to update.
     check_and_offer_update()

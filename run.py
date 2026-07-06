@@ -52,6 +52,13 @@ def _run() -> int:
 
 
 def _main() -> int:
+    # Session log first thing — before Qt, before config — so even import
+    # failures leave a trace in app.log alongside crash.log.
+    try:
+        from app.applog import setup as _setup_log
+        _setup_log()
+    except Exception:
+        pass
     try:
         return _run()
     except SystemExit:
@@ -59,6 +66,11 @@ def _main() -> int:
     except BaseException:
         tb = traceback.format_exc()
         log = _crash_log_path()
+        try:
+            import logging
+            logging.getLogger("cortecenas").error("CRASH FATAL:\n%s", tb)
+        except Exception:
+            pass
         try:
             with open(log, "a", encoding="utf-8") as f:
                 f.write(f"\n===== {datetime.now().isoformat()} =====\n")

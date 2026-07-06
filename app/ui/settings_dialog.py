@@ -193,12 +193,16 @@ class SettingsDialog(QDialog):
         self.update_btn = QPushButton("🔄  Verificar atualizações agora")
         self.update_btn.clicked.connect(self._check_updates)
         update_row.addWidget(self.update_btn)
+        logs_btn = QPushButton("📂  Abrir pasta de logs")
+        logs_btn.clicked.connect(self._open_logs)
+        update_row.addWidget(logs_btn)
         update_row.addStretch(1)
         app_layout.addLayout(update_row)
 
         upd_info = QLabel(
-            "O app já verifica automaticamente ao abrir. Clique aqui pra checar "
-            "manualmente sem reiniciar."
+            "O app já verifica atualizações ao abrir. Deu algum problema numa análise? "
+            "Abra a pasta de logs e mande o arquivo <code>app.log</code> pra quem "
+            "te passou o app — ele registra tudo que aconteceu na última execução."
         )
         upd_info.setWordWrap(True)
         upd_info.setStyleSheet("color:#aaa;font-size:11px;")
@@ -241,6 +245,10 @@ class SettingsDialog(QDialog):
         )
         if path:
             self.output_edit.setText(path)
+
+    def _open_logs(self) -> None:
+        from ..applog import log_dir
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir())))
 
     def _check_updates(self) -> None:
         self.update_btn.setEnabled(False)
