@@ -109,7 +109,7 @@ class SettingsDialog(QDialog):
         key_wrap.setLayout(key_row)
         ai_form.addRow("API key:", key_wrap)
 
-        self.model_edit = QLineEdit(self.config.navyai_model or "gemini-2.0-flash")
+        self.model_edit = QLineEdit(self.config.navyai_model or "gemini-2.5-flash")
         ai_form.addRow("Modelo:", self.model_edit)
 
         self.base_edit = QLineEdit(self.config.navyai_base_url or "https://api.navy/v1")
@@ -148,7 +148,7 @@ class SettingsDialog(QDialog):
         gem_wrap.setLayout(gem_row)
         gem_form.addRow("API key:", gem_wrap)
 
-        self.gem_model_edit = QLineEdit(self.config.gemini_model or "gemini-2.0-flash")
+        self.gem_model_edit = QLineEdit(self.config.gemini_model or "gemini-2.5-flash")
         gem_form.addRow("Modelo:", self.gem_model_edit)
 
         gem_info = QLabel(
@@ -264,9 +264,9 @@ class SettingsDialog(QDialog):
         if out_path:
             self.config.output_dir = out_path
         self.config.navyai_api_key = self.key_edit.text().strip()
-        self.config.navyai_model = self.model_edit.text().strip() or "gemini-2.0-flash"
+        self.config.navyai_model = self.model_edit.text().strip() or "gemini-2.5-flash"
         self.config.navyai_base_url = self.base_edit.text().strip() or "https://api.navy/v1"
         self.config.gemini_api_key = self.gem_key_edit.text().strip()
-        self.config.gemini_model = self.gem_model_edit.text().strip() or "gemini-2.0-flash"
+        self.config.gemini_model = self.gem_model_edit.text().strip() or "gemini-2.5-flash"
         self.config.save()
         self.accept()

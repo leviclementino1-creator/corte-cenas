@@ -37,7 +37,7 @@ class NavyAIClient:
         self,
         api_key: str,
         base_url: str = "https://api.navy/v1",
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-2.5-flash",
         timeout: float = 60.0,
         fallback: "NavyAIClient | None" = None,
     ) -> None:
@@ -87,16 +87,22 @@ class NavyAIClient:
         return raw_content, usage
 
     def _post_with_retry(self, payload: dict, retries: int = 2) -> dict:
-        """Post to /chat/completions with simple retry for 5xx / 429 errors."""
+        """Post to /chat/completions, retrying only transient failures
+        (429, 5xx, network). A non-429 4xx is deterministic — same request,
+        same answer — so it fails on the first attempt, carrying the
+        response body, which is what names the real cause (model_not_found,
+        image too large, ...). Failing fast here also means the Gemini
+        fallback kicks in immediately instead of after 3 wasted tries."""
         last_err: Exception | None = None
         for attempt in range(retries + 1):
             try:
                 r = self.client.post(f"{self.base_url}/chat/completions", json=payload)
                 if r.status_code == 429 or r.status_code >= 500:
-                    last_err = RuntimeError(f"HTTP {r.status_code}")
+                    last_err = RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
                     time.sleep(0.5 * (attempt + 1))
                     continue
-                r.raise_for_status()
+                if r.status_code >= 400:
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
                 return r.json()
             except httpx.HTTPError as e:
                 last_err = e

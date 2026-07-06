@@ -540,7 +540,7 @@ class Pipeline:
             fallback = NavyAIClient(
                 api_key=gemini_key,
                 base_url=GEMINI_OPENAI_BASE,
-                model=cfg.gemini_model or "gemini-2.0-flash",
+                model=cfg.gemini_model or "gemini-2.5-flash",
             )
 
         # If the user only has a Gemini key, run against Gemini directly
@@ -610,6 +610,27 @@ class Pipeline:
         name_to_id = {n: db_chars[n]["id"] for n in character_names if n in db_chars}
 
         skipped_no_face = 0
+        # A dead model / bad key fails EVERY request the same way. Without a
+        # circuit breaker the run grinds through all N shots (minutes of
+        # retries + wasted quota) to deliver an empty result.
+        consecutive_ai_errors = 0
+        max_consecutive_ai_errors = 8
+
+        def _register_ai_error(shot_idx: int, err: Exception) -> None:
+            nonlocal consecutive_ai_errors
+            consecutive_ai_errors += 1
+            print(f"[AI analyze] Shot #{shot_idx:04d} ERRO: {err}", flush=True)
+            if consecutive_ai_errors >= max_consecutive_ai_errors:
+                client.close()
+                raise RuntimeError(
+                    f"A IA falhou em {consecutive_ai_errors} shots seguidos — análise "
+                    f"abortada pra não desperdiçar tempo e quota.\n\n"
+                    f"Último erro: {err}\n\n"
+                    "Confira o modelo e as API keys em Configurações. O detalhe "
+                    "completo de cada tentativa está no app.log (Configurações → "
+                    "Abrir pasta de logs)."
+                )
+
         print(f"[AI analyze] Iniciando classificação de {total} shots (modo={ai_mode})...", flush=True)
         for i, (shot, shot_file, kfs) in enumerate(cut_results, 1):
             cb("analyze_shots", i / max(total, 1), f"AI Shot {i}/{total}")
@@ -665,9 +686,10 @@ class Pipeline:
                         client, face_bytes_list, character_names, bundle.title, top_refs=top_refs
                     )
                 except Exception as e:
-                    print(f"[AI analyze] Shot #{shot.idx:04d} ERRO: {e}", flush=True)
+                    _register_ai_error(shot.idx, e)
                     per_shot_names.append([])
                     continue
+                consecutive_ai_errors = 0
 
                 pt = int(usage.get("prompt_tokens") or 0)
                 ct = int(usage.get("completion_tokens") or 0)
@@ -716,9 +738,10 @@ class Pipeline:
                     client, frame_bytes, character_names, bundle.title, top_refs=top_refs
                 )
             except Exception as e:
-                print(f"[AI analyze] Shot #{shot.idx:04d} ERRO: {e}", flush=True)
+                _register_ai_error(shot.idx, e)
                 per_shot_names.append([])
                 continue
+            consecutive_ai_errors = 0
 
             pt = int(usage.get("prompt_tokens") or 0)
             ct = int(usage.get("completion_tokens") or 0)

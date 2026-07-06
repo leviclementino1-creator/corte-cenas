@@ -150,14 +150,14 @@ class Config:
     # Optional; if no key is set, the AI features are disabled.
     navyai_api_key: str = ""
     navyai_base_url: str = "https://api.navy/v1"
-    navyai_model: str = "gemini-2.0-flash"
+    navyai_model: str = "gemini-2.5-flash"
 
     # AI review — fallback provider (Gemini native, hit directly via Google's
     # OpenAI-compatible endpoint). Kicks in automatically if NavyAI returns
     # 5xx / rate-limits / errors. Useful with the free tier of both — when one
     # exhausts, the other picks up the slack.
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
 
     # Whether the user has already seen the "no NVIDIA GPU, will run on CPU"
     # warning. Once dismissed, we don't nag on every startup.
@@ -174,6 +174,17 @@ class Config:
                         setattr(cfg, k, data[k])
             except Exception:
                 pass
+        # Migration: model names retired by the providers. NavyAI removed
+        # gemini-2.0-flash in 2026 (every request 400s with model_not_found)
+        # and Google retires old Gemini lines on a similar cadence — swap
+        # any dead persisted name for the current default.
+        _DEAD_MODELS = {
+            "gemini-2.0-flash", "gemini-2.0-flash-lite",
+            "gemini-1.5-flash", "gemini-1.5-pro",
+        }
+        for attr in ("navyai_model", "gemini_model"):
+            if getattr(cfg, attr) in _DEAD_MODELS:
+                setattr(cfg, attr, "gemini-2.5-flash")
         # Migration: if a persisted output_dir points somewhere unwritable
         # (e.g. old install that pointed inside Program Files), reset to the
         # current safe default. Same for cache/models.
