@@ -18,7 +18,7 @@ _log = logging.getLogger("cortecenas")
 from PySide6.QtCore import QObject, QThread, Signal
 
 from ..config import Config
-from ..pipeline_types import AIMode, PipelineResult
+from ..pipeline_types import AIMode, PipelineCancelled, PipelineResult
 from ..video_ingest import EpisodeInfo
 
 
@@ -26,6 +26,7 @@ class PipelineWorker(QObject):
     stage = Signal(str, float, str)          # (stage_id, fraction, message)
     finished = Signal(object)                 # PipelineResult
     failed = Signal(str)
+    cancelled = Signal()
 
     def __init__(
         self,
@@ -39,6 +40,13 @@ class PipelineWorker(QObject):
         self.info = info
         self.use_ai_recognition = use_ai_recognition
         self.ai_mode = ai_mode
+        self._cancel_requested = False
+
+    def request_cancel(self) -> None:
+        """Called from the UI thread. The worker notices on its next progress
+        emission (i.e. at the next shot/stage boundary) — a blocking step in
+        flight (one ffmpeg cut, one API call) finishes first."""
+        self._cancel_requested = True
 
     def run(self) -> None:
         try:
@@ -65,6 +73,9 @@ class PipelineWorker(QObject):
                 ", ".join(result.identified_characters) or "nenhum",
             )
             self.finished.emit(result)
+        except PipelineCancelled:
+            _log.info("=== Análise CANCELADA pelo usuário ===")
+            self.cancelled.emit()
         except Exception as e:
             tb = traceback.format_exc()
             print("\n=== Pipeline falhou ===", file=sys.stderr)
@@ -72,6 +83,8 @@ class PipelineWorker(QObject):
             self.failed.emit(f"{e}\n\n{tb}")
 
     def _emit(self, stage: str, frac: float, msg: str) -> None:
+        if self._cancel_requested:
+            raise PipelineCancelled()
         # Mirror every progress message into app.log — this is the timeline
         # that lets us reconstruct a remote user's run. Per-shot ticks
         # ("Shot 12/332") are skipped to keep the log readable; stage

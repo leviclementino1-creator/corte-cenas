@@ -20,6 +20,13 @@ class AIMode(str, Enum):
     HYBRID = "hybrid"   # send only YOLO face crops
 
 
+class PipelineCancelled(Exception):
+    """Raised from inside the progress callback when the user hits Cancelar.
+    The pipeline reports progress at every loop iteration, so raising here
+    unwinds the whole run at the next stage/shot boundary without every loop
+    needing its own cancel check."""
+
+
 ProgressCb = Callable[[str, float, str], None]
 """(stage_id, fraction_0_to_1, message) — fraction may be -1 when indeterminate."""
 

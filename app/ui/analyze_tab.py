@@ -266,12 +266,25 @@ class AnalyzeTab(QWidget):
         ai_menu.addAction(act_full)
         self.run_ai_btn.setMenu(ai_menu)
 
+        # Only visible while an analysis is running. Cooperative cancel: the
+        # worker stops at the next shot/stage boundary, so the click can take
+        # a few seconds to land (one ffmpeg cut / API call finishes first).
+        self.cancel_btn = QPushButton("✕  Cancelar análise")
+        self.cancel_btn.setStyleSheet(
+            "QPushButton{background:#8B3A3A;color:white;font-weight:bold;padding:10px 16px;border-radius:6px;}"
+            "QPushButton:disabled{background:#555;}"
+        )
+        self.cancel_btn.clicked.connect(self._cancel_analysis)
+        self.cancel_btn.setVisible(False)
+
         action_row.addStretch(1)
         action_row.addWidget(self.preview_btn)
         action_row.addSpacing(12)
         action_row.addWidget(self.run_btn)
         action_row.addSpacing(8)
         action_row.addWidget(self.run_ai_btn)
+        action_row.addSpacing(8)
+        action_row.addWidget(self.cancel_btn)
         action_row.addStretch(1)
         layout.addLayout(action_row)
 
@@ -412,6 +425,8 @@ class AnalyzeTab(QWidget):
 
         self.run_btn.setEnabled(False)
         self.run_ai_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
+        self.cancel_btn.setVisible(True)
         self._reset_stages()
         self._reset_status_style()
         self.progress.setValue(0)
@@ -426,10 +441,30 @@ class AnalyzeTab(QWidget):
         self._worker.stage.connect(self._on_stage)
         self._worker.finished.connect(self._on_finished)
         self._worker.failed.connect(self._on_failed)
+        self._worker.cancelled.connect(self._on_cancelled)
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
+        self._worker.cancelled.connect(self._thread.quit)
         self._thread.finished.connect(self._cleanup_thread)
         self._thread.start()
+
+    def _cancel_analysis(self) -> None:
+        if self._worker is None or not isinstance(self._worker, PipelineWorker):
+            return
+        self.cancel_btn.setEnabled(False)
+        self.status_label.setText("Cancelando — terminando a etapa atual...")
+        self._worker.request_cancel()
+
+    def _on_cancelled(self) -> None:
+        self.cancel_btn.setVisible(False)
+        self.run_btn.setEnabled(True)
+        self.run_ai_btn.setEnabled(True)
+        self.progress.setValue(0)
+        self._reset_stages()
+        self.status_label.setText(
+            "Análise cancelada. Os shots já cortados ficam em cache — "
+            "rodar de novo continua de onde parou."
+        )
 
     def _reset_stages(self) -> None:
         for i in range(self.stage_list.count()):
@@ -467,6 +502,7 @@ class AnalyzeTab(QWidget):
         )
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
+        self.cancel_btn.setVisible(False)
         self.pipeline_finished.emit(result)
 
     def _on_failed(self, message: str) -> None:
@@ -475,6 +511,7 @@ class AnalyzeTab(QWidget):
         self.status_label.setStyleSheet("color:#ff6b6b;font-weight:bold;")
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
+        self.cancel_btn.setVisible(False)
 
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Critical)
