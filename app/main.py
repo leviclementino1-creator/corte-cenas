@@ -71,8 +71,19 @@ def main() -> int:
         cfg.output_dir, cfg.cache_path, cfg.models_path,
     )
 
+    # Show the window FIRST, then run the slow startup checks (network ping
+    # for updates, torch import for the GPU check). When these ran before
+    # show(), the multi-second gap let the user focus another window and
+    # Windows then denied us the foreground — the app looked "minimized".
+    win = MainWindow(cfg)
+    win.show()
+    if splash is not None:
+        splash.finish(win)
+    win.raise_()
+    win.activateWindow()
+
     # Ping GitHub Releases. If a newer setup.exe exists, prompt + quit to update.
-    check_and_offer_update()
+    check_and_offer_update(parent=win)
 
     # Prompt to install YOLO/HF Hub if they're missing in the current Python.
     missing = missing_optional_deps()
@@ -92,10 +103,6 @@ def main() -> int:
             cfg.gpu_warning_dismissed = True
             cfg.save()
 
-    win = MainWindow(cfg)
-    win.show()
-    if splash is not None:
-        splash.finish(win)
     return app.exec()
 
 

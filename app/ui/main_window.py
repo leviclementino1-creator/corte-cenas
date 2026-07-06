@@ -54,6 +54,9 @@ QListWidget::item:selected { background: #3a5a3f; }
 """
 
 
+_VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".avi", ".webm", ".ts", ".m2ts")
+
+
 class MainWindow(QMainWindow):
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -61,6 +64,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Corte Cenas — Analisador de Anime")
         self.resize(1100, 720)
         self.setStyleSheet(_DARK_QSS)
+        # Drop an episode file anywhere on the window to load it in Analisar.
+        self.setAcceptDrops(True)
 
         self.tabs = QTabWidget()
         self.analyze = AnalyzeTab(config, self)
@@ -105,6 +110,30 @@ class MainWindow(QMainWindow):
         self.analyze.pipeline_finished.connect(self._on_pipeline_finished)
 
         self.setCentralWidget(central)
+
+    @staticmethod
+    def _video_from_mime(mime) -> str | None:
+        if not mime.hasUrls():
+            return None
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            path = url.toLocalFile()
+            if path.lower().endswith(_VIDEO_EXTS):
+                return path
+        return None
+
+    def dragEnterEvent(self, event) -> None:
+        if self._video_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        path = self._video_from_mime(event.mimeData())
+        if not path:
+            return
+        event.acceptProposedAction()
+        self.tabs.setCurrentWidget(self.analyze)
+        self.analyze.set_video(path)
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.config, self)

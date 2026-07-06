@@ -77,7 +77,9 @@ class AnalyzeTab(QWidget):
 
         file_row = QHBoxLayout()
         self.video_edit = QLineEdit()
-        self.video_edit.setPlaceholderText("Selecione um arquivo .mp4...")
+        self.video_edit.setPlaceholderText(
+            "Arraste o episódio pra cá (.mp4/.mkv) ou clique em Selecionar..."
+        )
         btn_pick = QPushButton("Selecionar...")
         btn_pick.clicked.connect(self._pick_video)
         file_row.addWidget(self.video_edit, 1)
@@ -320,10 +322,14 @@ class AnalyzeTab(QWidget):
 
     def _pick_video(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Selecionar episódio", "", "Vídeo (*.mp4 *.mkv *.mov *.avi)"
+            self, "Selecionar episódio", "", "Vídeo (*.mp4 *.mkv *.mov *.avi *.webm *.ts)"
         )
-        if not path:
-            return
+        if path:
+            self.set_video(path)
+
+    def set_video(self, path: str) -> None:
+        """Set the episode file and auto-fill anime/season/episode from the
+        filename. Shared by the file picker and window-wide drag-and-drop."""
         self.video_edit.setText(path)
         info = parse_filename(path)
         self.anime_edit.setText(info.anime)
