@@ -51,6 +51,29 @@ QProgressBar::chunk { background: #4CAF50; border-radius: 4px; }
 QTabBar::tab { background: #2b2d31; color: #ccc; padding: 8px 16px; border-top-left-radius: 4px; border-top-right-radius: 4px; }
 QTabBar::tab:selected { background: #1e1f22; color: #fff; border-bottom: 2px solid #4CAF50; }
 QListWidget::item:selected { background: #3a5a3f; }
+
+/* Radio/checkbox indicators: the native ones are nearly invisible on the
+   dark theme — the user couldn't tell which preset was selected. Checked
+   state is green (app accent), unchecked a visible gray ring/box. */
+QRadioButton { spacing: 7px; }
+QRadioButton::indicator {
+    width: 15px; height: 15px; border-radius: 9px;
+    border: 2px solid #6a6f78; background: #2b2d31;
+}
+QRadioButton::indicator:hover { border-color: #9aa0aa; }
+QRadioButton::indicator:checked {
+    border-color: #4CAF50;
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+        stop:0 #4CAF50, stop:0.55 #4CAF50, stop:0.7 #2b2d31, stop:1 #2b2d31);
+}
+QRadioButton:checked { color: #ffffff; font-weight: 600; }
+QCheckBox { spacing: 7px; }
+QCheckBox::indicator {
+    width: 14px; height: 14px; border-radius: 3px;
+    border: 2px solid #6a6f78; background: #2b2d31;
+}
+QCheckBox::indicator:hover { border-color: #9aa0aa; }
+QCheckBox::indicator:checked { border-color: #4CAF50; background: #4CAF50; }
 """
 
 
