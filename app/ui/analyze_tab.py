@@ -237,15 +237,19 @@ class AnalyzeTab(QWidget):
         )
         self.preview_btn.setStyleSheet(
             "QPushButton{background:#3a3d43;color:#ddd;padding:10px 14px;border-radius:6px;}"
+            "QPushButton:hover{background:#4b4f57;color:#fff;}"
             "QPushButton:disabled{background:#2a2c30;color:#666;}"
         )
+        self.preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.preview_btn.clicked.connect(self._start_preview)
 
         self.run_btn = QPushButton("Analisar episódio")
         self.run_btn.setStyleSheet(
             "QPushButton{background:#4CAF50;color:white;font-weight:bold;padding:10px 16px;border-radius:6px;}"
+            "QPushButton:hover{background:#5CBF60;}"
             "QPushButton:disabled{background:#555;}"
         )
+        self.run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.run_btn.clicked.connect(self._start)
 
         self.run_ai_btn = QPushButton("Analisar com IA  ▾")
@@ -257,8 +261,10 @@ class AnalyzeTab(QWidget):
         )
         self.run_ai_btn.setStyleSheet(
             "QPushButton{background:#4169E1;color:white;font-weight:bold;padding:10px 16px;border-radius:6px;}"
+            "QPushButton:hover{background:#5379F1;}"
             "QPushButton:disabled{background:#555;}"
         )
+        self.run_ai_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         ai_menu = QMenu(self.run_ai_btn)
         act_full = QAction("Analisar com IA — Completo (frame inteiro)", self)
         act_full.triggered.connect(lambda: self._start(use_ai=True, ai_mode=AIMode.FULL))
@@ -274,8 +280,10 @@ class AnalyzeTab(QWidget):
         self.cancel_btn = QPushButton("✕  Cancelar análise")
         self.cancel_btn.setStyleSheet(
             "QPushButton{background:#8B3A3A;color:white;font-weight:bold;padding:10px 16px;border-radius:6px;}"
-            "QPushButton:disabled{background:#555;}"
+            "QPushButton:hover{background:#A34444;}"
+            "QPushButton:disabled{background:#555;color:#999;}"
         )
+        self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.clicked.connect(self._cancel_analysis)
         self.cancel_btn.setVisible(False)
 
@@ -458,7 +466,10 @@ class AnalyzeTab(QWidget):
         if self._worker is None or not isinstance(self._worker, PipelineWorker):
             return
         self.cancel_btn.setEnabled(False)
-        self.status_label.setText("Cancelando — terminando a etapa atual...")
+        self.status_label.setText(
+            "Cancelando — espera a operação atual terminar "
+            "(um download de modelo pode levar minutos)..."
+        )
         self._worker.request_cancel()
 
     def _on_cancelled(self) -> None:

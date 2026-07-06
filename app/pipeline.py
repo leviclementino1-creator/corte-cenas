@@ -111,6 +111,9 @@ class Pipeline:
                 info.source,
                 threshold=cfg.scene_threshold,
                 min_seconds=cfg.min_shot_seconds,
+                on_progress=lambda f: cb(
+                    "detect_shots", f, f"Analisando mudanças de cena... {int(f * 100)}%"
+                ),
             )
             bounds_cache.write_text(
                 json.dumps(

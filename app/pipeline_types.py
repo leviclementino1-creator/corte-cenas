@@ -20,11 +20,15 @@ class AIMode(str, Enum):
     HYBRID = "hybrid"   # send only YOLO face crops
 
 
-class PipelineCancelled(Exception):
+class PipelineCancelled(BaseException):
     """Raised from inside the progress callback when the user hits Cancelar.
     The pipeline reports progress at every loop iteration, so raising here
     unwinds the whole run at the next stage/shot boundary without every loop
-    needing its own cancel check."""
+    needing its own cancel check.
+
+    Subclasses BaseException (like KeyboardInterrupt) on purpose: the raise
+    happens deep inside loops that are wrapped in generic `except Exception`
+    blocks — ours and third-party — and none of them may swallow a cancel."""
 
 
 ProgressCb = Callable[[str, float, str], None]

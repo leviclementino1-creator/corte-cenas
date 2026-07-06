@@ -27,7 +27,17 @@ def detect_shots(
     video = open_video(str(video_path))
     sm = SceneManager()
     sm.add_detector(ContentDetector(threshold=threshold))
-    sm.detect_scenes(video, show_progress=False)
+    # detect_scenes blocks for the whole episode (minutes). The per-cut
+    # callback (fires every few seconds of video) feeds real progress to the
+    # UI — and gives the cancel button a place to land mid-detection.
+    callback = None
+    if on_progress is not None:
+        total_frames = max(int(video.duration.get_frames() or 0), 1)
+
+        def callback(_image, frame_num: int) -> None:
+            on_progress(min(frame_num / total_frames, 1.0))
+
+    sm.detect_scenes(video, show_progress=False, callback=callback)
     scenes = sm.get_scene_list()
 
     shots: list[ShotBounds] = []
