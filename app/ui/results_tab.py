@@ -430,32 +430,38 @@ class ResultsTab(QWidget):
         self.grid.shot_action.connect(self._handle_shot_action)
         self._grid_layout.addWidget(self.grid)
 
-    def _handle_shot_action(self, action: str, shot: dict) -> None:
+    def _handle_shot_action(self, action: str, shots: list) -> None:
         """Context-menu callback from ShotGrid: manual cleanup of the
-        currently-viewed character folder.
+        currently-viewed character folder. `shots` carries every selected
+        row (Ctrl/Shift/laço) — the action applies to all of them; "move"
+        asks the target character once.
         """
         items = self.char_list.selectedItems()
-        if not items or self._current_result is None:
+        if not items or self._current_result is None or not shots:
             return
         current_char = items[0].data(Qt.ItemDataRole.UserRole)
-        shot_id = int(shot.get("id") or 0)
-        if not shot_id:
+        shot_ids = [int(s.get("id") or 0) for s in shots]
+        pairs = [(sid, s) for sid, s in zip(shot_ids, shots) if sid]
+        if not pairs:
             return
 
         if action == "approve":
-            self.db.set_assignment_review(shot_id, current_char["id"], approved=True)
+            for sid, _ in pairs:
+                self.db.set_assignment_review(sid, current_char["id"], approved=True)
         elif action == "remove":
-            self.db.remove_shot_character(shot_id, current_char["id"])
+            for sid, _ in pairs:
+                self.db.remove_shot_character(sid, current_char["id"])
         elif action == "move":
             target = self._ask_target_character(skip_character_id=current_char["id"])
             if target is None:
                 return
-            self.db.move_shot_to_character(
-                shot_id,
-                current_char["id"],
-                target["id"],
-                confidence=shot.get("confidence"),
-            )
+            for sid, shot in pairs:
+                self.db.move_shot_to_character(
+                    sid,
+                    current_char["id"],
+                    target["id"],
+                    confidence=shot.get("confidence"),
+                )
         else:
             return
 

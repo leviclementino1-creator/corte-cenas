@@ -28,8 +28,9 @@ class ShotGrid(QWidget):
     """
 
     shot_activated = Signal(dict)
-    # action_name in {"remove", "move", "approve"}, plus the shot row dict
-    shot_action = Signal(str, dict)
+    # action_name in {"remove", "move", "approve"}, plus the SELECTED shot
+    # rows (1..N — Ctrl/Shift/laço selecionam vários de uma vez).
+    shot_action = Signal(str, list)
 
     def __init__(self, episode_root: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -49,7 +50,9 @@ class ShotGrid(QWidget):
         self.list.setGridSize(QSize(210, 150))
         self.list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.list.setMovement(QListWidget.Movement.Static)
-        self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Extended = Ctrl+clique adiciona, Shift+clique estende, arrastar no
+        # vazio desenha laço — as ações do botão direito valem pra todos.
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list.setSpacing(6)
         self.list.itemDoubleClicked.connect(self._on_activate)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -99,23 +102,38 @@ class ShotGrid(QWidget):
         item = self.list.itemAt(pos)
         if item is None:
             return
-        data = item.data(Qt.ItemDataRole.UserRole)
-        if not data:
+        # Right-click on an unselected thumb targets just it (and selects it,
+        # like the Explorer); on a selected one, the action hits the whole
+        # selection.
+        if not item.isSelected():
+            self.list.clearSelection()
+            item.setSelected(True)
+        rows = [
+            it.data(Qt.ItemDataRole.UserRole)
+            for it in self.list.selectedItems()
+            if it.data(Qt.ItemDataRole.UserRole)
+        ]
+        if not rows:
             return
 
+        n = len(rows)
+        suffix = f" ({n} shots)" if n > 1 else ""
+        pending = [r for r in rows if r.get("approved") != 1]
+
         menu = QMenu(self)
-        approved = data.get("approved")
-        approve_label = "✓ Aprovado" if approved == 1 else "Aprovar (marcar correto)"
-
+        if not pending:
+            approve_label = "✓ Aprovado" if n == 1 else f"✓ Aprovados ({n})"
+        else:
+            approve_label = f"Aprovar (marcar correto){suffix}"
         act_approve = QAction(approve_label, self)
-        act_approve.setEnabled(approved != 1)
-        act_approve.triggered.connect(lambda: self.shot_action.emit("approve", data))
+        act_approve.setEnabled(bool(pending))
+        act_approve.triggered.connect(lambda: self.shot_action.emit("approve", pending))
 
-        act_remove = QAction("Remover dessa pasta", self)
-        act_remove.triggered.connect(lambda: self.shot_action.emit("remove", data))
+        act_remove = QAction(f"Remover dessa pasta{suffix}", self)
+        act_remove.triggered.connect(lambda: self.shot_action.emit("remove", rows))
 
-        act_move = QAction("Mover pra outro personagem...", self)
-        act_move.triggered.connect(lambda: self.shot_action.emit("move", data))
+        act_move = QAction(f"Mover pra outro personagem...{suffix}", self)
+        act_move.triggered.connect(lambda: self.shot_action.emit("move", rows))
 
         menu.addAction(act_approve)
         menu.addSeparator()
