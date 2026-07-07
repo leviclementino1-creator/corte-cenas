@@ -524,6 +524,30 @@ class AnalyzeTab(QWidget):
         self.run_ai_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
         self.pipeline_finished.emit(result)
+        # Skeleton-crew run (1-2 characters usable, rest skipped for lack of
+        # refs): worth a heads-up + the way to fix it. 3+ = no nagging.
+        if result.low_refs_warning:
+            box = QMessageBox(self)
+            set_quiet_icon(box, QMessageBox.Icon.Warning)
+            box.setWindowTitle("Poucos personagens com referências")
+            box.setText(result.low_refs_warning)
+            box.setInformativeText(
+                "Pra identificar os que ficaram de fora: adicione prints do "
+                "episódio (um personagem só por imagem) nas subpastas deles "
+                "na pasta de refs, 3-8 por personagem, e analise de novo — "
+                "os shots ficam em cache."
+            )
+            open_btn = None
+            if result.refs_dir:
+                open_btn = box.addButton(
+                    "📂 Abrir pasta de refs", QMessageBox.ButtonRole.AcceptRole
+                )
+            box.addButton("Fechar", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if open_btn is not None and box.clickedButton() is open_btn:
+                p = Path(result.refs_dir)
+                p.mkdir(parents=True, exist_ok=True)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
     def _on_refs_missing(self, message: str, refs_dir: str) -> None:
         """Zero characters got usable reference photos. Instead of a dead-end

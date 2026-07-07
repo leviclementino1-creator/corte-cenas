@@ -68,3 +68,8 @@ class PipelineResult:
     season: int
     episode: int
     episode_id: int
+    # Set when the run proceeded with a skeleton crew (1-2 characters with
+    # usable refs while others were skipped) — the UI turns it into a dialog
+    # offering the refs folder. 3+ usable characters = no nagging.
+    low_refs_warning: str | None = None
+    refs_dir: str | None = None

@@ -330,6 +330,17 @@ class Pipeline:
                 refs_dir=str(ref_store.anime_dir(cache_id) / "characters"),
             )
 
+        # 1-2 usable characters while others got dropped: the run still
+        # works, but the user should know most of the cast is invisible.
+        refs_dir_str = str(ref_store.anime_dir(cache_id) / "characters")
+        low_refs_warning = None
+        if skipped_few_refs and len(entries) <= 2:
+            low_refs_warning = (
+                f"Só {len(entries)} personagem(ns) tinham fotos de referência "
+                f"suficientes — {len(skipped_few_refs)} ficaram de fora e não "
+                "podem ser identificados neste episódio."
+            )
+
         matcher = CharacterMatcher(entries)
 
         # 6) Analyze shots — face_det reused from step 5
@@ -447,6 +458,8 @@ class Pipeline:
                 }
                 for e in entries
             ],
+            refs_dir=refs_dir_str,
+            low_refs_warning=low_refs_warning,
         )
 
     def _finalize_episode(
@@ -464,6 +477,8 @@ class Pipeline:
         per_shot_names: list[list[str]],
         name_to_id: dict[str, int],
         characters_json: list[dict],
+        refs_dir: str | None = None,
+        low_refs_warning: str | None = None,
     ) -> PipelineResult:
         """Shared end-of-pipeline stage for both CLIP and AI paths:
           - drop characters below min_shots_per_character (cleans DB too)
@@ -528,6 +543,8 @@ class Pipeline:
             season=info.season,
             episode=info.episode,
             episode_id=episode_id,
+            low_refs_warning=low_refs_warning,
+            refs_dir=refs_dir,
         )
 
     def _run_ai_recognition(
@@ -594,13 +611,16 @@ class Pipeline:
 
         db_chars = {c["name"]: c for c in self.db.get_characters_for_anime(anime_id)}
         character_names = [ch.name for ch in bundle.characters if refs_per_char.get(ch.name)]
+        if bundle.franchise_root_id:
+            _ai_cache_id = f"al{bundle.franchise_root_id}"
+        elif bundle.anilist_id:
+            _ai_cache_id = f"al{bundle.anilist_id}"
+        else:
+            _ai_cache_id = f"mal{bundle.mal_id}"
+        refs_dir_str = str(
+            ReferenceStore(cfg.cache_path).anime_dir(_ai_cache_id) / "characters"
+        )
         if not character_names:
-            if bundle.franchise_root_id:
-                _ai_cache_id = f"al{bundle.franchise_root_id}"
-            elif bundle.anilist_id:
-                _ai_cache_id = f"al{bundle.anilist_id}"
-            else:
-                _ai_cache_id = f"mal{bundle.mal_id}"
             raise InsufficientRefsError(
                 "Nenhum personagem tem foto de referência — a IA não teria "
                 "nomes nem rostos pra comparar.\n\n"
@@ -609,9 +629,15 @@ class Pipeline:
                 "tarde (os shots cortados ficam em cache) ou adicione fotos "
                 "manualmente pela pasta de refs.\n\n"
                 "Detalhes no app.log (Configurações → Abrir pasta de logs).",
-                refs_dir=str(
-                    ReferenceStore(cfg.cache_path).anime_dir(_ai_cache_id) / "characters"
-                ),
+                refs_dir=refs_dir_str,
+            )
+        low_refs_warning = None
+        n_missing = len(bundle.characters) - len(character_names)
+        if len(character_names) <= 2 and n_missing > 0:
+            low_refs_warning = (
+                f"Só {len(character_names)} personagem(ns) tinham fotos de "
+                f"referência — {n_missing} ficaram de fora e não podem ser "
+                "identificados neste episódio."
             )
         # Send one reference per character for the top 15 by popularity.
         # We use (role_weight, ref_count) as the popularity proxy: main
@@ -867,4 +893,6 @@ class Pipeline:
                 }
                 for n in character_names
             ],
+            refs_dir=refs_dir_str,
+            low_refs_warning=low_refs_warning,
         )
