@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
 
 import cv2
 import ffmpeg
 
-from .ffmpeg_locate import run_ffmpeg_hidden
+from .ffmpeg_locate import nvenc_available, run_ffmpeg_hidden
 from .shot_detection import ShotBounds
+
+# Consumer GeForce cards cap concurrent NVENC sessions (3-8 depending on the
+# driver generation). 3 parallel encodes is safe everywhere and already keeps
+# the encode chip saturated for 1-4s clips.
+_NVENC_WORKERS = 3
+# libx264 path: each ffmpeg spawns its own encoder threads, so a modest pool
+# is enough to keep every core busy without thrashing.
+_CPU_WORKERS = 4
 
 
 def cut_shot(
@@ -16,6 +26,7 @@ def cut_shot(
     shot: ShotBounds,
     out_file: Path,
     reencode: bool = True,
+    use_nvenc: bool = False,
 ) -> None:
     """Extract a shot to an mp4 file. Re-encode for frame accuracy, or stream-copy for speed.
 
@@ -29,16 +40,33 @@ def cut_shot(
             pass
 
     if reencode:
-        stream = ffmpeg.input(str(video_path), ss=shot.start, to=shot.end).output(
-            str(out_file),
-            vcodec="libx264",
-            preset="ultrafast",
-            crf=20,
-            acodec="aac",
-            format="mp4",
-            movflags="+faststart",
-            loglevel="error",
-        )
+        if use_nvenc:
+            # GPU encode chip: ~5-10x faster than libx264 on CPU and leaves
+            # the CPU free for parallel decode/keyframes. rc=vbr + cq + b:v 0
+            # is NVENC's constant-quality mode (the crf equivalent).
+            stream = ffmpeg.input(str(video_path), ss=shot.start, to=shot.end).output(
+                str(out_file),
+                vcodec="h264_nvenc",
+                preset="p4",
+                rc="vbr",
+                cq=23,
+                acodec="aac",
+                format="mp4",
+                movflags="+faststart",
+                loglevel="error",
+                **{"b:v": "0"},
+            )
+        else:
+            stream = ffmpeg.input(str(video_path), ss=shot.start, to=shot.end).output(
+                str(out_file),
+                vcodec="libx264",
+                preset="ultrafast",
+                crf=20,
+                acodec="aac",
+                format="mp4",
+                movflags="+faststart",
+                loglevel="error",
+            )
     else:
         stream = ffmpeg.input(str(video_path), ss=shot.start, to=shot.end).output(
             str(out_file),
@@ -95,41 +123,85 @@ def cut_all_shots(
     on_progress: Callable[[int, int, int], None] | None = None,
     skip_existing: bool = True,
 ) -> list[tuple[ShotBounds, Path, list[Path]]]:
-    """Cut shots and extract keyframes.
+    """Cut shots and extract keyframes, several shots at a time.
+
+    Each shot is an independent (ffmpeg cut + cv2 keyframes) work unit, so
+    they run in a thread pool: NVENC when the GPU has it (3 workers, safe for
+    every session-limited GeForce), libx264 otherwise (4 workers). One shot
+    at a time on CPU was ~86% of the whole pipeline's wall clock.
 
     If `skip_existing` is True, shots whose .mp4 is already on disk (non-empty)
     are not re-encoded, and keyframes already present are not re-extracted.
+
+    `on_progress` is called from THIS thread as results complete (completion
+    order, monotonic count) — raising from it (PipelineCancelled) cancels all
+    queued shots; in-flight ffmpeg calls finish into the cache.
     """
     shots_dir.mkdir(parents=True, exist_ok=True)
     keyframes_dir.mkdir(parents=True, exist_ok=True)
 
-    results: list[tuple[ShotBounds, Path, list[Path]]] = []
     total = len(shots)
-    skipped = 0
-    for i, shot in enumerate(shots):
+    # Shared, mutated on NVENC runtime failure (driver/session hiccup): the
+    # remaining shots silently switch to libx264. Benign race — worst case a
+    # couple extra NVENC attempts before every worker sees the flag.
+    enc_state = {"nvenc": reencode and nvenc_available()}
+    workers = _NVENC_WORKERS if enc_state["nvenc"] else _CPU_WORKERS
+    workers = max(1, min(workers, os.cpu_count() or 4, total or 1))
+
+    def process(shot: ShotBounds) -> tuple[ShotBounds, Path, list[Path], bool] | None:
         out_file = shots_dir / f"{shot.idx:04d}.mp4"
         expected_kfs = [keyframes_dir / f"{shot.idx:04d}_{k}.jpg" for k in range(keyframes_per_shot)]
 
         have_cut = out_file.exists() and out_file.stat().st_size > 0
         have_kfs = all(p.exists() and p.stat().st_size > 0 for p in expected_kfs)
 
-        if skip_existing and have_cut:
-            pass
-        else:
+        if not (skip_existing and have_cut):
             try:
-                cut_shot(video_path, shot, out_file, reencode=reencode)
+                cut_shot(video_path, shot, out_file, reencode=reencode, use_nvenc=enc_state["nvenc"])
             except ffmpeg.Error:
-                continue
+                if enc_state["nvenc"]:
+                    enc_state["nvenc"] = False
+                    print(
+                        f"[CorteCenas] NVENC falhou no shot {shot.idx} — "
+                        "continuando na CPU (libx264)",
+                        flush=True,
+                    )
+                    try:
+                        cut_shot(video_path, shot, out_file, reencode=reencode, use_nvenc=False)
+                    except ffmpeg.Error:
+                        return None
+                else:
+                    return None
 
         if skip_existing and have_kfs:
             kfs = expected_kfs
         else:
             kfs = extract_keyframes(video_path, shot, keyframes_dir, n_frames=keyframes_per_shot)
 
-        if skip_existing and have_cut and have_kfs:
-            skipped += 1
+        return shot, out_file, kfs, (skip_existing and have_cut and have_kfs)
 
-        results.append((shot, out_file, kfs))
-        if on_progress:
-            on_progress(i + 1, total, skipped)
-    return results
+    indexed: list[tuple[ShotBounds, Path, list[Path]] | None] = [None] * total
+    done = 0
+    skipped = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(process, shot): i for i, shot in enumerate(shots)}
+        try:
+            for fut in as_completed(futures):
+                res = fut.result()
+                done += 1
+                if res is not None:
+                    shot, out_file, kfs, was_skipped = res
+                    indexed[futures[fut]] = (shot, out_file, kfs)
+                    if was_skipped:
+                        skipped += 1
+                if on_progress:
+                    on_progress(done, total, skipped)
+        except BaseException:
+            # PipelineCancelled (or anything else) — drop everything queued;
+            # shots already encoding finish into the cache and get reused on
+            # the next run.
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+
+    # Original shot order, minus the ones ffmpeg couldn't cut.
+    return [r for r in indexed if r is not None]

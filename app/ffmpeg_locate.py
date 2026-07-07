@@ -48,6 +48,48 @@ def ffmpeg_binary() -> str:
     return _find("ffmpeg")
 
 
+_NVENC_AVAILABLE: bool | None = None
+
+
+def nvenc_available() -> bool:
+    """True iff this machine can actually encode with h264_nvenc (NVIDIA's
+    dedicated encode chip — much faster than libx264 on CPU and it doesn't
+    compete with CUDA inference for GPU cores).
+
+    `ffmpeg -encoders` listing h264_nvenc is NOT enough: the encoder is
+    compiled into every build but fails at runtime without an NVIDIA driver.
+    So we run a real 0.1s test encode of a synthetic frame into the null
+    muxer. Costs ~200 ms, cached for the rest of the process."""
+    global _NVENC_AVAILABLE
+    if _NVENC_AVAILABLE is None:
+        import subprocess
+        try:
+            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            proc = subprocess.run(
+                [
+                    ffmpeg_binary(), "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=black:s=256x256:d=0.1",
+                    "-c:v", "h264_nvenc", "-f", "null", "-",
+                ],
+                capture_output=True,
+                timeout=20,
+                creationflags=creationflags,
+            )
+            _NVENC_AVAILABLE = proc.returncode == 0
+            if not _NVENC_AVAILABLE:
+                # The first stderr line names the reason ("Driver does not
+                # support the required nvenc API version", "Cannot load
+                # nvcuda.dll", ...) — gold for remote logs.
+                reason = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+                if reason:
+                    print(f"[CorteCenas] NVENC recusado: {reason[0][:160]}", flush=True)
+        except Exception:
+            _NVENC_AVAILABLE = False
+        mode = "disponível — cortes via GPU" if _NVENC_AVAILABLE else "indisponível — cortes via CPU (libx264)"
+        print(f"[CorteCenas] NVENC {mode}", flush=True)
+    return _NVENC_AVAILABLE
+
+
 def ffprobe_binary() -> str:
     return _find("ffprobe")
 
