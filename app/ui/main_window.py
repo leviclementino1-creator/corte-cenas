@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from ..config import Config
 from ..deps_check import cuda_available, gpu_name
 from ..pipeline_types import PipelineResult
+from . import quiet
 from .analyze_tab import AnalyzeTab
 from .results_tab import ResultsTab
 from .settings_dialog import SettingsDialog
@@ -193,7 +194,7 @@ class MainWindow(QMainWindow):
                 running.append(t)
 
         if running:
-            reply = QMessageBox.question(
+            reply = quiet.question(
                 self,
                 "Análise em andamento",
                 "Tem uma análise rodando. Fechar mesmo assim?\n"

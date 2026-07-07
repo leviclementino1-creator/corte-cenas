@@ -52,6 +52,7 @@ from ..config import Config
 from ..pipeline_types import AIMode, PipelineResult, STAGES
 from ..storage.skip_ranges import SkipRangesStore
 from ..video_ingest import EpisodeInfo, format_mmss, parse_filename, parse_mmss
+from .quiet import set_quiet_icon
 from .worker import PipelineWorker, RefsPreviewWorker
 
 
@@ -531,7 +532,7 @@ class AnalyzeTab(QWidget):
         self.cancel_btn.setVisible(False)
 
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Critical)
+        set_quiet_icon(box, QMessageBox.Icon.Critical)
         box.setWindowTitle("Falha ao analisar episódio")
         box.setText(first_line)
         box.setInformativeText(
@@ -594,7 +595,7 @@ class AnalyzeTab(QWidget):
         )
 
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Information)
+        set_quiet_icon(box, QMessageBox.Icon.Information)
         box.setWindowTitle("Refs baixadas")
         box.setText(
             f"{info.get('title')}\n"

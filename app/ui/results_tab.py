@@ -24,7 +24,9 @@ from ..config import Config
 from ..pipeline_types import PipelineResult
 from ..references.reference_store import ReferenceStore
 from ..storage.db import Database
+from . import quiet
 from .character_grid import ShotGrid
+from .quiet import set_quiet_icon
 from .worker import HarvestWorker, ReframeWorker
 
 
@@ -330,7 +332,7 @@ class ResultsTab(QWidget):
         self.reframe_progress.setVisible(False)
         self._refresh_char_buttons()
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Information)
+        set_quiet_icon(box, QMessageBox.Icon.Information)
         box.setWindowTitle("Exportação vertical concluída")
         box.setText(
             f"{info['name']}: {info['ok']}/{info['total']} shots gerados em 1080x1920."
@@ -346,7 +348,7 @@ class ResultsTab(QWidget):
         self.reframe_progress.setVisible(False)
         self._refresh_char_buttons()
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Critical)
+        set_quiet_icon(box, QMessageBox.Icon.Critical)
         box.setWindowTitle("Falha na exportação vertical")
         box.setText(msg.splitlines()[0] if msg else "erro desconhecido")
         box.setDetailedText(msg)
@@ -410,7 +412,7 @@ class ResultsTab(QWidget):
         else:
             detail = "(nenhum personagem atingiu o limiar)"
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Information)
+        set_quiet_icon(box, QMessageBox.Icon.Information)
         box.setWindowTitle("Refs reforçadas")
         box.setText(f"Adicionadas {total} refs em {len(results)} personagens.")
         box.setInformativeText(detail)
@@ -476,7 +478,7 @@ class ResultsTab(QWidget):
         all_chars = self.db.get_characters_for_anime(self._anime_id)
         choices = [c for c in all_chars if c["id"] != skip_character_id]
         if not choices:
-            QMessageBox.information(
+            quiet.information(
                 self, "Sem opções", "Não há outros personagens no banco pra mover."
             )
             return None

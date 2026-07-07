@@ -23,6 +23,7 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
 
 from . import __version__
+from .ui import quiet
 
 # CHANGE ME: your GitHub "<user>/<repo>" (must be public, or the API returns 404
 # for anonymous requests). The updater silently no-ops until this is real.
@@ -176,7 +177,7 @@ def check_and_offer_update(
     release = _fetch_latest_release()
     if not release:
         if verbose:
-            QMessageBox.warning(
+            quiet.warning(
                 parent, "Sem conexão",
                 "Não consegui checar a versão mais recente no GitHub.\n"
                 "Verifique sua conexão e tente de novo."
@@ -186,7 +187,7 @@ def check_and_offer_update(
     remote_tag = release.get("tag_name") or ""
     if _parse_version(remote_tag) <= _parse_version(__version__):
         if verbose:
-            QMessageBox.information(
+            quiet.information(
                 parent, "Tudo em dia",
                 f"Você já está na versão mais recente: <b>{__version__}</b>."
             )
@@ -199,7 +200,7 @@ def check_and_offer_update(
     # applying the delta fails at runtime.
     if not installer_url and not delta_url:
         if verbose:
-            QMessageBox.information(
+            quiet.information(
                 parent, "Atualização não empacotada",
                 f"A versão {remote_tag} está publicada, mas ainda não tem um "
                 "instalador anexado. Tente daqui a alguns minutos."
@@ -212,7 +213,7 @@ def check_and_offer_update(
 
     box = QMessageBox(parent)
     box.setWindowTitle("Nova versão disponível")
-    box.setIcon(QMessageBox.Icon.Information)
+    quiet.set_quiet_icon(box, QMessageBox.Icon.Information)
     box.setText(
         f"<b>Corte Cenas {remote_tag}</b> está disponível.<br>"
         f"Você tem <b>{__version__}</b>.<br><br>"
@@ -269,7 +270,7 @@ def check_and_offer_update(
             else:
                 subprocess.Popen([path], close_fds=True)
         except Exception as e:
-            QMessageBox.warning(
+            quiet.warning(
                 parent, "Erro ao iniciar instalador",
                 f"{e}\n\nO instalador foi baixado em:\n{path}\n\n"
                 "Você pode dar dois cliques nele manualmente pra atualizar."
@@ -281,7 +282,7 @@ def check_and_offer_update(
 
     def _show_error(err: str) -> None:
         progress.close()
-        QMessageBox.warning(
+        quiet.warning(
             parent, "Erro ao atualizar",
             f"Não foi possível baixar a atualização:\n\n{err}\n\n"
             "Tenta de novo em alguns minutos ou baixa manualmente do GitHub."

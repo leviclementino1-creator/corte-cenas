@@ -31,7 +31,8 @@ def _show_crash_dialog(log_path: Path, tb: str) -> None:
     (which may itself be what failed to load)."""
     try:
         import ctypes
-        MB_ICONERROR = 0x10
+        # Sem MB_ICONERROR de propósito: o flag de ícone toca o som de erro
+        # do sistema, e as notificações do app são silenciosas por decisão.
         MB_OK = 0x0
         preview = tb.strip().splitlines()[-1] if tb.strip() else "(sem detalhes)"
         msg = (
@@ -40,8 +41,7 @@ def _show_crash_dialog(log_path: Path, tb: str) -> None:
             f"Um relatório completo foi salvo em:\n{log_path}\n\n"
             f"Envie o arquivo pra quem te passou o app pra investigar."
         )
-        ctypes.windll.user32.MessageBoxW(0, msg, "Corte Cenas — Erro fatal",
-                                        MB_OK | MB_ICONERROR)
+        ctypes.windll.user32.MessageBoxW(0, msg, "Corte Cenas — Erro fatal", MB_OK)
     except Exception:
         pass
 
