@@ -18,7 +18,7 @@ _log = logging.getLogger("cortecenas")
 from PySide6.QtCore import QObject, QThread, Signal
 
 from ..config import Config
-from ..pipeline_types import AIMode, PipelineCancelled, PipelineResult
+from ..pipeline_types import AIMode, InsufficientRefsError, PipelineCancelled, PipelineResult
 from ..video_ingest import EpisodeInfo
 
 
@@ -27,6 +27,7 @@ class PipelineWorker(QObject):
     finished = Signal(object)                 # PipelineResult
     failed = Signal(str)
     cancelled = Signal()
+    refs_missing = Signal(str, str)          # (message, refs_folder)
 
     def __init__(
         self,
@@ -73,6 +74,9 @@ class PipelineWorker(QObject):
                 ", ".join(result.identified_characters) or "nenhum",
             )
             self.finished.emit(result)
+        except InsufficientRefsError as e:
+            _log.info("=== Análise abortada: refs insuficientes (pasta: %s) ===", e.refs_dir)
+            self.refs_missing.emit(str(e), e.refs_dir)
         except PipelineCancelled:
             _log.info("=== Análise CANCELADA pelo usuário ===")
             self.cancelled.emit()

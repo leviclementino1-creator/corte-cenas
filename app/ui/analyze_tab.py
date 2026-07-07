@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -457,9 +457,11 @@ class AnalyzeTab(QWidget):
         self._worker.finished.connect(self._on_finished)
         self._worker.failed.connect(self._on_failed)
         self._worker.cancelled.connect(self._on_cancelled)
+        self._worker.refs_missing.connect(self._on_refs_missing)
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
         self._worker.cancelled.connect(self._thread.quit)
+        self._worker.refs_missing.connect(self._thread.quit)
         self._thread.finished.connect(self._cleanup_thread)
         self._thread.start()
 
@@ -522,6 +524,38 @@ class AnalyzeTab(QWidget):
         self.run_ai_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
         self.pipeline_finished.emit(result)
+
+    def _on_refs_missing(self, message: str, refs_dir: str) -> None:
+        """Zero characters got usable reference photos. Instead of a dead-end
+        error, offer the way out: open the refs folder so the user can drop
+        face images per character and re-run."""
+        first_line = message.splitlines()[0] if message else "refs insuficientes"
+        self.status_label.setText(f"Erro: {first_line}")
+        self.status_label.setStyleSheet("color:#ff6b6b;font-weight:bold;")
+        self.run_btn.setEnabled(True)
+        self.run_ai_btn.setEnabled(True)
+        self.cancel_btn.setVisible(False)
+
+        box = QMessageBox(self)
+        set_quiet_icon(box, QMessageBox.Icon.Warning)
+        box.setWindowTitle("Sem referências suficientes")
+        box.setText(first_line)
+        box.setInformativeText(
+            "Você pode adicionar fotos manualmente: cada personagem tem uma "
+            "subpasta na pasta de refs. Jogue imagens .jpg/.png com o rosto "
+            "bem visível — prints do próprio episódio funcionam ótimo — umas "
+            "3-8 por personagem, e clique em Analisar de novo (os shots já "
+            "cortados ficam em cache).\n\n"
+            "As fotos valem pra todos os próximos episódios desse anime."
+        )
+        box.setDetailedText(message)
+        open_btn = box.addButton("📂 Abrir pasta de refs", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Fechar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            p = Path(refs_dir)
+            p.mkdir(parents=True, exist_ok=True)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
     def _on_failed(self, message: str) -> None:
         first_line = message.splitlines()[0] if message else "falhou"

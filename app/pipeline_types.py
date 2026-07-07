@@ -20,6 +20,16 @@ class AIMode(str, Enum):
     HYBRID = "hybrid"   # send only YOLO face crops
 
 
+class InsufficientRefsError(RuntimeError):
+    """No character ended up with usable reference images (dead APIs, brand
+    new season...). Carries the refs folder so the UI can offer to open it —
+    the user can drop face images in per-character subfolders and re-run."""
+
+    def __init__(self, message: str, refs_dir: str) -> None:
+        super().__init__(message)
+        self.refs_dir = refs_dir
+
+
 class PipelineCancelled(BaseException):
     """Raised from inside the progress callback when the user hits Cancelar.
     The pipeline reports progress at every loop iteration, so raising here

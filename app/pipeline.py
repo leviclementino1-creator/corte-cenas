@@ -18,7 +18,7 @@ from .matching.face_detector import AnimeFaceDetector, ensure_cascade, smart_por
 # Lightweight types re-exported here so callers can keep `from .pipeline
 # import AIMode, PipelineResult, STAGES` without dragging in torch just to
 # read a type name. UI modules should prefer `from .pipeline_types import ...`.
-from .pipeline_types import AIMode, PipelineResult, ProgressCb, STAGES
+from .pipeline_types import AIMode, InsufficientRefsError, PipelineResult, ProgressCb, STAGES
 from .providers.anime_provider import AnimeProvider
 from .references.reference_store import ReferenceStore
 from .shot_detection import ShotBounds, detect_shots
@@ -314,7 +314,7 @@ class Pipeline:
         # would burn minutes of GPU to deliver a guaranteed-empty result —
         # fail now, with the actual reason and a way out.
         if not entries:
-            raise RuntimeError(
+            raise InsufficientRefsError(
                 "Nenhum personagem ficou com fotos de referência suficientes "
                 f"(mínimo {cfg.min_references_per_character} por personagem) — "
                 "a análise não teria como identificar ninguém.\n\n"
@@ -322,10 +322,12 @@ class Pipeline:
                 "estão instáveis ou fora do ar agora. O que fazer:\n"
                 "• Tente de novo mais tarde (os shots cortados ficam em cache, "
                 "a próxima rodada pula direto pro banco de personagens);\n"
-                "• Ou use 'Testar refs (preview)' pra conferir quantas imagens "
-                "cada personagem está conseguindo.\n\n"
+                "• Ou adicione fotos manualmente: 'Abrir pasta de refs' neste "
+                "aviso — cada personagem tem uma subpasta; prints do próprio "
+                "episódio funcionam.\n\n"
                 "Detalhes por personagem no app.log (Configurações → Abrir "
-                "pasta de logs)."
+                "pasta de logs).",
+                refs_dir=str(ref_store.anime_dir(cache_id) / "characters"),
             )
 
         matcher = CharacterMatcher(entries)
@@ -593,13 +595,23 @@ class Pipeline:
         db_chars = {c["name"]: c for c in self.db.get_characters_for_anime(anime_id)}
         character_names = [ch.name for ch in bundle.characters if refs_per_char.get(ch.name)]
         if not character_names:
-            raise RuntimeError(
+            if bundle.franchise_root_id:
+                _ai_cache_id = f"al{bundle.franchise_root_id}"
+            elif bundle.anilist_id:
+                _ai_cache_id = f"al{bundle.anilist_id}"
+            else:
+                _ai_cache_id = f"mal{bundle.mal_id}"
+            raise InsufficientRefsError(
                 "Nenhum personagem tem foto de referência — a IA não teria "
                 "nomes nem rostos pra comparar.\n\n"
                 "Causa mais comum: as fontes de imagens (Jikan/MyAnimeList) "
                 "estão instáveis ou fora do ar agora. Tente de novo mais "
-                "tarde — os shots cortados ficam em cache.\n\n"
-                "Detalhes no app.log (Configurações → Abrir pasta de logs)."
+                "tarde (os shots cortados ficam em cache) ou adicione fotos "
+                "manualmente pela pasta de refs.\n\n"
+                "Detalhes no app.log (Configurações → Abrir pasta de logs).",
+                refs_dir=str(
+                    ReferenceStore(cfg.cache_path).anime_dir(_ai_cache_id) / "characters"
+                ),
             )
         # Send one reference per character for the top 15 by popularity.
         # We use (role_weight, ref_count) as the popularity proxy: main
