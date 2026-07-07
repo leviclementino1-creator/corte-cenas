@@ -54,6 +54,18 @@ def _fetch_latest_release() -> dict | None:
         return None
 
 
+# Sentinel: distinguishes "caller didn't prefetch" from "prefetched but the
+# network said no" (None). Lets main() do the slow network hit under the
+# splash screen and hand the result over without a second request.
+_UNFETCHED = object()
+
+
+def fetch_release() -> dict | None:
+    """Network-only half of the update check (no UI). Call it under the
+    splash, then pass the result to check_and_offer_update(release=...)."""
+    return _fetch_latest_release()
+
+
 def _find_installer_url(release: dict) -> str | None:
     for asset in release.get("assets", []):
         name = (asset.get("name") or "").lower()
@@ -167,14 +179,19 @@ def _apply_delta_and_quit(zip_path: str, parent: QWidget | None) -> None:
 def check_and_offer_update(
     parent: QWidget | None = None,
     verbose: bool = False,
+    release: dict | None | object = _UNFETCHED,
 ) -> None:
     """Called on app startup (verbose=False, silent no-ops) or from a manual
     'Verificar atualizações' button (verbose=True, shows 'up to date' /
     error dialogs even in the no-update path).
 
+    `release`: pass the dict from fetch_release() to skip the network hit
+    (main() prefetches it under the splash screen).
+
     If an update is applied, quits the QApplication so the installer can run.
     """
-    release = _fetch_latest_release()
+    if release is _UNFETCHED:
+        release = _fetch_latest_release()
     if not release:
         if verbose:
             quiet.warning(

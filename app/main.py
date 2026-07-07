@@ -13,7 +13,7 @@ from .config import Config
 from .deps_check import cuda_available, ffmpeg_available, missing_optional_deps
 from .ui.deps_dialog import FFmpegMissingDialog, MissingDepsDialog, NoGpuDialog
 from .ui.main_window import MainWindow
-from .updater import check_and_offer_update
+from .updater import check_and_offer_update, fetch_release
 
 
 def _load_app_icon() -> QIcon:
@@ -49,21 +49,26 @@ def main() -> int:
     app.setApplicationName("Corte Cenas")
     app.setWindowIcon(_load_app_icon())
 
-    # Splash screen — hides while we import the heavy modules that Qt still
-    # needs (ui.main_window pulls in a bunch). Kept short since v0.1.6's
-    # lazy-imports keep the whole path under ~1s cold.
+    # Splash "estilo After Effects": fica na tela DURANTE todo o carregamento
+    # lento (rede + torch), com o status trocando embaixo do ícone. A janela
+    # principal só aparece quando está pronta de verdade — e os diálogos que
+    # precisam do usuário (update, deps, GPU) vêm depois, por cima dela.
     splash: QSplashScreen | None = None
     pixmap = _load_splash_pixmap()
     if pixmap is not None:
         splash = QSplashScreen(pixmap, Qt.WindowType.WindowStaysOnTopHint)
-        splash.showMessage(
-            f"Corte Cenas v{__version__}\nCarregando…",
-            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
-            Qt.GlobalColor.white,
-        )
         splash.show()
+
+    def status(text: str) -> None:
+        if splash is not None:
+            splash.showMessage(
+                f"Corte Cenas v{__version__}\n{text}",
+                Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
+                Qt.GlobalColor.white,
+            )
         app.processEvents()
 
+    status("Carregando…")
     cfg = Config.load()
     cfg.ensure_dirs()
     get_logger().info(
@@ -71,32 +76,40 @@ def main() -> int:
         cfg.output_dir, cfg.cache_path, cfg.models_path,
     )
 
-    # Show the window FIRST, then run the slow startup checks (network ping
-    # for updates, torch import for the GPU check). When these ran before
-    # show(), the multi-second gap let the user focus another window and
-    # Windows then denied us the foreground — the app looked "minimized".
-    win = MainWindow(cfg)
+    # Trabalho lento e SILENCIOSO debaixo do splash (nenhum diálogo aqui,
+    # senão o splash stay-on-top cobriria ele):
+    status("Verificando atualizações…")
+    release = fetch_release()               # rede, ~0.5-5s
+
+    status("Verificando dependências…")
+    missing = missing_optional_deps()
+    ffmpeg_ok = ffmpeg_available()
+
+    status("Detectando GPU…")
+    has_cuda = cuda_available()             # importa torch: ~5s no cold start
+
+    status("Abrindo…")
+    win = MainWindow(cfg)                   # rápido: torch já está em memória
     win.show()
     if splash is not None:
         splash.finish(win)
+    # O usuário pode ter focado outra janela durante o load — sem isto o
+    # Windows nega o primeiro plano e o app nasce atrás de tudo.
     win.raise_()
     win.activateWindow()
 
-    # Ping GitHub Releases. If a newer setup.exe exists, prompt + quit to update.
-    check_and_offer_update(parent=win)
+    # Agora sim os diálogos interativos, por cima da janela visível:
+    check_and_offer_update(parent=win, release=release)
 
-    # Prompt to install YOLO/HF Hub if they're missing in the current Python.
-    missing = missing_optional_deps()
     if missing:
         MissingDepsDialog(missing).exec()
 
-    # Warn if FFmpeg is missing before user gets frustrated mid-analysis.
-    if not ffmpeg_available():
+    if not ffmpeg_ok:
         FFmpegMissingDialog().exec()
 
     # Warn about CPU-only mode (no NVIDIA GPU with CUDA). App still runs,
     # just ~20x slower. Once dismissed with "don't ask again", we stay quiet.
-    if not cuda_available() and not cfg.gpu_warning_dismissed:
+    if not has_cuda and not cfg.gpu_warning_dismissed:
         dlg = NoGpuDialog()
         dlg.exec()
         if dlg.dont_ask_again:
