@@ -36,3 +36,6 @@ Thumbs.db
 
 # Local scratch scripts
 _build_all.bat
+
+# gerado pelo gen_deps_fingerprint.py a cada build
+app/deps_fingerprint.txt

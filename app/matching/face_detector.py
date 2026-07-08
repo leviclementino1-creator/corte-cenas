@@ -33,6 +33,14 @@ def ensure_cascade(models_dir: Path) -> Path:
 _YOLO_REPO = "deepghs/anime_face_detection"
 _YOLO_FILE = "face_detect_v1.4_s/model.pt"  # 22MB, ~34ms/img on GPU
 
+# Cascade stage 2: HEAD detection. The face model is mostly frontal — it
+# misses profiles, downcast faces and small/far characters (production logs:
+# faces found in only ~40-55% of shots). Heads are visible from any angle,
+# so on face-miss frames we fall back to head boxes; the head crop (face +
+# hair) is actually a strong input for CLIP identification.
+_HEAD_REPO = "deepghs/anime_head_detection"
+_HEAD_FILE = "head_detect_v0.5_s/model.pt"
+
 
 def ensure_yolo_anime_face() -> Path:
     """Download (and cache) the deepghs anime face YOLOv8 model from HuggingFace.
@@ -45,6 +53,11 @@ def ensure_yolo_anime_face() -> Path:
             "huggingface_hub não está instalado. Rode `pip install huggingface_hub`."
         ) from e
     return Path(hf_hub_download(repo_id=_YOLO_REPO, filename=_YOLO_FILE))
+
+
+def ensure_yolo_anime_head() -> Path:
+    from huggingface_hub import hf_hub_download
+    return Path(hf_hub_download(repo_id=_HEAD_REPO, filename=_HEAD_FILE))
 
 
 class AnimeFaceDetector:
@@ -64,6 +77,7 @@ class AnimeFaceDetector:
     ) -> None:
         self.conf = conf
         self._yolo = None
+        self._head_yolo = None
         self._cascade = None
 
         try:
@@ -80,6 +94,16 @@ class AnimeFaceDetector:
             self._cascade = cv2.CascadeClassifier(str(path))
             if self._cascade.empty():
                 raise RuntimeError(f"Failed to load cascade: {path}") from e
+
+        # Stage 2 (best-effort): head detector for face-miss frames. If the
+        # download/load fails, the cascade quietly degrades to face-only.
+        if self._yolo is not None:
+            try:
+                from ultralytics import YOLO
+                self._head_yolo = YOLO(str(ensure_yolo_anime_head()))
+            except Exception as e:
+                print(f"[CorteCenas] Head-detect indisponível ({e}); só face detect.")
+                self._head_yolo = None
 
     def detect(
         self,
@@ -100,40 +124,48 @@ class AnimeFaceDetector:
             return []
         img_h, img_w = image_bgr.shape[:2]
 
-        raw: list[tuple[int, int, int, int]] = []
-        if self._yolo is not None:
-            try:
-                results = self._yolo.predict(
-                    image_bgr, conf=self.conf, verbose=False, device=self._device,
-                )
-            except Exception:
-                results = self._yolo.predict(image_bgr, conf=self.conf, verbose=False, device="cpu")
-            r = results[0]
-            boxes = getattr(r, "boxes", None)
-            if boxes is None:
-                return []
-            xyxy = boxes.xyxy
-            xyxy = xyxy.cpu().numpy() if hasattr(xyxy, "cpu") else np.asarray(xyxy)
-            for (x1, y1, x2, y2) in xyxy:
-                w = int(round(float(x2) - float(x1)))
-                h = int(round(float(y2) - float(y1)))
-                raw.append((int(round(float(x1))), int(round(float(y1))), w, h))
-        else:
-            gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-            gray = cv2.equalizeHist(gray)
-            faces = self._cascade.detectMultiScale(
-                gray, scaleFactor=1.08, minNeighbors=3, minSize=(min_size, min_size)
-            )
-            raw = [tuple(map(int, f)) for f in faces]
-
-        out: list[tuple[int, int, int, int]] = []
-        for (x, y, w, h) in raw:
-            if h < min_size:
-                continue
-            if max_ratio > 0:
-                if w / img_w >= max_ratio or h / img_h >= max_ratio:
+        def _size_filter(boxes: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+            kept = []
+            for (x, y, w, h) in boxes:
+                if h < min_size:
                     continue
-            out.append((x, y, w, h))
+                if max_ratio > 0 and (w / img_w >= max_ratio or h / img_h >= max_ratio):
+                    continue
+                kept.append((x, y, w, h))
+            return kept
+
+        if self._yolo is not None:
+            out = _size_filter(self._predict_boxes(self._yolo, image_bgr))
+            if out or self._head_yolo is None:
+                return out
+            # Cascade stage 2: no frontal face found — try heads (profiles,
+            # downcast, small/far characters).
+            return _size_filter(self._predict_boxes(self._head_yolo, image_bgr))
+
+        gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+        faces = self._cascade.detectMultiScale(
+            gray, scaleFactor=1.08, minNeighbors=3, minSize=(min_size, min_size)
+        )
+        return _size_filter([tuple(map(int, f)) for f in faces])
+
+    def _predict_boxes(self, model, image_bgr: np.ndarray) -> list[tuple[int, int, int, int]]:
+        try:
+            results = model.predict(
+                image_bgr, conf=self.conf, verbose=False, device=self._device,
+            )
+        except Exception:
+            results = model.predict(image_bgr, conf=self.conf, verbose=False, device="cpu")
+        boxes = getattr(results[0], "boxes", None)
+        if boxes is None:
+            return []
+        xyxy = boxes.xyxy
+        xyxy = xyxy.cpu().numpy() if hasattr(xyxy, "cpu") else np.asarray(xyxy)
+        out: list[tuple[int, int, int, int]] = []
+        for (x1, y1, x2, y2) in xyxy:
+            w = int(round(float(x2) - float(x1)))
+            h = int(round(float(y2) - float(y1)))
+            out.append((int(round(float(x1))), int(round(float(y1))), w, h))
         return out
 
     def crop_faces(self, image_bgr: np.ndarray, pad: float = 0.25) -> list[np.ndarray]:

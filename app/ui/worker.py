@@ -35,12 +35,14 @@ class PipelineWorker(QObject):
         info: EpisodeInfo,
         use_ai_recognition: bool = False,
         ai_mode: AIMode = AIMode.FULL,
+        ai_review_ambiguous: bool = False,
     ) -> None:
         super().__init__()
         self.config = config
         self.info = info
         self.use_ai_recognition = use_ai_recognition
         self.ai_mode = ai_mode
+        self.ai_review_ambiguous = ai_review_ambiguous
         self._cancel_requested = False
 
     def request_cancel(self) -> None:
@@ -52,9 +54,9 @@ class PipelineWorker(QObject):
     def run(self) -> None:
         try:
             _log.info(
-                "=== Análise iniciada: %s (S%02dE%02d, ai=%s, modo=%s) ===",
+                "=== Análise iniciada: %s (S%02dE%02d, ai=%s, modo=%s, revisão=%s) ===",
                 self.info.anime, self.info.season, self.info.episode,
-                self.use_ai_recognition, self.ai_mode.value,
+                self.use_ai_recognition, self.ai_mode.value, self.ai_review_ambiguous,
             )
             # First analysis of the session pays the ~5s "torch import" tax.
             # We emit before the import so the UI shows something instead of
@@ -67,6 +69,7 @@ class PipelineWorker(QObject):
                 on_progress=self._emit,
                 use_ai_recognition=self.use_ai_recognition,
                 ai_mode=self.ai_mode,
+                ai_review_ambiguous=self.ai_review_ambiguous,
             )
             _log.info(
                 "=== Análise concluída: %d shots, %d personagens (%s) ===",

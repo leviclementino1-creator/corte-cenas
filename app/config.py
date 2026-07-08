@@ -118,6 +118,12 @@ class Config:
     argmax_margin: float = 0.03             # best must beat 2nd by this
     min_shots_per_character: int = 4        # post-hoc: chars under this get dropped
     min_keyframe_votes: int = 2             # char must be detected in >=N keyframes
+
+    # Modo híbrido (CLIP decide, IA revisa os duvidosos): um shot SEM
+    # personagem atribuído cuja melhor similaridade ficou em
+    # [ai_review_low, default_threshold) é "quase" — vai pra IA desempatar.
+    ai_review_low: float = 0.62
+    ai_review_max_shots: int = 150          # teto de custo por episódio
     face_crop_padding: float = 0.25         # around detected face; more context helps CLIP
     # AI hybrid mode crops get WIDER padding so hair/headband is fully
     # visible — that's often the only thing telling apart similar-styled

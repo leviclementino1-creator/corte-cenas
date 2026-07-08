@@ -60,6 +60,18 @@ class CharacterMatcher:
         out.sort(key=lambda x: x[1], reverse=True)
         return out
 
+    def best_overall(
+        self, query_embeddings: np.ndarray
+    ) -> tuple[CharacterEntry, float] | None:
+        """Best (entry, similarity) across ALL queries, ignoring thresholds.
+        Used to grade how close an unassigned shot came — the ambiguity band
+        that decides whether the AI reviewer gets a look at it."""
+        if self.matrix.size == 0 or query_embeddings.size == 0:
+            return None
+        sims = query_embeddings @ self.matrix.T
+        q, c = np.unravel_index(int(np.argmax(sims)), sims.shape)
+        return self.entries[int(c)], float(sims[q, c])
+
     def assign_best_per_query(
         self, query_embeddings: np.ndarray, margin: float = 0.0
     ) -> list[tuple[int, float]]:

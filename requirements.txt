@@ -27,3 +27,6 @@ platformdirs>=4.2
 # small variant is 34ms/img on GPU.
 ultralytics>=8.1
 huggingface_hub>=0.20
+# Acelera o download dos modelos do HF Hub (CLIP ~890 MB na primeira análise).
+# Sem ele o hub cai em HTTP puro e loga um warning em toda instalação.
+hf_xet>=1.0

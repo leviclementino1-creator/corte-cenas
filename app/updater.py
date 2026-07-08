@@ -137,10 +137,35 @@ def _find_apply_helper() -> Path | None:
     return None
 
 
+def _local_deps_fingerprint() -> str | None:
+    """sha256 do requirements.txt embarcado NESTA instalação (v0.2.0+)."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return None
+    p = Path(meipass) / "app" / "deps_fingerprint.txt"
+    try:
+        return p.read_text(encoding="ascii").strip() or None
+    except OSError:
+        return None
+
+
+def _zip_deps_fingerprint(zf) -> str | None:
+    """sha256 do requirements.txt embarcado no delta zip baixado."""
+    for name in ("_internal/app/deps_fingerprint.txt",):
+        try:
+            return zf.read(name).decode("ascii").strip() or None
+        except KeyError:
+            continue
+        except Exception:
+            return None
+    return None
+
+
 def _apply_delta_and_quit(zip_path: str, parent: QWidget | None) -> None:
     """Extract the delta zip, launch the elevated PowerShell helper, quit."""
     import ctypes
     import shutil
+    import webbrowser
     import zipfile as _zipfile
 
     install_dir = _find_install_dir()
@@ -151,11 +176,34 @@ def _apply_delta_and_quit(zip_path: str, parent: QWidget | None) -> None:
             "aplique manualmente extraindo o zip em cima da instalação."
         )
 
-    staging = Path(zip_path).parent / f"{Path(zip_path).stem}-extract"
-    if staging.exists():
-        shutil.rmtree(staging, ignore_errors=True)
-    staging.mkdir(parents=True)
     with _zipfile.ZipFile(zip_path) as zf:
+        # O delta só carrega o NOSSO código; torch/PySide/etc. ficam como
+        # estão. Se o requirements.txt mudou entre a instalação e a release
+        # nova, aplicar o delta produziria um app quebrado — recusa e manda
+        # pro instalador completo.
+        local_fp = _local_deps_fingerprint()
+        remote_fp = _zip_deps_fingerprint(zf)
+        if local_fp and remote_fp and local_fp != remote_fp:
+            print(
+                f"[updater] Delta recusado: deps mudaram "
+                f"(local {local_fp[:12]}… != release {remote_fp[:12]}…)",
+                flush=True,
+            )
+            quiet.warning(
+                parent, "Atualização precisa do instalador completo",
+                "Essa versão mudou componentes internos do app, então a "
+                "atualização rápida de ~53 MB não é suficiente.\n\n"
+                "Vou abrir a página da release — baixe o "
+                "CorteCenas-Setup-X.Y.Z.exe (~2 GB) e execute por cima da "
+                "instalação atual (configurações e clipes são preservados).",
+            )
+            webbrowser.open(f"https://github.com/{GITHUB_REPO}/releases/latest")
+            return
+
+        staging = Path(zip_path).parent / f"{Path(zip_path).stem}-extract"
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True)
         zf.extractall(staging)
 
     # PowerShell command — quoted string args passed via -Command so paths

@@ -32,6 +32,7 @@ hidden += [
     "ftfy",
     "regex",
     "huggingface_hub",
+    "hf_xet",           # fast-path de download do HF Hub (senão cai em HTTP + warning)
     "safetensors",
     "timm",
     "yaml",
@@ -48,6 +49,10 @@ datas += [("bin/ffprobe.exe", "bin")]
 # Elevated helper for delta updates. Shipped alongside the exe so the
 # updater can hand it a source dir + target dir and let it copy files.
 datas += [("apply_update.ps1", ".")]
+# Deps fingerprint (sha256 do requirements.txt, gerado por
+# gen_deps_fingerprint.py). O updater compara o do delta zip com o local:
+# deps diferentes = delta entregaria app quebrado -> forca setup completo.
+datas += [("app/deps_fingerprint.txt", "app")]
 # App icon (all sizes) — needed at runtime for QApplication.setWindowIcon().
 datas += [("app/assets/icon.ico", "app/assets")]
 datas += [("app/assets/icon_256.png", "app/assets")]

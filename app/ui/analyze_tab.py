@@ -267,10 +267,18 @@ class AnalyzeTab(QWidget):
         )
         self.run_ai_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         ai_menu = QMenu(self.run_ai_btn)
-        act_full = QAction("Analisar com IA — Completo (frame inteiro)", self)
-        act_full.triggered.connect(lambda: self._start(use_ai=True, ai_mode=AIMode.FULL))
-        act_hybrid = QAction("Analisar com IA — YOLO + Gemini (híbrido, recomendado)", self)
+        act_review = QAction("CLIP + IA só nos duvidosos (recomendado, ~10x mais barato)", self)
+        act_review.setToolTip(
+            "O CLIP local identifica tudo de graça; só os shots em que ele "
+            "ficou em dúvida vão pra IA desempatar. Melhor custo-benefício."
+        )
+        act_review.triggered.connect(lambda: self._start(ai_review=True))
+        act_hybrid = QAction("IA em tudo — YOLO + Gemini (gasta mais quota)", self)
         act_hybrid.triggered.connect(lambda: self._start(use_ai=True, ai_mode=AIMode.HYBRID))
+        act_full = QAction("IA em tudo — frame inteiro (mais caro)", self)
+        act_full.triggered.connect(lambda: self._start(use_ai=True, ai_mode=AIMode.FULL))
+        ai_menu.addAction(act_review)
+        ai_menu.addSeparator()
         ai_menu.addAction(act_hybrid)
         ai_menu.addAction(act_full)
         self.run_ai_btn.setMenu(ai_menu)
@@ -390,7 +398,12 @@ class AnalyzeTab(QWidget):
         if path:
             self.output_edit.setText(path)
 
-    def _start(self, use_ai: bool = False, ai_mode: AIMode = AIMode.FULL) -> None:
+    def _start(
+        self,
+        use_ai: bool = False,
+        ai_mode: AIMode = AIMode.FULL,
+        ai_review: bool = False,
+    ) -> None:
         video = self.video_edit.text().strip()
         anime = self.anime_edit.text().strip()
         out = self.output_edit.text().strip()
@@ -403,7 +416,7 @@ class AnalyzeTab(QWidget):
         if not out:
             self.status_label.setText("⚠ Escolha uma pasta de saída.")
             return
-        if use_ai and not (
+        if (use_ai or ai_review) and not (
             (self.config.navyai_api_key or "").strip()
             or (self.config.gemini_api_key or "").strip()
         ):
@@ -445,11 +458,13 @@ class AnalyzeTab(QWidget):
         self._reset_stages()
         self._reset_status_style()
         self.progress.setValue(0)
-        self.status_label.setText("Iniciando..." + (" (IA)" if use_ai else ""))
+        suffix = " (IA)" if use_ai else (" (CLIP + revisão IA)" if ai_review else "")
+        self.status_label.setText("Iniciando..." + suffix)
 
         self._thread = QThread(self)
         self._worker = PipelineWorker(
-            self.config, info, use_ai_recognition=use_ai, ai_mode=ai_mode
+            self.config, info, use_ai_recognition=use_ai, ai_mode=ai_mode,
+            ai_review_ambiguous=ai_review,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)

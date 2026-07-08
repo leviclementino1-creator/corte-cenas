@@ -70,6 +70,7 @@ class Pipeline:
         on_progress: ProgressCb | None = None,
         use_ai_recognition: bool = False,
         ai_mode: AIMode | str = AIMode.FULL,
+        ai_review_ambiguous: bool = False,
     ) -> PipelineResult:
         cb = on_progress or _noop
         cfg = self.cfg
@@ -350,6 +351,10 @@ class Pipeline:
         total = len(cut_results)
         shots_with_faces = 0
         credit_shots = 0
+        # Modo híbrido: shots que o CLIP deixou SEM personagem mas cuja melhor
+        # similaridade chegou perto do threshold — a zona cinzenta que vale
+        # uma segunda opinião da IA. Guardamos os crops já extraídos.
+        ambiguous: list[dict] = []
         for i, (shot, shot_file, kfs) in enumerate(cut_results, 1):
             cb("analyze_shots", i / max(total, 1), f"Shot {i}/{total}")
             main_kf = kfs[len(kfs) // 2] if kfs else None
@@ -383,6 +388,8 @@ class Pipeline:
             # or a flash-through, not a real presence).
             per_kf_assigns: list[dict[int, float]] = []
             had_any_faces = False
+            shot_best_sim = 0.0
+            shot_crops: list = []
             for kf_path in kfs:
                 img = cv2.imread(str(kf_path))
                 if img is None:
@@ -391,9 +398,15 @@ class Pipeline:
                 if not crops:
                     continue
                 had_any_faces = True
+                if ai_review_ambiguous:
+                    shot_crops.extend(crops)
                 embs = engine.embed_images(crops)
                 d = dict(matcher.assign_best_per_query(embs, margin=cfg.argmax_margin))
                 per_kf_assigns.append(d)
+                if ai_review_ambiguous:
+                    best = matcher.best_overall(embs)
+                    if best is not None:
+                        shot_best_sim = max(shot_best_sim, best[1])
 
             if had_any_faces:
                 shots_with_faces += 1
@@ -433,9 +446,108 @@ class Pipeline:
                 per_shot_names.append(names)
             else:
                 per_shot_names.append([])
+                # Ficou sem dono mas chegou perto? Candidato à revisão da IA.
+                if (
+                    ai_review_ambiguous
+                    and shot_crops
+                    and cfg.ai_review_low <= shot_best_sim < cfg.default_threshold
+                ):
+                    crops_jpg: list[bytes] = []
+                    for c in shot_crops[:5]:
+                        ch_, cw_ = c.shape[:2]
+                        scale = 256 / max(ch_, cw_)
+                        if scale < 1.0:
+                            c = cv2.resize(c, (int(cw_ * scale), int(ch_ * scale)))
+                        ok_, enc_ = cv2.imencode(".jpg", c, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                        if ok_:
+                            crops_jpg.append(enc_.tobytes())
+                    if crops_jpg:
+                        ambiguous.append({
+                            "pos": len(per_shot_names) - 1,  # índice em per_shot_names
+                            "shot": shot,
+                            "shot_id": shot_id,
+                            "crops": crops_jpg,
+                            "best_sim": shot_best_sim,
+                        })
         print(f"[CorteCenas] Rostos detectados em {shots_with_faces}/{total} shots.")
         if cfg.skip_credit_shots:
             print(f"[CorteCenas] Shots ignorados por créditos/texto: {credit_shots}/{total}")
+
+        # === Revisão IA dos duvidosos (modo híbrido) ===
+        # O CLIP resolveu o grosso de graça; só a zona cinzenta gasta API.
+        if ai_review_ambiguous and ambiguous:
+            name_to_id_review = {e.name: e.id for e in entries}
+            roster = [e.name for e in entries]
+            # Mais promissores primeiro; teto de custo por episódio.
+            ambiguous.sort(key=lambda a: -a["best_sim"])
+            dropped = len(ambiguous) - cfg.ai_review_max_shots
+            if dropped > 0:
+                print(f"[AI review] {dropped} duvidosos além do teto de "
+                      f"{cfg.ai_review_max_shots} ficaram de fora.")
+                ambiguous = ambiguous[: cfg.ai_review_max_shots]
+            cb("ai_review", -1.0, f"{len(ambiguous)} shots duvidosos → IA")
+            try:
+                client = self._build_ai_client()
+            except RuntimeError as e:
+                print(f"[AI review] Pulado: {e}", flush=True)
+                client = None
+            if client is not None:
+                from .ai_review import QuotaExhaustedError as _Quota
+                top_refs = self._build_top_refs(bundle, refs_per_char)
+                confirmed = 0
+                errors = 0
+                total_pt = total_ct = 0
+                try:
+                    for j, item in enumerate(ambiguous, 1):
+                        cb("ai_review", j / len(ambiguous),
+                           f"IA revisando {j}/{len(ambiguous)}")
+                        try:
+                            verdicts, usage = classify_face_crops(
+                                client, item["crops"], roster,
+                                bundle.title, top_refs=top_refs,
+                            )
+                        except _Quota as e:
+                            print(f"[AI review] Quota esgotou no {j}º duvidoso — "
+                                  f"mantendo o resultado do CLIP. {e}", flush=True)
+                            break
+                        except Exception as e:
+                            errors += 1
+                            print(f"[AI review] Shot #{item['shot'].idx:04d} ERRO: {e}",
+                                  flush=True)
+                            if errors >= 5:
+                                print("[AI review] Muitos erros seguidos — parando a "
+                                      "revisão; resultado do CLIP mantido.", flush=True)
+                                break
+                            continue
+                        errors = 0
+                        total_pt += int(usage.get("prompt_tokens") or 0)
+                        total_ct += int(usage.get("completion_tokens") or 0)
+                        names_in_shot: list[str] = []
+                        for (vname, vconf) in verdicts:
+                            if vname == "none" or vconf < cfg.default_threshold:
+                                continue
+                            if vname not in name_to_id_review or vname in names_in_shot:
+                                continue
+                            self.db.assign_character(
+                                item["shot_id"], name_to_id_review[vname], vconf
+                            )
+                            names_in_shot.append(vname)
+                        if names_in_shot:
+                            confirmed += 1
+                            per_shot_names[item["pos"]] = names_in_shot
+                            print(f"[AI review] Shot #{item['shot'].idx:04d} "
+                                  f"(sim {item['best_sim']:.2f}) -> "
+                                  f"{'+'.join(names_in_shot)}", flush=True)
+                finally:
+                    client.close()
+                print(f"[AI review] === FIM === {confirmed}/{len(ambiguous)} duvidosos "
+                      f"confirmados | tokens: {total_pt:,}+{total_ct:,}", flush=True)
+                cb("ai_review", 1.0,
+                   f"IA confirmou {confirmed} de {len(ambiguous)} duvidosos")
+        elif ai_review_ambiguous:
+            cb("ai_review", 1.0, "Nenhum shot duvidoso — CLIP resolveu tudo")
+        else:
+            cb("ai_review", 1.0, "—")
 
         return self._finalize_episode(
             cb=cb,
@@ -547,6 +659,66 @@ class Pipeline:
             refs_dir=refs_dir,
         )
 
+    def _build_ai_client(self) -> NavyAIClient:
+        """NavyAI primário + Gemini nativo como fallback, conforme as keys
+        configuradas. Levanta RuntimeError se nenhuma key existir."""
+        cfg = self.cfg
+        primary_key = cfg.navyai_api_key.strip()
+        gemini_key = cfg.gemini_api_key.strip()
+        if not primary_key and not gemini_key:
+            raise RuntimeError(
+                "Modo IA requer uma API key (NavyAI ou Gemini) em Configurações."
+            )
+        from .ai_review import GEMINI_OPENAI_BASE
+        fallback = None
+        if gemini_key:
+            fallback = NavyAIClient(
+                api_key=gemini_key,
+                base_url=GEMINI_OPENAI_BASE,
+                model=cfg.gemini_model or "gemini-2.5-flash",
+            )
+        if primary_key:
+            return NavyAIClient(
+                api_key=primary_key,
+                base_url=cfg.navyai_base_url,
+                model=cfg.navyai_model,
+                fallback=fallback,
+            )
+        return fallback  # Gemini-only path
+
+    @staticmethod
+    def _build_top_refs(bundle, refs_per_char: dict) -> dict[str, list[bytes]]:
+        """One reference image per character for the top 15 by popularity
+        (role weight, then ref count) — the visual roster sent to the AI."""
+        _ROLE_RANK = {"Main": 0, "MAIN": 0, "Supporting": 1, "SUPPORTING": 1}
+        scored = []
+        for ch in bundle.characters:
+            paths = refs_per_char.get(ch.name)
+            if not paths:
+                continue
+            role_w = _ROLE_RANK.get(ch.role, 2)
+            scored.append((role_w, -len(paths), ch.name))  # negative for desc
+        scored.sort()
+        top_refs: dict[str, list[bytes]] = {}
+        for _, _, name in scored[:15]:
+            paths = refs_per_char.get(name, [])
+            if not paths:
+                continue
+            try:
+                img = cv2.imread(str(paths[0]))
+                if img is None:
+                    continue
+                h, w = img.shape[:2]
+                scale = 256 / max(h, w)
+                if scale < 1.0:
+                    img = cv2.resize(img, (int(w * scale), int(h * scale)))
+                ok, enc = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    top_refs[name] = [enc.tobytes()]
+            except Exception:
+                continue
+        return top_refs
+
     def _run_ai_recognition(
         self,
         *,
@@ -568,36 +740,7 @@ class Pipeline:
         """
         cfg = self.cfg
         cb("embed_refs", -1.0, "Carregando conexão com IA...")
-        primary_key = cfg.navyai_api_key.strip()
-        gemini_key = cfg.gemini_api_key.strip()
-        if not primary_key and not gemini_key:
-            raise RuntimeError(
-                "Modo IA requer uma API key (NavyAI ou Gemini) em Configurações."
-            )
-
-        # Build the fallback (Gemini native) if the key is set. It's a
-        # NavyAIClient pointed at Google's OpenAI-compatible endpoint.
-        from .ai_review import GEMINI_OPENAI_BASE
-        fallback = None
-        if gemini_key:
-            fallback = NavyAIClient(
-                api_key=gemini_key,
-                base_url=GEMINI_OPENAI_BASE,
-                model=cfg.gemini_model or "gemini-2.5-flash",
-            )
-
-        # If the user only has a Gemini key, run against Gemini directly
-        # (no fallback). Otherwise NavyAI is primary and Gemini is fallback.
-        if primary_key:
-            client = NavyAIClient(
-                api_key=primary_key,
-                base_url=cfg.navyai_base_url,
-                model=cfg.navyai_model,
-                fallback=fallback,
-            )
-        else:
-            client = fallback  # Gemini-only path
-            fallback = None
+        client = self._build_ai_client()
 
         # Face detector for hybrid mode (YOLO -> face crops -> Gemini).
         face_det = None
@@ -639,37 +782,7 @@ class Pipeline:
                 f"referência — {n_missing} ficaram de fora e não podem ser "
                 "identificados neste episódio."
             )
-        # Send one reference per character for the top 15 by popularity.
-        # We use (role_weight, ref_count) as the popularity proxy: main
-        # characters first, then within each role tier the ones with more
-        # fan-art/reference coverage win (popular chars have more images).
-        _ROLE_RANK = {"Main": 0, "MAIN": 0, "Supporting": 1, "SUPPORTING": 1}
-        scored = []
-        for ch in bundle.characters:
-            paths = refs_per_char.get(ch.name)
-            if not paths:
-                continue
-            role_w = _ROLE_RANK.get(ch.role, 2)
-            scored.append((role_w, -len(paths), ch.name))  # negative for desc
-        scored.sort()
-        top_refs: dict[str, list[bytes]] = {}
-        for _, _, name in scored[:15]:
-            paths = refs_per_char.get(name, [])
-            if not paths:
-                continue
-            try:
-                img = cv2.imread(str(paths[0]))
-                if img is None:
-                    continue
-                h, w = img.shape[:2]
-                scale = 256 / max(h, w)
-                if scale < 1.0:
-                    img = cv2.resize(img, (int(w * scale), int(h * scale)))
-                ok, enc = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                if ok:
-                    top_refs[name] = [enc.tobytes()]
-            except Exception:
-                continue
+        top_refs = self._build_top_refs(bundle, refs_per_char)
         cb("embed_refs", 1.0, f"IA pronta com {len(character_names)} personagens")
 
         # 6) Analyze shots with Gemini
@@ -871,6 +984,7 @@ class Pipeline:
             f"(total {total_pt + total_ct:,}) | custo estimado: ${cost_est:.4f}{extra}",
             flush=True,
         )
+        cb("ai_review", 1.0, "—")  # estágio não se aplica no modo IA puro
 
         return self._finalize_episode(
             cb=cb,

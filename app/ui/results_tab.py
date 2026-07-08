@@ -94,6 +94,16 @@ class ResultsTab(QWidget):
         self.btn_vertical.clicked.connect(self._start_reframe)
         left_v.addWidget(self.btn_vertical)
 
+        self.btn_export_refs = QPushButton("Exportar refs deste anime (.zip)")
+        self.btn_export_refs.setEnabled(False)
+        self.btn_export_refs.setToolTip(
+            "Gera um .zip com o banco de referências deste anime (uma pasta "
+            "por personagem) — pronto pra compartilhar ou subir num repositório "
+            "de refs. Imagens filtradas (_filtered) ficam de fora."
+        )
+        self.btn_export_refs.clicked.connect(self._export_refs)
+        left_v.addWidget(self.btn_export_refs)
+
         self.btn_harvest = QPushButton("Reforçar refs com este ep")
         self.btn_harvest.setEnabled(False)
         self.btn_harvest.setToolTip(
@@ -289,6 +299,61 @@ class ResultsTab(QWidget):
         folder.mkdir(parents=True, exist_ok=True)
         self._open_path(folder)
 
+    def _export_refs(self) -> None:
+        """Zip do banco de refs do anime atual — o insumo do futuro repo
+        corte-cenas-refs. Exclui _filtered (imagens rejeitadas pelo filtro)."""
+        if not self._anime_cache_id:
+            return
+        src = self.ref_store.anime_dir(self._anime_cache_id) / "characters"
+        if not src.exists():
+            quiet.information(
+                self, "Nada pra exportar",
+                "Esse anime ainda não tem banco de referências no cache."
+            )
+            return
+
+        anime_folder = src.parent.name  # "<título> [al<id>]"
+        default = str(
+            Path.home() / "Documents" / f"CorteCenas-refs-{anime_folder}.zip"
+        )
+        dest_str, _ = QFileDialog.getSaveFileName(
+            self, "Exportar refs", default, "Zip (*.zip)"
+        )
+        if not dest_str:
+            return
+
+        import zipfile
+        n_files = 0
+        n_chars = 0
+        with zipfile.ZipFile(dest_str, "w", zipfile.ZIP_DEFLATED) as zf:
+            for char_dir in sorted(src.iterdir()):
+                if not char_dir.is_dir():
+                    continue
+                added_any = False
+                for f in sorted(char_dir.iterdir()):
+                    if not f.is_file():
+                        continue  # pula _filtered/ e outras subpastas
+                    if f.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+                        continue
+                    zf.write(f, arcname=f"{anime_folder}/{char_dir.name}/{f.name}")
+                    n_files += 1
+                    added_any = True
+                if added_any:
+                    n_chars += 1
+
+        if n_files == 0:
+            quiet.information(
+                self, "Nada pra exportar",
+                "O banco desse anime está vazio (nenhuma imagem aproveitável)."
+            )
+            Path(dest_str).unlink(missing_ok=True)
+            return
+        quiet.information(
+            self, "Refs exportadas",
+            f"{n_files} imagens de {n_chars} personagens em:\n{dest_str}"
+        )
+        self._open_path(Path(dest_str).parent)
+
     def _start_reframe(self) -> None:
         items = self.char_list.selectedItems()
         if not items or self._current_result is None:
@@ -370,6 +435,7 @@ class ResultsTab(QWidget):
         self.btn_harvest.setEnabled(
             self._current_result is not None and self._anime_cache_id is not None
         )
+        self.btn_export_refs.setEnabled(self._anime_cache_id is not None)
 
     def _start_harvest(self) -> None:
         if not self._current_result or not self._anime_cache_id:
