@@ -48,11 +48,14 @@ if ($LASTEXITCODE -ge 8) {
     exit 1
 }
 
-# 3) Relaunch
+# 3) Relaunch — via explorer.exe de propósito: este script roda ELEVADO, e um
+# Start-Process direto herdaria a elevação. App elevado = Windows bloqueia
+# drag-and-drop vindo do Explorer (UIPI). Lançar através do explorer.exe faz
+# o app nascer com os privilégios normais do usuário.
 if (-not $NoRelaunch) {
     $exePath = Join-Path $Install $Exe
     if (Test-Path $exePath) {
-        Start-Process -FilePath $exePath -WorkingDirectory $Install
+        Start-Process -FilePath "explorer.exe" -ArgumentList "`"$exePath`""
     }
 }
 

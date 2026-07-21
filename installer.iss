@@ -57,7 +57,10 @@ Name: "{group}\Desinstalar Corte Cenas"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Corte Cenas";  Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "Abrir Corte Cenas"; Flags: nowait postinstall skipifsilent
+; runasoriginaluser: o instalador roda elevado, mas o app deve abrir com os
+; privilégios normais do usuário — elevado, o Windows bloqueia drag-and-drop
+; vindo do Explorer (UIPI).
+Filename: "{app}\{#AppExeName}"; Description: "Abrir Corte Cenas"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallDelete]
 ; Nothing beyond what [Files] tracked. The user's cache/output stays in
