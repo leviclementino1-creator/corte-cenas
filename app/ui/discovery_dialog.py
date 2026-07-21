@@ -89,10 +89,17 @@ class DiscoveryNamingDialog(QDialog):
             row.addLayout(thumbs)
 
             name_row = QHBoxLayout()
-            info = QLabel(f"{g.n_shots} shots · {g.n_faces} rostos")
+            info_txt = f"{g.n_shots} shots · {g.n_faces} rostos"
+            if g.suggested_name:
+                info_txt += f" · parece {int(g.suggested_sim * 100)}% com o sugerido"
+            info = QLabel(info_txt)
             info.setStyleSheet("color:#999;font-size:11px;border:none;background:transparent;")
             edit = QLineEdit()
             edit.setPlaceholderText(f"Nome do personagem {n} (vazio = ignorar)")
+            if g.suggested_name:
+                # Anime conhecido: o app já reconheceu o grupo — o usuário só
+                # confirma (ou corrige/apaga).
+                edit.setText(g.suggested_name)
             self._edits[g.key] = edit
             name_row.addWidget(edit, 1)
             name_row.addWidget(info)

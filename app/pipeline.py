@@ -604,7 +604,57 @@ class Pipeline:
         cfg = self.cfg
         episode_root, metadata_dir, cut_results = self._prepare_shots(info, cb)
 
-        cb("fetch_characters", 1.0, "Modo Descoberta — sem banco online")
+        # Identidade online é opcional na descoberta: se o anime resolver,
+        # os grupos reforçam o banco REAL (refs em al<root>) e os nomes são
+        # pré-sugeridos pelos centroides já conhecidos; se não resolver,
+        # segue 100% offline com banco local.
+        cb("fetch_characters", -1.0, "Buscando anime (descoberta)...")
+        online_bundle = None
+        provider = AnimeProvider(cfg.cache_path)
+        try:
+            online_bundle = provider.resolve(
+                info.anime,
+                max_characters=cfg.max_characters_per_anime,
+                images_per_character=cfg.references_per_character,
+                on_status=lambda m: cb("fetch_characters", -1.0, m),
+                use_danbooru=False,
+                season=info.season,
+            )
+        except Exception as e:
+            print(f"[Descoberta] Sem identidade online ({type(e).__name__}) — "
+                  "seguindo com banco local.", flush=True)
+        finally:
+            provider.close()
+
+        known_centroids: list[tuple[str, np.ndarray]] = []
+        if online_bundle is not None:
+            anime_title = online_bundle.title
+            anime_id = self.db.upsert_anime(
+                anilist_id=online_bundle.anilist_id,
+                mal_id=online_bundle.mal_id,
+                title=online_bundle.title,
+                title_english=online_bundle.title_english,
+            )
+            if online_bundle.cache_id_override:
+                disc_cache_id = online_bundle.cache_id_override
+            elif online_bundle.franchise_root_id:
+                disc_cache_id = f"al{online_bundle.franchise_root_id}"
+            elif online_bundle.anilist_id:
+                disc_cache_id = f"al{online_bundle.anilist_id}"
+            else:
+                disc_cache_id = f"mal{online_bundle.mal_id}"
+            for row in self.db.get_characters_for_anime(anime_id):
+                if row.get("embedding"):
+                    known_centroids.append((row["name"], from_bytes(row["embedding"])))
+            cb("fetch_characters", 1.0,
+               f"{anime_title} — descoberta reforçando o banco existente")
+        else:
+            anime_title = info.anime
+            anime_id = self.db.upsert_anime(
+                anilist_id=None, mal_id=None, title=info.anime, title_english=None
+            )
+            disc_cache_id = local_cache_id(info.anime)
+            cb("fetch_characters", 1.0, "Modo Descoberta — sem banco online")
         cb("download_refs", 1.0, "—")
 
         clip_msg = "Carregando modelo CLIP..."
@@ -622,9 +672,6 @@ class Pipeline:
         face_det = AnimeFaceDetector(ensure_cascade(cfg.models_path))
         cb("embed_refs", 1.0, "Modelos prontos")
 
-        anime_id = self.db.upsert_anime(
-            anilist_id=None, mal_id=None, title=info.anime, title_english=None
-        )
         episode_id = self.db.upsert_episode(
             anime_id, info.season, info.episode, str(info.source)
         )
@@ -673,6 +720,10 @@ class Pipeline:
         cb("ai_review", 1.0, "—")
         cb("organize", -1.0, f"Agrupando {len(observations)} rostos por personagem...")
         clusters = cluster_faces(observations)
+        # Sugestão de nome: centroide do grupo vs personagens já conhecidos
+        # (existem quando o anime já foi analisado antes). 0.75 é conservador
+        # — melhor campo vazio que sugestão errada pré-preenchida.
+        _SUGGEST_MIN = 0.75
         groups: list[DiscoveredGroup] = []
         for key, cl in enumerate(clusters):
             reps = pick_representatives(cl, observations, k=10)
@@ -682,6 +733,13 @@ class Pipeline:
                 p = observations[i].shot_pos
                 s = float(observations[i].embedding @ cl.centroid)
                 conf[p] = max(conf.get(p, 0.0), s)
+            suggested, s_sim = "", 0.0
+            for kname, kcent in known_centroids:
+                s = float(cl.centroid @ kcent)
+                if s > s_sim:
+                    s_sim, suggested = s, kname
+            if s_sim < _SUGGEST_MIN:
+                suggested, s_sim = "", 0.0
             groups.append(DiscoveredGroup(
                 key=key,
                 n_faces=len(cl.members),
@@ -692,22 +750,25 @@ class Pipeline:
                 shot_positions=positions,
                 shot_conf=conf,
                 centroid_bytes=to_bytes(cl.centroid),
+                suggested_name=suggested,
+                suggested_sim=s_sim,
             ))
         cb("organize", 1.0, f"{len(groups)} personagens descobertos")
         print(f"[Descoberta] {len(observations)} rostos → {len(groups)} grupos "
               f"({', '.join(str(g.n_faces) for g in groups[:10])}...)", flush=True)
 
         return DiscoveryResult(
-            anime_title=info.anime,
+            anime_title=anime_title,
             season=info.season,
             episode=info.episode,
             anime_id=anime_id,
             episode_id=episode_id,
             episode_root=episode_root,
-            cache_id=local_cache_id(info.anime),
+            cache_id=disc_cache_id,
             shots=shots_out,
             groups=groups,
             total_faces=len(observations),
+            online=online_bundle is not None,
         )
 
     def commit_discovery(
@@ -780,8 +841,6 @@ class Pipeline:
                     if name not in per_shot_names[pos]:
                         per_shot_names[pos].append(name)
 
-        # Banco local persistido: a próxima análise deste anime resolve
-        # offline (anime_provider cai nele quando as buscas falham).
         bundle = AnimeBundle(
             anilist_id=None, mal_id=None,
             title=result.anime_title, title_english=None,
@@ -792,11 +851,16 @@ class Pipeline:
             ],
             cache_id_override=result.cache_id,
         )
-        provider = AnimeProvider(cfg.cache_path)
-        try:
-            provider.save_cache(result.cache_id, bundle)
-        finally:
-            provider.close()
+        if not result.online:
+            # Banco local persistido: a próxima análise deste anime resolve
+            # offline (anime_provider cai nele quando as buscas falham).
+            # Quando o anime é conhecido, os refs já entraram na pasta real
+            # (al<root>) e o metadata online se resolve sozinho.
+            provider = AnimeProvider(cfg.cache_path)
+            try:
+                provider.save_cache(result.cache_id, bundle)
+            finally:
+                provider.close()
 
         cut_results = [
             (ShotBounds(idx=s.idx, start=s.start, end=s.end),

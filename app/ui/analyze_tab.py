@@ -278,10 +278,19 @@ class AnalyzeTab(QWidget):
         act_hybrid.triggered.connect(lambda: self._start(use_ai=True, ai_mode=AIMode.HYBRID))
         act_full = QAction("IA em tudo — frame inteiro (mais caro)", self)
         act_full.triggered.connect(lambda: self._start(use_ai=True, ai_mode=AIMode.FULL))
+        act_discovery = QAction("🔍 Modo Descoberta — agrupar rostos e batizar (grátis)", self)
+        act_discovery.setToolTip(
+            "Agrupa os rostos do episódio por semelhança e você dá os nomes. "
+            "Funciona sem banco online e também serve pra REFORÇAR as refs "
+            "de um anime conhecido — os grupos vêm com nome sugerido."
+        )
+        act_discovery.triggered.connect(lambda: self._start(discovery=True))
         ai_menu.addAction(act_review)
         ai_menu.addSeparator()
         ai_menu.addAction(act_hybrid)
         ai_menu.addAction(act_full)
+        ai_menu.addSeparator()
+        ai_menu.addAction(act_discovery)
         self.run_ai_btn.setMenu(ai_menu)
 
         # Only visible while an analysis is running. Cooperative cancel: the

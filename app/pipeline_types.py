@@ -37,6 +37,10 @@ class DiscoveredGroup:
     shot_positions: list[int]     # posições em DiscoveryResult.shots
     shot_conf: dict[int, float]   # pos -> melhor similaridade ao centroide
     centroid_bytes: bytes         # embedding do centroide serializado
+    # Quando o anime JÁ é conhecido: nome pré-sugerido pelo match do
+    # centroide do grupo contra os personagens do banco ("parece a Eris").
+    suggested_name: str = ""
+    suggested_sim: float = 0.0
 
 
 @dataclass
@@ -61,10 +65,13 @@ class DiscoveryResult:
     anime_id: int                 # id no DB local
     episode_id: int
     episode_root: Path
-    cache_id: str                 # "local-<slug>" — pasta de refs/banco local
+    cache_id: str                 # pasta de refs: al<id> (online) ou local-<slug>
     shots: list[DiscoveryShot]
     groups: list[DiscoveredGroup]
     total_faces: int
+    # True quando o anime resolveu online: refs reforçam o banco real e o
+    # metadata local não é gravado (o anime se resolve sozinho).
+    online: bool = False
 
 
 class InsufficientRefsError(RuntimeError):
