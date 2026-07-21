@@ -20,6 +20,53 @@ class AIMode(str, Enum):
     HYBRID = "hybrid"   # send only YOLO face crops
 
 
+class AnimeNotFoundError(RuntimeError):
+    """O anime não existe (ou não foi achado) na AniList nem no MAL, e não
+    há banco local descoberto. A UI oferece o Modo Descoberta como saída."""
+
+
+@dataclass
+class DiscoveredGroup:
+    """Um 'personagem sem nome' encontrado pelo clustering de rostos."""
+    key: int                      # id do grupo dentro do resultado
+    n_faces: int
+    n_shots: int
+    thumbs_jpg: list[bytes]       # crops representativos pra tela de batismo
+    ref_crops_jpg: list[bytes]    # crops que viram refs quando o grupo é nomeado
+    shot_ids: list[int]           # ids (DB) dos shots onde o grupo aparece
+    shot_positions: list[int]     # posições em DiscoveryResult.shots
+    shot_conf: dict[int, float]   # pos -> melhor similaridade ao centroide
+    centroid_bytes: bytes         # embedding do centroide serializado
+
+
+@dataclass
+class DiscoveryShot:
+    """Shot cortado durante a descoberta, com tudo que o commit precisa."""
+    pos: int
+    shot_id: int
+    idx: int
+    file: str                     # caminho absoluto do .mp4 do shot
+    keyframes: list[str]          # caminhos absolutos dos keyframes
+    start: float
+    end: float
+
+
+@dataclass
+class DiscoveryResult:
+    """Saída do Modo Descoberta, antes do batismo. Autossuficiente: carrega
+    tudo que commit_discovery precisa, pra poder cruzar threads como dado."""
+    anime_title: str
+    season: int
+    episode: int
+    anime_id: int                 # id no DB local
+    episode_id: int
+    episode_root: Path
+    cache_id: str                 # "local-<slug>" — pasta de refs/banco local
+    shots: list[DiscoveryShot]
+    groups: list[DiscoveredGroup]
+    total_faces: int
+
+
 class InsufficientRefsError(RuntimeError):
     """No character ended up with usable reference images (dead APIs, brand
     new season...). Carries the refs folder so the UI can offer to open it —

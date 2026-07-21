@@ -52,8 +52,9 @@ from ..config import Config
 from ..pipeline_types import AIMode, PipelineResult, STAGES
 from ..storage.skip_ranges import SkipRangesStore
 from ..video_ingest import EpisodeInfo, format_mmss, parse_filename, parse_mmss
+from .discovery_dialog import DiscoveryNamingDialog
 from .quiet import set_quiet_icon
-from .worker import PipelineWorker, RefsPreviewWorker
+from .worker import DiscoveryCommitWorker, PipelineWorker, RefsPreviewWorker
 
 
 class AnalyzeTab(QWidget):
@@ -403,6 +404,7 @@ class AnalyzeTab(QWidget):
         use_ai: bool = False,
         ai_mode: AIMode = AIMode.FULL,
         ai_review: bool = False,
+        discovery: bool = False,
     ) -> None:
         video = self.video_edit.text().strip()
         anime = self.anime_edit.text().strip()
@@ -458,13 +460,20 @@ class AnalyzeTab(QWidget):
         self._reset_stages()
         self._reset_status_style()
         self.progress.setValue(0)
-        suffix = " (IA)" if use_ai else (" (CLIP + revisão IA)" if ai_review else "")
+        if discovery:
+            suffix = " (Modo Descoberta)"
+        elif use_ai:
+            suffix = " (IA)"
+        elif ai_review:
+            suffix = " (CLIP + revisão IA)"
+        else:
+            suffix = ""
         self.status_label.setText("Iniciando..." + suffix)
 
         self._thread = QThread(self)
         self._worker = PipelineWorker(
             self.config, info, use_ai_recognition=use_ai, ai_mode=ai_mode,
-            ai_review_ambiguous=ai_review,
+            ai_review_ambiguous=ai_review, discovery=discovery,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -473,10 +482,67 @@ class AnalyzeTab(QWidget):
         self._worker.failed.connect(self._on_failed)
         self._worker.cancelled.connect(self._on_cancelled)
         self._worker.refs_missing.connect(self._on_refs_missing)
+        self._worker.anime_not_found.connect(self._on_anime_not_found)
+        self._worker.discovery_ready.connect(self._on_discovery_ready)
+        for sig in (self._worker.finished, self._worker.failed,
+                    self._worker.cancelled, self._worker.refs_missing,
+                    self._worker.anime_not_found, self._worker.discovery_ready):
+            sig.connect(self._thread.quit)
+        self._thread.finished.connect(self._cleanup_thread)
+        self._thread.start()
+
+    def _on_anime_not_found(self, message: str) -> None:
+        """Anime sem match na AniList/MAL e sem banco local — em vez de um
+        beco sem saída, oferece o Modo Descoberta na hora."""
+        self.run_btn.setEnabled(True)
+        self.run_ai_btn.setEnabled(True)
+        self.cancel_btn.setVisible(False)
+        self.status_label.setText("Anime não encontrado nas bases online.")
+        self.status_label.setStyleSheet("color:#DDB077;font-weight:bold;")
+
+        box = QMessageBox(self)
+        set_quiet_icon(box, QMessageBox.Icon.Question)
+        box.setWindowTitle("Anime não encontrado")
+        box.setText(message.splitlines()[0] if message else "Anime não encontrado.")
+        box.setInformativeText(
+            "Quer rodar o Modo Descoberta? O app identifica os personagens "
+            "pelo próprio episódio (agrupando os rostos parecidos) e você dá "
+            "os nomes no final. Os rostos nomeados viram referências pros "
+            "próximos episódios."
+        )
+        disc_btn = box.addButton("🔍 Rodar Modo Descoberta", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Fechar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is disc_btn:
+            self._start(discovery=True)
+
+    def _on_discovery_ready(self, disc) -> None:
+        """Grupos prontos — abre a tela de batismo; confirmado, o commit
+        roda em thread própria e desagua no fluxo normal de conclusão."""
+        self.status_label.setText(
+            f"{len(disc.groups)} personagens descobertos — dê os nomes na janela."
+        )
+        dlg = DiscoveryNamingDialog(disc, self)
+        if not dlg.exec():
+            self.run_btn.setEnabled(True)
+            self.run_ai_btn.setEnabled(True)
+            self.cancel_btn.setVisible(False)
+            self.status_label.setText(
+                "Descoberta cancelada — nada foi salvo (os shots cortados "
+                "ficam em cache)."
+            )
+            return
+
+        self.status_label.setText("Salvando personagens descobertos...")
+        self._thread = QThread(self)
+        self._worker = DiscoveryCommitWorker(self.config, disc, dlg.names())
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.stage.connect(self._on_stage)
+        self._worker.finished.connect(self._on_finished)
+        self._worker.failed.connect(self._on_failed)
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
-        self._worker.cancelled.connect(self._thread.quit)
-        self._worker.refs_missing.connect(self._thread.quit)
         self._thread.finished.connect(self._cleanup_thread)
         self._thread.start()
 
@@ -589,12 +655,15 @@ class AnalyzeTab(QWidget):
         )
         box.setDetailedText(message)
         open_btn = box.addButton("📂 Abrir pasta de refs", QMessageBox.ButtonRole.AcceptRole)
+        disc_btn = box.addButton("🔍 Modo Descoberta", QMessageBox.ButtonRole.ActionRole)
         box.addButton("Fechar", QMessageBox.ButtonRole.RejectRole)
         box.exec()
         if box.clickedButton() is open_btn:
             p = Path(refs_dir)
             p.mkdir(parents=True, exist_ok=True)
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+        elif box.clickedButton() is disc_btn:
+            self._start(discovery=True)
 
     def _on_failed(self, message: str) -> None:
         first_line = message.splitlines()[0] if message else "falhou"

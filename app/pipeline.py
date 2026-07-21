@@ -18,8 +18,23 @@ from .matching.face_detector import AnimeFaceDetector, ensure_cascade, smart_por
 # Lightweight types re-exported here so callers can keep `from .pipeline
 # import AIMode, PipelineResult, STAGES` without dragging in torch just to
 # read a type name. UI modules should prefer `from .pipeline_types import ...`.
-from .pipeline_types import AIMode, InsufficientRefsError, PipelineResult, ProgressCb, STAGES
-from .providers.anime_provider import AnimeProvider
+from .matching.face_clustering import FaceObservation, cluster_faces, pick_representatives
+from .pipeline_types import (
+    AIMode,
+    DiscoveredGroup,
+    DiscoveryResult,
+    DiscoveryShot,
+    InsufficientRefsError,
+    PipelineResult,
+    ProgressCb,
+    STAGES,
+)
+from .providers.anime_provider import (
+    AnimeBundle,
+    AnimeProvider,
+    CharacterRef,
+    local_cache_id,
+)
 from .references.reference_store import ReferenceStore
 from .shot_detection import ShotBounds, detect_shots
 from .storage.db import Database
@@ -75,91 +90,7 @@ class Pipeline:
         cb = on_progress or _noop
         cfg = self.cfg
 
-        cb("parse", 1.0, f"{info.anime} {info.slug}")
-
-        # Output layout
-        episode_root = cfg.output_path / sanitize(info.anime) / info.slug
-        shots_dir = episode_root / "shots"
-        keyframes_dir = episode_root / "keyframes"
-        metadata_dir = episode_root / "metadata"
-        for d in (shots_dir, keyframes_dir, metadata_dir):
-            d.mkdir(parents=True, exist_ok=True)
-
-        # 1) Shot detection (cached per episode folder)
-        bounds_cache = metadata_dir / "shot_bounds.json"
-        shots: list[ShotBounds] | None = None
-        if bounds_cache.exists():
-            try:
-                data = json.loads(bounds_cache.read_text(encoding="utf-8"))
-                if (
-                    isinstance(data, dict)
-                    and data.get("source") == str(info.source)
-                    and abs(float(data.get("threshold", -1)) - cfg.scene_threshold) < 1e-6
-                ):
-                    shots = [
-                        ShotBounds(idx=int(s["idx"]), start=float(s["start"]), end=float(s["end"]))
-                        for s in data.get("shots", [])
-                    ]
-            except (json.JSONDecodeError, ValueError, KeyError, OSError) as e:
-                print(f"[CorteCenas] Shot bounds cache inválido, recomputando: {e}")
-                shots = None
-
-        if shots:
-            cb("detect_shots", 1.0, f"{len(shots)} shots (cache)")
-        else:
-            cb("detect_shots", -1.0, "Analisando mudanças de cena...")
-            shots = detect_shots(
-                info.source,
-                threshold=cfg.scene_threshold,
-                min_seconds=cfg.min_shot_seconds,
-                on_progress=lambda f: cb(
-                    "detect_shots", f, f"Analisando mudanças de cena... {int(f * 100)}%"
-                ),
-            )
-            bounds_cache.write_text(
-                json.dumps(
-                    {
-                        "source": str(info.source),
-                        "threshold": cfg.scene_threshold,
-                        "min_seconds": cfg.min_shot_seconds,
-                        "shots": [
-                            {"idx": s.idx, "start": s.start, "end": s.end} for s in shots
-                        ],
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            cb("detect_shots", 1.0, f"{len(shots)} shots detectados")
-
-        # Apply manual head/tail skip (OP/ED by time)
-        if shots and (info.skip_head_seconds > 0 or info.skip_tail_seconds > 0):
-            total_duration = max(s.end for s in shots)
-            tail_cut = total_duration - info.skip_tail_seconds if info.skip_tail_seconds > 0 else total_duration + 1.0
-            before = len(shots)
-            shots = [
-                s for s in shots
-                if s.end > info.skip_head_seconds and s.start < tail_cut
-            ]
-            print(
-                f"[CorteCenas] Skip manual: início {info.skip_head_seconds:.0f}s, "
-                f"fim {info.skip_tail_seconds:.0f}s → {before - len(shots)} shots ignorados"
-            )
-
-        # 2) Cut shots + keyframes
-        def cut_cb(done: int, total: int, skipped: int) -> None:
-            suffix = f" ({skipped} já em cache)" if skipped else ""
-            cb("cut_shots", done / max(total, 1), f"{done}/{total} shots{suffix}")
-
-        cut_results = cut_all_shots(
-            info.source,
-            shots,
-            shots_dir,
-            keyframes_dir,
-            keyframes_per_shot=cfg.keyframes_per_shot,
-            reencode=cfg.reencode_shots,
-            on_progress=cut_cb,
-        )
+        episode_root, metadata_dir, cut_results = self._prepare_shots(info, cb)
 
         # 3) Anime / characters
         cb("fetch_characters", -1.0, "Consultando AniList + Jikan...")
@@ -200,7 +131,9 @@ class Pipeline:
         ref_store = ReferenceStore(cfg.cache_path)
         # Franchise root ID, when present, is the shared cache key for the
         # whole franchise (all seasons share refs).
-        if bundle.franchise_root_id:
+        if bundle.cache_id_override:
+            cache_id = bundle.cache_id_override   # banco local (Modo Descoberta)
+        elif bundle.franchise_root_id:
             cache_id = f"al{bundle.franchise_root_id}"
         elif bundle.anilist_id:
             cache_id = f"al{bundle.anilist_id}"
@@ -659,6 +592,334 @@ class Pipeline:
             refs_dir=refs_dir,
         )
 
+    # ================= Modo Descoberta =================
+
+    def run_discovery(
+        self, info: EpisodeInfo, on_progress: ProgressCb | None = None
+    ) -> DiscoveryResult:
+        """Análise SEM banco online: corta o episódio, detecta e embedda os
+        rostos, e agrupa por identidade. Retorna os grupos anônimos pra tela
+        de batismo — commit_discovery() fecha o trabalho com os nomes."""
+        cb = on_progress or _noop
+        cfg = self.cfg
+        episode_root, metadata_dir, cut_results = self._prepare_shots(info, cb)
+
+        cb("fetch_characters", 1.0, "Modo Descoberta — sem banco online")
+        cb("download_refs", 1.0, "—")
+
+        clip_msg = "Carregando modelo CLIP..."
+        if _clip_needs_download(cfg.clip_model, cfg.clip_pretrained):
+            clip_msg = (
+                "Baixando modelo CLIP (~890 MB) — só na primeira execução, "
+                "depois fica cacheado. Pode demorar 1-3 min."
+            )
+        cb("embed_refs", -1.0, clip_msg)
+        engine = EmbeddingEngine(
+            model_name=cfg.clip_model,
+            pretrained=cfg.clip_pretrained,
+            use_cuda=cfg.use_cuda,
+        )
+        face_det = AnimeFaceDetector(ensure_cascade(cfg.models_path))
+        cb("embed_refs", 1.0, "Modelos prontos")
+
+        anime_id = self.db.upsert_anime(
+            anilist_id=None, mal_id=None, title=info.anime, title_english=None
+        )
+        episode_id = self.db.upsert_episode(
+            anime_id, info.season, info.episode, str(info.source)
+        )
+        self.db.clear_episode_shots(episode_id)
+
+        observations: list[FaceObservation] = []
+        shots_out: list[DiscoveryShot] = []
+        total = len(cut_results)
+        for i, (shot, shot_file, kfs) in enumerate(cut_results, 1):
+            cb("analyze_shots", i / max(total, 1), f"Shot {i}/{total}")
+            main_kf = kfs[len(kfs) // 2] if kfs else None
+            shot_id = self.db.insert_shot(
+                episode_id=episode_id,
+                idx=shot.idx,
+                file=str(shot_file.relative_to(episode_root)),
+                keyframe=str(main_kf.relative_to(episode_root)) if main_kf else None,
+                start=shot.start,
+                end=shot.end,
+            )
+            shots_out.append(DiscoveryShot(
+                pos=i - 1, shot_id=shot_id, idx=shot.idx,
+                file=str(shot_file), keyframes=[str(k) for k in kfs],
+                start=shot.start, end=shot.end,
+            ))
+            for kf_path in kfs:
+                img = cv2.imread(str(kf_path))
+                if img is None:
+                    continue
+                crops = face_det.crop_faces(img, pad=cfg.face_crop_padding)
+                if not crops:
+                    continue
+                embs = engine.embed_images(crops)
+                for crop, emb in zip(crops, embs):
+                    ch_, cw_ = crop.shape[:2]
+                    scale = 256 / max(ch_, cw_)
+                    if scale < 1.0:
+                        crop = cv2.resize(crop, (int(cw_ * scale), int(ch_ * scale)))
+                    ok_, enc_ = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 88])
+                    if ok_:
+                        observations.append(FaceObservation(
+                            shot_pos=i - 1, shot_id=shot_id, shot_idx=shot.idx,
+                            embedding=np.asarray(emb, dtype=np.float32),
+                            crop_jpg=enc_.tobytes(),
+                        ))
+
+        cb("ai_review", 1.0, "—")
+        cb("organize", -1.0, f"Agrupando {len(observations)} rostos por personagem...")
+        clusters = cluster_faces(observations)
+        groups: list[DiscoveredGroup] = []
+        for key, cl in enumerate(clusters):
+            reps = pick_representatives(cl, observations, k=10)
+            positions = sorted({observations[i].shot_pos for i in cl.members})
+            conf: dict[int, float] = {}
+            for i in cl.members:
+                p = observations[i].shot_pos
+                s = float(observations[i].embedding @ cl.centroid)
+                conf[p] = max(conf.get(p, 0.0), s)
+            groups.append(DiscoveredGroup(
+                key=key,
+                n_faces=len(cl.members),
+                n_shots=len(positions),
+                thumbs_jpg=[observations[i].crop_jpg for i in reps[:6]],
+                ref_crops_jpg=[observations[i].crop_jpg for i in reps[:8]],
+                shot_ids=sorted({observations[i].shot_id for i in cl.members}),
+                shot_positions=positions,
+                shot_conf=conf,
+                centroid_bytes=to_bytes(cl.centroid),
+            ))
+        cb("organize", 1.0, f"{len(groups)} personagens descobertos")
+        print(f"[Descoberta] {len(observations)} rostos → {len(groups)} grupos "
+              f"({', '.join(str(g.n_faces) for g in groups[:10])}...)", flush=True)
+
+        return DiscoveryResult(
+            anime_title=info.anime,
+            season=info.season,
+            episode=info.episode,
+            anime_id=anime_id,
+            episode_id=episode_id,
+            episode_root=episode_root,
+            cache_id=local_cache_id(info.anime),
+            shots=shots_out,
+            groups=groups,
+            total_faces=len(observations),
+        )
+
+    def commit_discovery(
+        self,
+        result: DiscoveryResult,
+        names: dict[int, str],
+        on_progress: ProgressCb | None = None,
+    ) -> PipelineResult:
+        """Fecha o Modo Descoberta com os nomes dados pelo usuário: cria os
+        personagens, atribui os shots, salva os crops como referências (os
+        próximos episódios rodam no modo normal) e organiza as pastas.
+        Grupos sem nome são ignorados; dois grupos com o MESMO nome fundem."""
+        cb = on_progress or _noop
+        cfg = self.cfg
+
+        by_name: dict[str, list[DiscoveredGroup]] = {}
+        for g in result.groups:
+            name = (names.get(g.key) or "").strip()
+            if name:
+                by_name.setdefault(name, []).append(g)
+        if not by_name:
+            raise RuntimeError(
+                "Nenhum grupo recebeu nome — não há o que salvar. "
+                "Dê nome a pelo menos um personagem e confirme de novo."
+            )
+
+        cb("organize", -1.0, "Salvando personagens descobertos...")
+        store = ReferenceStore(cfg.cache_path)
+        name_to_id: dict[str, int] = {}
+        refs_per_char: dict[str, list[Path]] = {}
+
+        for name, gs in by_name.items():
+            cid = self.db.upsert_character(
+                anime_id=result.anime_id, name=name,
+                anilist_id=None, mal_id=None, role="Main",
+            )
+            name_to_id[name] = cid
+
+            d = store.character_dir(result.cache_id, name)
+            d.mkdir(parents=True, exist_ok=True)
+            paths: list[Path] = []
+            for g in gs:
+                for jpg in g.ref_crops_jpg:
+                    if len(paths) >= 10:
+                        break
+                    p = d / f"auto_disc_{len(paths):02d}.jpg"
+                    p.write_bytes(jpg)
+                    paths.append(p)
+            refs_per_char[name] = paths
+
+            cents = np.stack([from_bytes(g.centroid_bytes) for g in gs])
+            weights = np.array([g.n_faces for g in gs], dtype=np.float32)
+            centroid = (cents * weights[:, None]).sum(axis=0)
+            centroid = centroid / max(float(np.linalg.norm(centroid)), 1e-8)
+            self.db.set_character_embedding(
+                cid, to_bytes(centroid.astype(np.float32)), reference_count=len(paths)
+            )
+
+            for g in gs:
+                for pos in g.shot_positions:
+                    self.db.assign_character(
+                        result.shots[pos].shot_id, cid,
+                        float(g.shot_conf.get(pos, 0.9)),
+                    )
+
+        per_shot_names: list[list[str]] = [[] for _ in result.shots]
+        for name, gs in by_name.items():
+            for g in gs:
+                for pos in g.shot_positions:
+                    if name not in per_shot_names[pos]:
+                        per_shot_names[pos].append(name)
+
+        # Banco local persistido: a próxima análise deste anime resolve
+        # offline (anime_provider cai nele quando as buscas falham).
+        bundle = AnimeBundle(
+            anilist_id=None, mal_id=None,
+            title=result.anime_title, title_english=None,
+            characters=[
+                CharacterRef(mal_id=None, anilist_id=None, name=n,
+                             role="Main", image_urls=[])
+                for n in by_name
+            ],
+            cache_id_override=result.cache_id,
+        )
+        provider = AnimeProvider(cfg.cache_path)
+        try:
+            provider.save_cache(result.cache_id, bundle)
+        finally:
+            provider.close()
+
+        cut_results = [
+            (ShotBounds(idx=s.idx, start=s.start, end=s.end),
+             Path(s.file), [Path(k) for k in s.keyframes])
+            for s in result.shots
+        ]
+        info = EpisodeInfo(
+            anime=result.anime_title, season=result.season,
+            episode=result.episode,
+            source=Path(result.shots[0].file) if result.shots else Path("."),
+        )
+        return self._finalize_episode(
+            cb=cb,
+            info=info,
+            episode_id=result.episode_id,
+            episode_root=result.episode_root,
+            metadata_dir=result.episode_root / "metadata",
+            bundle=bundle,
+            refs_per_char=refs_per_char,
+            cut_results=cut_results,
+            shot_db_ids=[s.shot_id for s in result.shots],
+            per_shot_names=per_shot_names,
+            name_to_id=name_to_id,
+            characters_json=[
+                {
+                    "name": n,
+                    "character_id": name_to_id[n],
+                    "threshold": cfg.default_threshold,
+                    "reference_count": len(refs_per_char.get(n, [])),
+                }
+                for n in by_name
+            ],
+            refs_dir=str(store.anime_dir(result.cache_id) / "characters"),
+        )
+
+    def _prepare_shots(self, info: EpisodeInfo, cb: ProgressCb):
+        """Estágios comuns a TODAS as análises (normal e descoberta):
+        layout de pastas, detecção de shots (com cache) e corte+keyframes.
+        Retorna (episode_root, metadata_dir, cut_results)."""
+        cfg = self.cfg
+        cb("parse", 1.0, f"{info.anime} {info.slug}")
+
+        episode_root = cfg.output_path / sanitize(info.anime) / info.slug
+        shots_dir = episode_root / "shots"
+        keyframes_dir = episode_root / "keyframes"
+        metadata_dir = episode_root / "metadata"
+        for d in (shots_dir, keyframes_dir, metadata_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        bounds_cache = metadata_dir / "shot_bounds.json"
+        shots: list[ShotBounds] | None = None
+        if bounds_cache.exists():
+            try:
+                data = json.loads(bounds_cache.read_text(encoding="utf-8"))
+                if (
+                    isinstance(data, dict)
+                    and data.get("source") == str(info.source)
+                    and abs(float(data.get("threshold", -1)) - cfg.scene_threshold) < 1e-6
+                ):
+                    shots = [
+                        ShotBounds(idx=int(s["idx"]), start=float(s["start"]), end=float(s["end"]))
+                        for s in data.get("shots", [])
+                    ]
+            except (json.JSONDecodeError, ValueError, KeyError, OSError) as e:
+                print(f"[CorteCenas] Shot bounds cache inválido, recomputando: {e}")
+                shots = None
+
+        if shots:
+            cb("detect_shots", 1.0, f"{len(shots)} shots (cache)")
+        else:
+            cb("detect_shots", -1.0, "Analisando mudanças de cena...")
+            shots = detect_shots(
+                info.source,
+                threshold=cfg.scene_threshold,
+                min_seconds=cfg.min_shot_seconds,
+                on_progress=lambda f: cb(
+                    "detect_shots", f, f"Analisando mudanças de cena... {int(f * 100)}%"
+                ),
+            )
+            bounds_cache.write_text(
+                json.dumps(
+                    {
+                        "source": str(info.source),
+                        "threshold": cfg.scene_threshold,
+                        "min_seconds": cfg.min_shot_seconds,
+                        "shots": [
+                            {"idx": s.idx, "start": s.start, "end": s.end} for s in shots
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            cb("detect_shots", 1.0, f"{len(shots)} shots detectados")
+
+        if shots and (info.skip_head_seconds > 0 or info.skip_tail_seconds > 0):
+            total_duration = max(s.end for s in shots)
+            tail_cut = total_duration - info.skip_tail_seconds if info.skip_tail_seconds > 0 else total_duration + 1.0
+            before = len(shots)
+            shots = [
+                s for s in shots
+                if s.end > info.skip_head_seconds and s.start < tail_cut
+            ]
+            print(
+                f"[CorteCenas] Skip manual: início {info.skip_head_seconds:.0f}s, "
+                f"fim {info.skip_tail_seconds:.0f}s → {before - len(shots)} shots ignorados"
+            )
+
+        def cut_cb(done: int, total: int, skipped: int) -> None:
+            suffix = f" ({skipped} já em cache)" if skipped else ""
+            cb("cut_shots", done / max(total, 1), f"{done}/{total} shots{suffix}")
+
+        cut_results = cut_all_shots(
+            info.source,
+            shots,
+            shots_dir,
+            keyframes_dir,
+            keyframes_per_shot=cfg.keyframes_per_shot,
+            reencode=cfg.reencode_shots,
+            on_progress=cut_cb,
+        )
+        return episode_root, metadata_dir, cut_results
+
     def _build_ai_client(self) -> NavyAIClient:
         """NavyAI primário + Gemini nativo como fallback, conforme as keys
         configuradas. Levanta RuntimeError se nenhuma key existir."""
@@ -754,7 +1015,9 @@ class Pipeline:
 
         db_chars = {c["name"]: c for c in self.db.get_characters_for_anime(anime_id)}
         character_names = [ch.name for ch in bundle.characters if refs_per_char.get(ch.name)]
-        if bundle.franchise_root_id:
+        if bundle.cache_id_override:
+            _ai_cache_id = bundle.cache_id_override
+        elif bundle.franchise_root_id:
             _ai_cache_id = f"al{bundle.franchise_root_id}"
         elif bundle.anilist_id:
             _ai_cache_id = f"al{bundle.anilist_id}"

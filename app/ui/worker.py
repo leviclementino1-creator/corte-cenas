@@ -18,7 +18,13 @@ _log = logging.getLogger("cortecenas")
 from PySide6.QtCore import QObject, QThread, Signal
 
 from ..config import Config
-from ..pipeline_types import AIMode, InsufficientRefsError, PipelineCancelled, PipelineResult
+from ..pipeline_types import (
+    AIMode,
+    AnimeNotFoundError,
+    InsufficientRefsError,
+    PipelineCancelled,
+    PipelineResult,
+)
 from ..video_ingest import EpisodeInfo
 
 
@@ -28,6 +34,8 @@ class PipelineWorker(QObject):
     failed = Signal(str)
     cancelled = Signal()
     refs_missing = Signal(str, str)          # (message, refs_folder)
+    anime_not_found = Signal(str)            # UI oferece o Modo Descoberta
+    discovery_ready = Signal(object)         # DiscoveryResult → tela de batismo
 
     def __init__(
         self,
@@ -36,6 +44,7 @@ class PipelineWorker(QObject):
         use_ai_recognition: bool = False,
         ai_mode: AIMode = AIMode.FULL,
         ai_review_ambiguous: bool = False,
+        discovery: bool = False,
     ) -> None:
         super().__init__()
         self.config = config
@@ -43,6 +52,7 @@ class PipelineWorker(QObject):
         self.use_ai_recognition = use_ai_recognition
         self.ai_mode = ai_mode
         self.ai_review_ambiguous = ai_review_ambiguous
+        self.discovery = discovery
         self._cancel_requested = False
 
     def request_cancel(self) -> None:
@@ -64,6 +74,14 @@ class PipelineWorker(QObject):
             self._emit("parse", -1.0, "Preparando ambiente de análise (só na primeira vez)...")
             from ..pipeline import Pipeline  # heavy — deferred to click-time
             pipeline = Pipeline(self.config)
+            if self.discovery:
+                disc = pipeline.run_discovery(self.info, on_progress=self._emit)
+                _log.info(
+                    "=== Descoberta pronta: %d rostos, %d grupos ===",
+                    disc.total_faces, len(disc.groups),
+                )
+                self.discovery_ready.emit(disc)
+                return
             result = pipeline.run(
                 self.info,
                 on_progress=self._emit,
@@ -77,6 +95,9 @@ class PipelineWorker(QObject):
                 ", ".join(result.identified_characters) or "nenhum",
             )
             self.finished.emit(result)
+        except AnimeNotFoundError as e:
+            _log.info("=== Anime não encontrado: oferecendo Modo Descoberta ===")
+            self.anime_not_found.emit(str(e))
         except InsufficientRefsError as e:
             _log.info("=== Análise abortada: refs insuficientes (pasta: %s) ===", e.refs_dir)
             self.refs_missing.emit(str(e), e.refs_dir)
@@ -99,6 +120,41 @@ class PipelineWorker(QObject):
         if msg and not msg.startswith("Shot "):
             _log.info("[%s] %s", stage, msg)
         self.stage.emit(stage, float(frac), str(msg))
+
+
+class DiscoveryCommitWorker(QObject):
+    """Fecha o Modo Descoberta depois do batismo: cria personagens, refs e
+    pastas. Roda em thread porque grava dezenas de arquivos + hardlinks."""
+
+    stage = Signal(str, float, str)
+    finished = Signal(object)   # PipelineResult
+    failed = Signal(str)
+
+    def __init__(self, config: Config, result, names: dict[int, str]) -> None:
+        super().__init__()
+        self.config = config
+        self.result = result
+        self.names = names
+
+    def run(self) -> None:
+        try:
+            from ..pipeline import Pipeline
+            pipeline = Pipeline(self.config)
+            out = pipeline.commit_discovery(
+                self.result, self.names,
+                on_progress=lambda s, f, m: self.stage.emit(s, float(f), str(m)),
+            )
+            _log.info(
+                "=== Descoberta salva: %d shots, %d personagens (%s) ===",
+                out.total_shots, out.total_characters,
+                ", ".join(out.identified_characters) or "nenhum",
+            )
+            self.finished.emit(out)
+        except Exception as e:
+            tb = traceback.format_exc()
+            print("\n=== Commit da descoberta falhou ===", file=sys.stderr)
+            print(tb, file=sys.stderr, flush=True)
+            self.failed.emit(f"{e}\n\n{tb}")
 
 
 class RefsPreviewWorker(QObject):

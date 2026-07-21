@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
+from ..pipeline_types import AnimeNotFoundError
 from .anilist import AniListAnime, AniListClient, AniListRelation
 from .danbooru import DanbooruClient, character_tag_candidates
 from .jikan import JikanClient
@@ -21,6 +23,45 @@ _FRANCHISE_RELATIONS = {
 # Bump when the cached metadata schema changes so old caches are rebuilt.
 # v4: characters/refs pooled across the whole franchise graph.
 METADATA_VERSION = 4
+
+# Partículas de romaji que fansubs grudam/separam de formas diferentes do
+# título canônico ("dewa Gozaimasu" vs "de wa Gozaimasu" — caso real que
+# derrubava a busca). Cada par gera variantes nas duas direções.
+_PARTICLE_SWAPS = [("dewa", "de wa"), ("niwa", "ni wa"), ("ewa", "e wa")]
+
+
+def _search_variants(anime_name: str, season: int = 1) -> list[str]:
+    """Variantes de busca em ordem de preferência: nome exato (com Season N
+    quando aplicável), trocas de partícula, e truncamentos progressivos do
+    fim (fuzzy do AniList acha 'Futsutsuka na Akujo' mesmo sem o subtítulo).
+    """
+    bases = [anime_name]
+    if season and season > 1:
+        bases.insert(0, f"{anime_name} Season {season}")
+
+    out: list[str] = []
+
+    def add(q: str) -> None:
+        q = " ".join(q.split())
+        if q and q not in out:
+            out.append(q)
+
+    for base in bases:
+        add(base)
+        low = base.lower()
+        for a, b in _PARTICLE_SWAPS:
+            for src, dst in ((a, b), (b, a)):
+                if f" {src} " in f" {low} ":
+                    swapped = re.sub(rf"(?i)\b{src}\b", dst, " ".join(base.split()))
+                    add(swapped)
+
+    # Truncamentos: derruba palavras do fim até sobrar 3 (máx. 3 tentativas
+    # extras — cada query custa uma chamada de API).
+    words = anime_name.split()
+    for cut in range(len(words) - 1, max(2, len(words) - 4), -1):
+        if cut >= 3:
+            add(" ".join(words[:cut]))
+    return out
 
 
 @dataclass
@@ -41,6 +82,15 @@ class AnimeBundle:
     characters: list[CharacterRef]
     franchise_ids: list[int] | None = None   # All AniList IDs pooled into this bundle
     franchise_root_id: int | None = None     # The id used as cache key for this franchise
+    # Banco criado pelo Modo Descoberta (sem ids online): força a pasta de
+    # cache/refs pra "local-<slug>" em vez de al<id>/mal<id>.
+    cache_id_override: str | None = None
+
+
+def local_cache_id(anime_name: str) -> str:
+    """Cache id de um anime SEM ids online (Modo Descoberta)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", anime_name.lower()).strip("-") or "anime"
+    return f"local-{slug}"
 
 
 class AnimeProvider:
@@ -174,10 +224,10 @@ class AnimeProvider:
 
         # For season > 1 we have to disambiguate on AniList, because the
         # plain search picks the most popular entry (usually S1). AniList
-        # understands "Season N" as a semantic hint.
-        queries = [anime_name]
-        if season and season > 1:
-            queries = [f"{anime_name} Season {season}", anime_name]
+        # understands "Season N" as a semantic hint. Além disso, variantes
+        # de grafia (dewa/de wa) e truncamentos cobrem títulos de fansub
+        # que não batem com o canônico.
+        queries = _search_variants(anime_name, season)
 
         anime: AniListAnime | None = None
         used_query: str | None = None
@@ -217,10 +267,21 @@ class AnimeProvider:
                     used_query = q
                     break
             if jikan_hit is None:
-                raise RuntimeError(
+                # Última cartada: banco LOCAL criado pelo Modo Descoberta
+                # numa análise anterior deste mesmo anime.
+                local = self.load_cached(local_cache_id(anime_name))
+                if local is not None and local.characters:
+                    status(
+                        f"Usando banco local descoberto "
+                        f"({len(local.characters)} personagens batizados)."
+                    )
+                    local.cache_id_override = local_cache_id(anime_name)
+                    return local
+                raise AnimeNotFoundError(
                     f"Anime '{anime_name}' não foi encontrado na AniList nem no "
                     "MyAnimeList. Verifique o nome (sem tags de fansub ou "
-                    "qualidade) e tente de novo."
+                    "qualidade) — ou use o Modo Descoberta pra identificar os "
+                    "personagens pelo próprio episódio."
                 )
             # Fake an AniListAnime so the rest of the flow keeps working. We
             # use the MAL id for anilist_id too — cache paths will look like
