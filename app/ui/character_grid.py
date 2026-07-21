@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction, QIcon, QPixmap
+from PySide6.QtGui import QAction, QIcon, QImageReader, QPixmap, QPixmapCache
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -17,6 +17,48 @@ from PySide6.QtWidgets import (
 )
 
 from ..storage.db import Database
+
+_THUMB = QSize(192, 108)
+_CACHE_SIZED = False
+
+
+def _ensure_cache_size() -> None:
+    """Miniaturas de keyframe cabem folgado em 64 MB (~80 KB cada depois de
+    reduzidas). O padrão do Qt (10 MB) expulsava as antigas no meio de uma
+    pasta grande, refazendo o trabalho a cada recarga da grade. Chamado no
+    primeiro ShotGrid (com o QApplication já vivo, não no import)."""
+    global _CACHE_SIZED
+    if not _CACHE_SIZED:
+        _CACHE_SIZED = True
+        QPixmapCache.setCacheLimit(64 * 1024)  # em KB
+
+
+def _thumbnail(path: Path) -> QPixmap | None:
+    """Miniatura de um keyframe, com cache.
+
+    Duas otimizações contra a 'travadinha' ao recarregar a grade (que
+    acontece a cada remover/mover/aprovar):
+    - QImageReader.setScaledSize: o JPEG é decodificado JÁ pequeno (o formato
+      permite decodificar em resolução reduzida) em vez de abrir o quadro
+      1080p inteiro pra depois encolher;
+    - QPixmapCache: cada keyframe vira miniatura UMA vez por sessão — as
+      recargas seguintes só repovoam a grade com pixmaps prontos.
+    """
+    key = f"cc_thumb:{path}"
+    pix = QPixmapCache.find(key)
+    if pix is not None and not pix.isNull():
+        return pix
+    reader = QImageReader(str(path))
+    size = reader.size()
+    if size.isValid():
+        scaled = size.scaled(_THUMB, Qt.AspectRatioMode.KeepAspectRatio)
+        reader.setScaledSize(scaled)
+    img = reader.read()
+    if img.isNull():
+        return None
+    pix = QPixmap.fromImage(img)
+    QPixmapCache.insert(key, pix)
+    return pix
 
 
 class ShotGrid(QWidget):
@@ -34,6 +76,7 @@ class ShotGrid(QWidget):
 
     def __init__(self, episode_root: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        _ensure_cache_size()
         self.episode_root = episode_root
         self.character_name: str | None = None
 
@@ -84,10 +127,8 @@ class ShotGrid(QWidget):
         p = self.episode_root / rel
         if not p.exists():
             return QIcon()
-        pix = QPixmap(str(p))
-        if pix.isNull():
-            return QIcon()
-        return QIcon(pix.scaled(192, 108, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        pix = _thumbnail(p)
+        return QIcon(pix) if pix is not None else QIcon()
 
     @staticmethod
     def _mean(xs: list[float]) -> float:
