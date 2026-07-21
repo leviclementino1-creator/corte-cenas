@@ -124,6 +124,24 @@ class Pipeline:
         episode_id = self.db.upsert_episode(anime_id, info.season, info.episode, str(info.source))
         self.db.clear_episode_shots(episode_id)
 
+        # Bloqueios da curadoria manual entram JÁ na classificação (não só na
+        # reaplicação final): cena que o usuário removeu não pode ser
+        # re-atribuída no meio da análise — senão ela vira fonte da segunda
+        # passada e ESPALHA o erro que o usuário corrigiu.
+        blocked_pairs: dict[int, set[int]] = {}
+        for ov in self.db.manual_overrides(episode_id):
+            if ov["action"] == "block":
+                blocked_pairs.setdefault(int(ov["shot_idx"]), set()).add(
+                    int(ov["character_id"])
+                )
+        if blocked_pairs:
+            n_blocked = sum(len(v) for v in blocked_pairs.values())
+            print(
+                f"[CorteCenas] {n_blocked} bloqueio(s) manual(is) valendo "
+                "desde a classificação.",
+                flush=True,
+            )
+
         for ch in bundle.characters:
             self.db.upsert_character(
                 anime_id=anime_id,
@@ -423,6 +441,14 @@ class Pipeline:
                     q_embs, margin=max(cfg.argmax_margin, 0.05)
                 )
 
+            # Par (cena, personagem) bloqueado pelo usuário não entra — nem
+            # no banco, nem como fonte da segunda passada.
+            if assigns and shot.idx in blocked_pairs:
+                assigns = [
+                    (cid, c) for cid, c in assigns
+                    if cid not in blocked_pairs[shot.idx]
+                ]
+
             if assigns:
                 names: list[str] = []
                 for char_id, conf in assigns:
@@ -488,6 +514,14 @@ class Pipeline:
             )
             id_to_name = {e.id: e.name for e in entries}
             for pos, hits in sorted(rescues.items()):
+                idx_b = cut_results[pos][0].idx
+                if idx_b in blocked_pairs:
+                    hits = [
+                        (cid, s) for cid, s in hits
+                        if cid not in blocked_pairs[idx_b]
+                    ]
+                    if not hits:
+                        continue
                 names_r: list[str] = []
                 for cid, sim in hits:
                     self.db.assign_character(shot_db_ids[pos], cid, sim)
@@ -575,9 +609,10 @@ class Pipeline:
                                 continue
                             if vname not in name_to_id_review or vname in names_in_shot:
                                 continue
-                            self.db.assign_character(
-                                item["shot_id"], name_to_id_review[vname], vconf
-                            )
+                            vcid = name_to_id_review[vname]
+                            if vcid in blocked_pairs.get(item["shot"].idx, set()):
+                                continue  # usuário já disse que não é
+                            self.db.assign_character(item["shot_id"], vcid, vconf)
                             names_in_shot.append(vname)
                         if names_in_shot:
                             confirmed += 1
