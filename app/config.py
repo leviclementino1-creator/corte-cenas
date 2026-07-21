@@ -124,6 +124,16 @@ class Config:
     # [ai_review_low, default_threshold) é "quase" — vai pra IA desempatar.
     ai_review_low: float = 0.62
     ai_review_max_shots: int = 150          # teto de custo por episódio
+
+    # Segunda passada: cenas identificadas com confiança viram referências
+    # temporárias do próprio episódio (mesmo traço/ângulo/luz) e as cenas sem
+    # dono são recomparadas contra elas. Resolve o clássico "mesma cena, mesmo
+    # ângulo, uma identificada e a outra pulada". Threshold 0.86 = o corte de
+    # "mesma identidade" do clustering da Descoberta (mesmos embeddings).
+    second_pass: bool = True
+    second_pass_threshold: float = 0.86
+    second_pass_min_sources: int = 2        # shots-fonte mínimos por personagem
+    second_pass_max_bank: int = 40          # refs de episódio máximas por personagem
     face_crop_padding: float = 0.25         # around detected face; more context helps CLIP
     # AI hybrid mode crops get WIDER padding so hair/headband is fully
     # visible — that's often the only thing telling apart similar-styled

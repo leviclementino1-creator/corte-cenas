@@ -62,6 +62,20 @@ CREATE TABLE IF NOT EXISTS shot_character (
 CREATE INDEX IF NOT EXISTS idx_shot_char_shot ON shot_character(shot_id);
 CREATE INDEX IF NOT EXISTS idx_shot_char_char ON shot_character(character_id);
 CREATE INDEX IF NOT EXISTS idx_character_anime ON character(anime_id);
+
+-- Curadoria manual do usuário (remover/mover/aprovar na aba Resultados).
+-- Presa ao NÚMERO da cena (shot_idx), não ao id da linha: a reanálise apaga
+-- e recria os shots, mas os números são estáveis (cache de detecção), então
+-- as decisões sobrevivem e são reaplicadas no fim de toda análise.
+CREATE TABLE IF NOT EXISTS manual_override (
+    episode_id INTEGER NOT NULL REFERENCES episode(id) ON DELETE CASCADE,
+    shot_idx INTEGER NOT NULL,
+    character_id INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+    action TEXT NOT NULL CHECK(action IN ('add','block')),
+    confidence REAL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (episode_id, shot_idx, character_id)
+);
 """
 
 
@@ -256,6 +270,87 @@ class Database:
                 (shot_id,),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def assignments_for_episode(self, episode_id: int) -> dict[int, list[dict]]:
+        """Todas as atribuições do episódio de uma vez: {shot_id: [{id, name,
+        confidence, approved}, ...]} ordenadas por confiança. Evita 1 query
+        por shot na hora de montar as pastas."""
+        with self.connect() as c:
+            rows = c.execute(
+                """SELECT sc.shot_id, c.id, c.name, sc.confidence, sc.approved
+                   FROM shot_character sc
+                   JOIN character c ON c.id = sc.character_id
+                   JOIN shot s ON s.id = sc.shot_id
+                   WHERE s.episode_id = ?
+                   ORDER BY sc.confidence DESC""",
+                (episode_id,),
+            ).fetchall()
+        out: dict[int, list[dict]] = {}
+        for r in rows:
+            out.setdefault(r["shot_id"], []).append(
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "confidence": r["confidence"],
+                    "approved": r["approved"],
+                }
+            )
+        return out
+
+    # --- curadoria manual persistente ---
+
+    def record_manual(
+        self,
+        episode_id: int,
+        shot_idx: int,
+        character_id: int,
+        action: str,
+        confidence: float | None = None,
+    ) -> None:
+        """Grava uma decisão manual ('add' ou 'block') pra cena shot_idx.
+        REPLACE: a decisão mais recente pro mesmo par vence (ex.: removeu,
+        depois moveu de volta → o 'add' substitui o 'block')."""
+        with self.connect() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO manual_override"
+                "(episode_id, shot_idx, character_id, action, confidence) "
+                "VALUES(?,?,?,?,?)",
+                (episode_id, shot_idx, character_id, action, confidence),
+            )
+
+    def manual_overrides(self, episode_id: int) -> list[dict]:
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT shot_idx, character_id, action, confidence "
+                "FROM manual_override WHERE episode_id = ?",
+                (episode_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def assign_character_manual(
+        self, shot_id: int, character_id: int, confidence: float | None
+    ) -> None:
+        """Atribuição vinda da curadoria manual: entra revisada e aprovada,
+        o que a protege do drop por poucos-shots."""
+        with self.connect() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO shot_character"
+                "(shot_id, character_id, confidence, reviewed, approved) "
+                "VALUES(?,?,?,1,1)",
+                (shot_id, character_id, float(confidence or 1.0)),
+            )
+
+    def drop_low_count_character(self, episode_id: int, character_id: int) -> None:
+        """Remove as atribuições AUTOMÁTICAS deste personagem no episódio
+        (poucos shots = provável ruído). Escopado ao episódio — não mexe em
+        outros eps — e poupa linhas aprovadas/manuais."""
+        with self.connect() as c:
+            c.execute(
+                "DELETE FROM shot_character WHERE character_id = ? "
+                "AND (approved IS NULL OR approved = 0) "
+                "AND shot_id IN (SELECT id FROM shot WHERE episode_id = ?)",
+                (character_id, episode_id),
+            )
 
     def set_assignment_review(self, shot_id: int, character_id: int, approved: bool) -> None:
         with self.connect() as c:

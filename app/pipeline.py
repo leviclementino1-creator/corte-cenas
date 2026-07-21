@@ -19,6 +19,7 @@ from .matching.face_detector import AnimeFaceDetector, ensure_cascade, smart_por
 # import AIMode, PipelineResult, STAGES` without dragging in torch just to
 # read a type name. UI modules should prefer `from .pipeline_types import ...`.
 from .matching.face_clustering import FaceObservation, cluster_faces, pick_representatives
+from .matching.second_pass import ShotFaces, build_episode_banks, rescue_unassigned
 from .pipeline_types import (
     AIMode,
     DiscoveredGroup,
@@ -308,6 +309,10 @@ class Pipeline:
         # similaridade chegou perto do threshold — a zona cinzenta que vale
         # uma segunda opinião da IA. Guardamos os crops já extraídos.
         ambiguous: list[dict] = []
+        # Segunda passada: embeddings de rosto por shot (posição casa com
+        # per_shot_names). Só rostos — o fallback de keyframe inteiro fica de
+        # fora do banco (distribuição diferente contaminaria as comparações).
+        shot_faces: list[ShotFaces] = []
         for i, (shot, shot_file, kfs) in enumerate(cut_results, 1):
             cb("analyze_shots", i / max(total, 1), f"Shot {i}/{total}")
             main_kf = kfs[len(kfs) // 2] if kfs else None
@@ -333,6 +338,7 @@ class Pipeline:
                 if credit_count >= cfg.credit_min_keyframes:
                     credit_shots += 1
                     per_shot_names.append([])
+                    shot_faces.append(ShotFaces(len(per_shot_names) - 1, None, []))
                     continue
 
             # Per-keyframe face-based assignments. Tracking votes across
@@ -343,6 +349,7 @@ class Pipeline:
             had_any_faces = False
             shot_best_sim = 0.0
             shot_crops: list = []
+            face_embs_kf: list[np.ndarray] = []
             for kf_path in kfs:
                 img = cv2.imread(str(kf_path))
                 if img is None:
@@ -354,6 +361,8 @@ class Pipeline:
                 if ai_review_ambiguous:
                     shot_crops.extend(crops)
                 embs = engine.embed_images(crops)
+                if cfg.second_pass:
+                    face_embs_kf.append(embs)
                 d = dict(matcher.assign_best_per_query(embs, margin=cfg.argmax_margin))
                 per_kf_assigns.append(d)
                 if ai_review_ambiguous:
@@ -422,9 +431,68 @@ class Pipeline:
                             "crops": crops_jpg,
                             "best_sim": shot_best_sim,
                         })
+            if cfg.second_pass:
+                shot_faces.append(
+                    ShotFaces(
+                        pos=len(per_shot_names) - 1,
+                        embs=np.vstack(face_embs_kf) if face_embs_kf else None,
+                        assigned=list(assigns),
+                    )
+                )
         print(f"[CorteCenas] Rostos detectados em {shots_with_faces}/{total} shots.")
         if cfg.skip_credit_shots:
             print(f"[CorteCenas] Shots ignorados por créditos/texto: {credit_shots}/{total}")
+
+        # === Segunda passada: resgate por semelhança no próprio episódio ===
+        # As cenas identificadas viram refs temporárias (mesmo traço/ângulo);
+        # as sem dono são recomparadas contra elas. Pega o clássico "mesma
+        # cena, mesmo ângulo, uma identificada e a vizinha pulada". Roda ANTES
+        # da revisão IA: cada resgate aqui é um duvidoso a menos gastando API.
+        rescued_pos: set[int] = set()
+        if cfg.second_pass and entries:
+            cb("second_pass", -1.0, "Comparando cenas sem dono com as já identificadas...")
+            banks = build_episode_banks(
+                entries,
+                shot_faces,
+                min_sources=cfg.second_pass_min_sources,
+                max_bank=cfg.second_pass_max_bank,
+            )
+            rescues = rescue_unassigned(
+                banks, shot_faces, threshold=cfg.second_pass_threshold
+            )
+            id_to_name = {e.id: e.name for e in entries}
+            for pos, hits in sorted(rescues.items()):
+                names_r: list[str] = []
+                for cid, sim in hits:
+                    self.db.assign_character(shot_db_ids[pos], cid, sim)
+                    names_r.append(id_to_name[cid])
+                per_shot_names[pos] = names_r
+                rescued_pos.add(pos)
+                print(
+                    f"[2a passada] Shot #{cut_results[pos][0].idx:04d} -> "
+                    f"{'+'.join(names_r)} (sim {hits[0][1]:.2f})"
+                )
+            print(
+                f"[2a passada] Banco de {len(banks)} personagens; "
+                f"{len(rescues)} cenas resgatadas."
+            )
+            cb(
+                "second_pass",
+                1.0,
+                f"{len(rescues)} cenas resgatadas por semelhança"
+                if rescues
+                else "Nenhuma cena extra recuperada",
+            )
+            if rescued_pos and ambiguous:
+                before_n = len(ambiguous)
+                ambiguous = [a for a in ambiguous if a["pos"] not in rescued_pos]
+                if before_n != len(ambiguous):
+                    print(
+                        f"[2a passada] {before_n - len(ambiguous)} duvidosos "
+                        "resolvidos sem gastar IA."
+                    )
+        else:
+            cb("second_pass", 1.0, "—")
 
         # === Revisão IA dos duvidosos (modo híbrido) ===
         # O CLIP resolveu o grosso de graça; só a zona cinzenta gasta API.
@@ -547,8 +615,9 @@ class Pipeline:
     ) -> PipelineResult:
         """Shared end-of-pipeline stage for both CLIP and AI paths:
           - drop characters below min_shots_per_character (cleans DB too)
+          - reapply the user's remembered manual curation (add/block)
           - write shots.json + characters.json
-          - create by_character / by_pair hardlinks
+          - create by_character / by_pair hardlinks (from DB truth)
           - return PipelineResult
         """
         cfg = self.cfg
@@ -562,22 +631,50 @@ class Pipeline:
             cid = name_to_id.get(name)
             if cid is None:
                 continue
-            with self.db.connect() as c:
-                c.execute(
-                    "DELETE FROM shot_character WHERE character_id = ?", (cid,)
-                )
+            self.db.drop_low_count_character(episode_id, cid)
             dropped.append(f"{name}({count})")
         if dropped:
-            drop_set = {d.split("(")[0] for d in dropped}
-            per_shot_names = [[n for n in names if n not in drop_set] for names in per_shot_names]
             print(f"[CorteCenas] Removidos (poucos shots): {', '.join(dropped)}")
+
+        # Curadoria manual lembrada de análises anteriores: bloqueios tiram o
+        # que a IA re-adicionou, adições devolvem o que o usuário confirmou.
+        # Vem DEPOIS do drop de poucos-shots pra decisão do usuário ganhar.
+        overrides = self.db.manual_overrides(episode_id)
+        if overrides:
+            idx_to_dbid = {
+                shot.idx: sid for (shot, _f, _k), sid in zip(cut_results, shot_db_ids)
+            }
+            n_block = n_add = 0
+            for ov in overrides:
+                sid = idx_to_dbid.get(ov["shot_idx"])
+                if sid is None:
+                    continue  # cena não existe mais (bounds mudaram)
+                if ov["action"] == "block":
+                    self.db.remove_shot_character(sid, ov["character_id"])
+                    n_block += 1
+                else:
+                    self.db.assign_character_manual(
+                        sid, ov["character_id"], ov["confidence"]
+                    )
+                    n_add += 1
+            print(
+                f"[CorteCenas] Curadoria manual reaplicada: "
+                f"{n_block} remoções, {n_add} adições/movidas."
+            )
+            cb("organize", -1.0, f"Curadoria manual: {n_block + n_add} decisões reaplicadas")
 
         cb("organize", -1.0, "Gerando pastas e metadados...")
         clear_grouping(episode_root)
 
+        # Pastas e contagens saem do BANCO (não das listas em memória): é o
+        # banco que carrega o resultado final — automático + IA + curadoria.
+        by_shot = self.db.assignments_for_episode(episode_id)
+        final_names: list[list[str]] = []
         shots_payload = []
-        for (shot, shot_file, kfs), shot_id, names in zip(cut_results, shot_db_ids, per_shot_names):
-            assigns = self.db.characters_in_shot(shot_id)
+        for (shot, shot_file, kfs), shot_id in zip(cut_results, shot_db_ids):
+            assigns = by_shot.get(shot_id, [])
+            names = [a["name"] for a in assigns]
+            final_names.append(names)
             shot_row = {
                 "idx": shot.idx,
                 "file": str(shot_file.relative_to(episode_root)).replace("\\", "/"),
@@ -595,8 +692,8 @@ class Pipeline:
         write_shots_json(metadata_dir / "shots.json", shots_payload)
         write_characters_json(metadata_dir / "characters.json", characters_json)
 
-        pair_counts = dict(count_pairs(per_shot_names))
-        identified = sorted({n for names in per_shot_names for n in names})
+        pair_counts = dict(count_pairs(final_names))
+        identified = sorted({n for names in final_names for n in names})
         cb("organize", 1.0, "Concluído")
         return PipelineResult(
             episode_root=episode_root,
@@ -773,6 +870,7 @@ class Pipeline:
                             crop_jpg=enc_.tobytes(),
                         ))
 
+        cb("second_pass", 1.0, "—")
         cb("ai_review", 1.0, "—")
         cb("organize", -1.0, f"Agrupando {len(observations)} rostos por personagem...")
         clusters = cluster_faces(observations)
@@ -1391,7 +1489,8 @@ class Pipeline:
             f"(total {total_pt + total_ct:,}) | custo estimado: ${cost_est:.4f}{extra}",
             flush=True,
         )
-        cb("ai_review", 1.0, "—")  # estágio não se aplica no modo IA puro
+        cb("second_pass", 1.0, "—")  # estágios que não se aplicam no modo IA puro
+        cb("ai_review", 1.0, "—")
 
         return self._finalize_episode(
             cb=cb,

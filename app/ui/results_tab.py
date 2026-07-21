@@ -511,12 +511,25 @@ class ResultsTab(QWidget):
         if not pairs:
             return
 
+        # Além de mexer nas linhas vivas, grava a decisão em manual_override:
+        # a reanálise recria os shots do zero, e é essa memória que faz o
+        # "removido fica removido / movido fica movido" sobreviver.
+        ep_id = getattr(self._current_result, "episode_id", None)
+
+        def _remember(shot: dict, char_id: int, act: str, conf=None) -> None:
+            idx = shot.get("idx")
+            if ep_id is None or idx is None:
+                return
+            self.db.record_manual(ep_id, int(idx), char_id, act, conf)
+
         if action == "approve":
-            for sid, _ in pairs:
+            for sid, shot in pairs:
                 self.db.set_assignment_review(sid, current_char["id"], approved=True)
+                _remember(shot, current_char["id"], "add", shot.get("confidence"))
         elif action == "remove":
-            for sid, _ in pairs:
+            for sid, shot in pairs:
                 self.db.remove_shot_character(sid, current_char["id"])
+                _remember(shot, current_char["id"], "block")
         elif action == "move":
             target = self._ask_target_character(skip_character_id=current_char["id"])
             if target is None:
@@ -528,6 +541,8 @@ class ResultsTab(QWidget):
                     target["id"],
                     confidence=shot.get("confidence"),
                 )
+                _remember(shot, current_char["id"], "block")
+                _remember(shot, target["id"], "add", shot.get("confidence"))
         else:
             return
 

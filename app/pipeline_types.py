@@ -110,6 +110,7 @@ STAGES = [
     ("download_refs", "Baixando referências"),
     ("embed_refs", "Gerando embeddings das referências"),
     ("analyze_shots", "Analisando shots"),
+    ("second_pass", "Resgatando cenas parecidas"),
     ("ai_review", "Revisão IA dos duvidosos"),
     ("organize", "Organizando resultados"),
 ]
