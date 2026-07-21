@@ -511,13 +511,17 @@ class AnimeProvider:
             for u in jikan_urls + dbooru_urls:
                 if u not in urls:
                     urls.append(u)
-            # Fotos da AniList e da Kitsu sempre entram (fontes extras);
-            # o retrato do MAL só como último recurso.
-            for extra_img in (ch.get("anilist_image"), ch.get("kitsu_image")):
+            # Retratos oficiais sempre entram (MAL, AniList, Kitsu): são 3
+            # fotos garantidas por personagem mesmo com as galerias do MAL
+            # fora do ar — acima do mínimo da análise. O dedup por URL evita
+            # repetição quando a galeria já contém o retrato.
+            for extra_img in (
+                ch.get("image"),
+                ch.get("anilist_image"),
+                ch.get("kitsu_image"),
+            ):
                 if extra_img and extra_img not in urls:
                     urls.append(extra_img)
-            if not urls and ch.get("image"):
-                urls.append(ch["image"])
 
             resolved.append(
                 CharacterRef(

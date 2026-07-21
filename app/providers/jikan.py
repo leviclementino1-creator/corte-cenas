@@ -28,7 +28,16 @@ class JikanClient:
     """Thin wrapper around Jikan v4. Rate-limit respectful (~3 req/s)."""
 
     def __init__(self, timeout: float = 30.0, min_interval: float = 0.4) -> None:
-        self.client = httpx.Client(timeout=timeout, headers={"Accept": "application/json"})
+        # Accept-Encoding: gzip EXATO — descoberta de produção (jul/2026): o
+        # cache nginx do api.jikan.moe guarda variantes por Accept-Encoding.
+        # Com "gzip" a resposta vem do cache (até STALE, servida mesmo com o
+        # backend morto -> 200); com a lista padrão do httpx ("gzip, deflate,
+        # br, zstd") o pedido FURA o cache e cai no backend saturado -> 504.
+        # Era por isso que o app "sempre falhava" enquanto o site funcionava.
+        self.client = httpx.Client(
+            timeout=timeout,
+            headers={"Accept": "application/json", "Accept-Encoding": "gzip"},
+        )
         self.min_interval = min_interval
         self._last = 0.0
         # Chamadas que morreram mesmo após retries — o provider compara
