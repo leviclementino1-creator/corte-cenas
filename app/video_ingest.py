@@ -105,6 +105,49 @@ _STRIP_ANIME = [
     re.compile(r"\s+\d{1,2}x\d{1,3}\b.*$"),            # " 4x01"
 ]
 
+# Pastas que indicam ORGANIZAÇÃO por temporada — o nome do anime está um
+# nível acima ("Mushoku Tensei/Season 1/S01E01-....mkv").
+_SEASON_DIR = re.compile(
+    r"^(?:season\s*\d*|s\d{1,2}|temporada\s*\d*|specials?|extras?|ovas?|"
+    r"filmes?|movies?)$",
+    re.IGNORECASE,
+)
+# Pastas de armazenamento genérico — subir além delas só acha lixo
+# (nome de usuário, raiz do disco).
+_STORAGE_DIR = re.compile(
+    r"^(?:downloads?|desktop|documents?|documentos|videos?|vídeos|animes?|"
+    r"series|séries|torrents?|users|home|midia|mídia|media)$",
+    re.IGNORECASE,
+)
+
+# "S01E01-Título do Episódio" → tag no COMEÇO = arquivo sem nome de anime.
+_LEADING_SE_TAG = re.compile(r"^\s*[Ss]\d{1,2}[Ee]\d{1,3}\s*[-–—_.]*\s*")
+# "... V2" no fim = versão de fansub, não faz parte de nome nenhum.
+_VERSION_SUFFIX = re.compile(r"\s+[Vv]\d+\s*$")
+
+
+def _name_from_parents(path: Path, max_up: int = 3) -> str:
+    """Nome do anime a partir das PASTAS ("Mushoku Tensei/Season 1/ep.mkv").
+    Pula pastas de temporada; para de subir ao encontrar pasta de
+    armazenamento genérico (Downloads etc. — dali pra cima é nome de usuário)."""
+    for parent in list(path.parents)[:max_up]:
+        raw = parent.name
+        if not raw:
+            break
+        cand = clean_title(raw)
+        if not cand:
+            continue
+        if _SEASON_DIR.match(cand):
+            continue          # "Season 1" → o nome está um nível acima
+        if _STORAGE_DIR.match(cand):
+            break             # "Downloads" → desiste, acima é lixo
+        for pat in _STRIP_ANIME:
+            cand = pat.sub("", cand)   # "Mushoku Tensei S1" → "Mushoku Tensei"
+        cand = _VERSION_SUFFIX.sub("", cand).strip(" -_.")
+        if len(cand) >= 3 and not cand.isdigit():
+            return cand
+    return ""
+
 
 def parse_filename(video_path: str | Path) -> EpisodeInfo:
     path = Path(video_path)
@@ -141,7 +184,20 @@ def parse_filename(video_path: str | Path) -> EpisodeInfo:
     name = cleaned
     for pat in _STRIP_ANIME:
         name = pat.sub("", name)
-    name = name.strip(" -_.")
+    name = _VERSION_SUFFIX.sub("", name).strip(" -_.")
+
+    # Arquivo SEM nome de anime ("S01E01-Jobless Reincarnation V2.mkv" —
+    # caso real): a tag vem primeiro e o strip acima zera o nome. Na ordem:
+    # 1) nome da pasta ("Mushoku Tensei/Season 1/arquivo.mkv");
+    # 2) o que vem DEPOIS da tag (título do episódio — a busca fuzzy da
+    #    AniList costuma resolver, e é infinitamente melhor que mandar
+    #    "S01E01-..." pra busca).
+    if not name:
+        name = _name_from_parents(path)
+    if not name:
+        name = _VERSION_SUFFIX.sub(
+            "", _LEADING_SE_TAG.sub("", cleaned)
+        ).strip(" -_.")
     if not name:
         name = cleaned.split(" - ")[0].strip() or stem
 
