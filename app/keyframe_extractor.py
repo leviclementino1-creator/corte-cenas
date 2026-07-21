@@ -27,6 +27,7 @@ def cut_shot(
     out_file: Path,
     reencode: bool = True,
     use_nvenc: bool = False,
+    fps: float = 24.0,
 ) -> None:
     """Extract a shot to an mp4 file. Re-encode for frame accuracy, or stream-copy for speed.
 
@@ -39,13 +40,23 @@ def cut_shot(
         except OSError:
             pass
 
+    # O "fim" do shot é o timestamp do PRIMEIRO frame do shot seguinte (fim
+    # exclusivo, convenção do PySceneDetect). Cortar com "-to fim" na ENTRADA
+    # deixava exatamente esse frame invadir o clipe quando o arredondamento de
+    # timestamp caía pro lado errado (MKV marca em milissegundos) — o clássico
+    # "frame de outra cena no final". A correção: duração na SAÍDA (-t, exata
+    # pós-decodificação) com margem de MEIO frame — o intruso nunca entra e o
+    # último frame legítimo nunca sai (ele termina 1 frame inteiro antes).
+    duration = max(0.05, shot.duration - 0.5 / max(fps, 1.0))
+
     if reencode:
         if use_nvenc:
             # GPU encode chip: ~5-10x faster than libx264 on CPU and leaves
             # the CPU free for parallel decode/keyframes. rc=vbr + cq + b:v 0
             # is NVENC's constant-quality mode (the crf equivalent).
-            stream = ffmpeg.input(str(video_path), ss=shot.start, to=shot.end).output(
+            stream = ffmpeg.input(str(video_path), ss=shot.start).output(
                 str(out_file),
+                t=duration,
                 vcodec="h264_nvenc",
                 preset="p4",
                 rc="vbr",
@@ -57,8 +68,9 @@ def cut_shot(
                 **{"b:v": "0"},
             )
         else:
-            stream = ffmpeg.input(str(video_path), ss=shot.start, to=shot.end).output(
+            stream = ffmpeg.input(str(video_path), ss=shot.start).output(
                 str(out_file),
+                t=duration,
                 vcodec="libx264",
                 preset="ultrafast",
                 crf=20,
@@ -140,6 +152,14 @@ def cut_all_shots(
     shots_dir.mkdir(parents=True, exist_ok=True)
     keyframes_dir.mkdir(parents=True, exist_ok=True)
 
+    # fps do vídeo, sondado uma vez: o corte usa meia duração de frame como
+    # margem pra não deixar o primeiro frame do shot seguinte vazar pro clipe.
+    probe = cv2.VideoCapture(str(video_path))
+    video_fps = probe.get(cv2.CAP_PROP_FPS) if probe.isOpened() else 0.0
+    probe.release()
+    if not video_fps or video_fps <= 0 or video_fps != video_fps:
+        video_fps = 24.0
+
     total = len(shots)
     # Shared, mutated on NVENC runtime failure (driver/session hiccup): the
     # remaining shots silently switch to libx264. Benign race — worst case a
@@ -157,7 +177,8 @@ def cut_all_shots(
 
         if not (skip_existing and have_cut):
             try:
-                cut_shot(video_path, shot, out_file, reencode=reencode, use_nvenc=enc_state["nvenc"])
+                cut_shot(video_path, shot, out_file, reencode=reencode,
+                         use_nvenc=enc_state["nvenc"], fps=video_fps)
             except ffmpeg.Error:
                 if enc_state["nvenc"]:
                     enc_state["nvenc"] = False
@@ -167,7 +188,8 @@ def cut_all_shots(
                         flush=True,
                     )
                     try:
-                        cut_shot(video_path, shot, out_file, reencode=reencode, use_nvenc=False)
+                        cut_shot(video_path, shot, out_file, reencode=reencode,
+                                 use_nvenc=False, fps=video_fps)
                     except ffmpeg.Error:
                         return None
                 else:
