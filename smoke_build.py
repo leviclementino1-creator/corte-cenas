@@ -30,7 +30,9 @@ needle = f"Corte Cenas v{version} | frozen=True"
 proc = subprocess.Popen([str(exe)])
 ok = False
 try:
-    deadline = time.monotonic() + 40
+    # 90s: em máquina ociosa o boot loga em ~2s, mas o build pode rodar em
+    # paralelo com uma análise (ffmpeg saturando a CPU) — visto em produção.
+    deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         time.sleep(2)
         if log.exists() and log.stat().st_size > offset:
