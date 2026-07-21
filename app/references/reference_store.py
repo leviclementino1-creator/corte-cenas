@@ -20,6 +20,12 @@ def _slug(name: str) -> str:
     return _SAFE.sub("_", name).strip() or "unknown"
 
 
+def slug_for(name: str) -> str:
+    """Nome de pasta de um personagem (público — o pipeline usa pra casar
+    pastas locais com o elenco online)."""
+    return _slug(name)
+
+
 def resolve_anime_dir(cache_root: Path, cache_id: str) -> Path:
     """Return the on-disk folder for this cache_id.
 

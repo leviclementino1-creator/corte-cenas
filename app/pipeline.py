@@ -139,6 +139,26 @@ class Pipeline:
             cache_id = f"al{bundle.anilist_id}"
         else:
             cache_id = f"mal{bundle.mal_id}"
+
+        # Pastas locais de personagem que NÃO batem com o elenco online
+        # também são personagens (Modo Descoberta com nome digitado, pastas
+        # criadas à mão). Sem isto, as fotos delas ficavam invisíveis — bug
+        # real: usuário batizou "Mitsuhime", o MAL chama de "Yukishiro,
+        # Mitsuhime", e a análise dizia "sem referências suficientes".
+        extra_locals = self._local_only_characters(ref_store, cache_id, bundle)
+        for name in extra_locals:
+            bundle.characters.append(
+                CharacterRef(mal_id=None, anilist_id=None, name=name,
+                             role="Main", image_urls=[])
+            )
+            self.db.upsert_character(
+                anime_id=anime_id, name=name,
+                anilist_id=None, mal_id=None, role="Main",
+            )
+        if extra_locals:
+            cb("download_refs", -1.0,
+               f"+{len(extra_locals)} personagens de pastas locais")
+
         refs_per_char = ref_store.ensure_references(
             cache_id, bundle, on_status=lambda m: cb("download_refs", -1.0, m)
         )
@@ -1023,6 +1043,26 @@ class Pipeline:
             on_progress=cut_cb,
         )
         return episode_root, metadata_dir, cut_results
+
+    @staticmethod
+    def _local_only_characters(ref_store: ReferenceStore, cache_id: str, bundle) -> list[str]:
+        """Nomes de pastas em <anime>/characters/ com imagens dentro que não
+        correspondem (por slug) a nenhum personagem do bundle online."""
+        from .references.reference_store import slug_for
+        chars_dir = ref_store.anime_dir(cache_id) / "characters"
+        if not chars_dir.exists():
+            return []
+        known = {slug_for(ch.name) for ch in bundle.characters}
+        exts = {".jpg", ".jpeg", ".png", ".webp"}
+        out: list[str] = []
+        for d in sorted(chars_dir.iterdir()):
+            if not d.is_dir() or d.name.startswith("_"):
+                continue
+            if d.name in known:
+                continue
+            if any(f.suffix.lower() in exts for f in d.iterdir() if f.is_file()):
+                out.append(d.name)
+        return out
 
     def _build_ai_client(self) -> NavyAIClient:
         """NavyAI primário + Gemini nativo como fallback, conforme as keys
