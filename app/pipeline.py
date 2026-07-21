@@ -655,6 +655,20 @@ class Pipeline:
             )
             disc_cache_id = local_cache_id(info.anime)
             cb("fetch_characters", 1.0, "Modo Descoberta — sem banco online")
+
+        # Refs pra SUGESTÃO: quando o anime é conhecido mas nunca foi
+        # analisado (sem centroides no DB), até 1 foto por personagem —
+        # pouco demais pra análise — já serve pra pré-nomear grupos.
+        weak_refs: dict[str, list[Path]] = {}
+        if online_bundle is not None and not known_centroids:
+            cb("download_refs", -1.0, "Baixando fotos pra sugerir nomes...")
+            try:
+                weak_refs = ReferenceStore(cfg.cache_path).ensure_references(
+                    disc_cache_id, online_bundle,
+                    on_status=lambda m: cb("download_refs", -1.0, m),
+                )
+            except Exception as e:
+                print(f"[Descoberta] Refs pra sugestão falharam: {e}", flush=True)
         cb("download_refs", 1.0, "—")
 
         clip_msg = "Carregando modelo CLIP..."
@@ -670,6 +684,28 @@ class Pipeline:
             use_cuda=cfg.use_cuda,
         )
         face_det = AnimeFaceDetector(ensure_cascade(cfg.models_path))
+
+        # Centroides provisórios das refs escassas (mesmo recorte de rosto da
+        # análise normal). Só entram nomes que ainda não têm centroide do DB.
+        if weak_refs:
+            have = {n for n, _ in known_centroids}
+            for name, paths in weak_refs.items():
+                if name in have or not paths:
+                    continue
+                imgs = []
+                for p in paths[:4]:
+                    img = cv2.imread(str(p))
+                    if img is None:
+                        continue
+                    crops = face_det.crop_faces(img, pad=cfg.face_crop_padding)
+                    imgs.extend(crops if crops else [smart_portrait_crop(img)])
+                if not imgs:
+                    continue
+                centroid = build_centroid(engine.embed_images(imgs))
+                if centroid is not None:
+                    known_centroids.append((name, centroid))
+            print(f"[Descoberta] {len(known_centroids)} centroides provisórios "
+                  "pra sugestão de nomes.", flush=True)
         cb("embed_refs", 1.0, "Modelos prontos")
 
         episode_id = self.db.upsert_episode(
@@ -769,6 +805,10 @@ class Pipeline:
             groups=groups,
             total_faces=len(observations),
             online=online_bundle is not None,
+            roster=(
+                [ch.name for ch in online_bundle.characters]
+                if online_bundle is not None else []
+            ),
         )
 
     def commit_discovery(

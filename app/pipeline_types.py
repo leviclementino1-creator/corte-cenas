@@ -8,7 +8,7 @@ user actually starts an analysis (from `ui/worker.py` at click time).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Callable
@@ -72,6 +72,9 @@ class DiscoveryResult:
     # True quando o anime resolveu online: refs reforçam o banco real e o
     # metadata local não é gravado (o anime se resolve sozinho).
     online: bool = False
+    # Elenco oficial (nomes das bases online) — vira dropdown na tela de
+    # batismo, pro usuário escolher em vez de digitar.
+    roster: list[str] = field(default_factory=list)
 
 
 class InsufficientRefsError(RuntimeError):

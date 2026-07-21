@@ -10,11 +10,11 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -32,7 +32,7 @@ class DiscoveryNamingDialog(QDialog):
     def __init__(self, result: DiscoveryResult, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.result = result
-        self._edits: dict[int, QLineEdit] = {}
+        self._edits: dict[int, QComboBox] = {}
         self.setWindowTitle("Modo Descoberta — quem é quem?")
         self.setMinimumSize(680, 480)
         self.resize(760, 640)
@@ -94,12 +94,24 @@ class DiscoveryNamingDialog(QDialog):
                 info_txt += f" · parece {int(g.suggested_sim * 100)}% com o sugerido"
             info = QLabel(info_txt)
             info.setStyleSheet("color:#999;font-size:11px;border:none;background:transparent;")
-            edit = QLineEdit()
-            edit.setPlaceholderText(f"Nome do personagem {n} (vazio = ignorar)")
+            # Editável + dropdown: com anime conhecido, o elenco oficial vem
+            # como lista — escolher em vez de digitar. Sem anime, texto livre.
+            edit = QComboBox()
+            edit.setEditable(True)
+            edit.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+            edit.addItem("")  # opção "ignorar"
+            if self.result.roster:
+                edit.addItems(self.result.roster)
+            if edit.lineEdit() is not None:
+                edit.lineEdit().setPlaceholderText(
+                    f"Nome do personagem {n} (vazio = ignorar)"
+                )
             if g.suggested_name:
-                # Anime conhecido: o app já reconheceu o grupo — o usuário só
-                # confirma (ou corrige/apaga).
-                edit.setText(g.suggested_name)
+                # O app já reconheceu o grupo — o usuário só confirma
+                # (ou corrige/apaga).
+                edit.setCurrentText(g.suggested_name)
+            else:
+                edit.setCurrentIndex(0)
             self._edits[g.key] = edit
             name_row.addWidget(edit, 1)
             name_row.addWidget(info)
@@ -138,7 +150,7 @@ class DiscoveryNamingDialog(QDialog):
         outer.addLayout(btn_row)
 
     def _confirm(self) -> None:
-        if not any(e.text().strip() for e in self._edits.values()):
+        if not any(e.currentText().strip() for e in self._edits.values()):
             quiet.information(
                 self, "Nenhum nome",
                 "Dê nome a pelo menos um personagem — os grupos sem nome "
@@ -148,4 +160,4 @@ class DiscoveryNamingDialog(QDialog):
         self.accept()
 
     def names(self) -> dict[int, str]:
-        return {key: e.text().strip() for key, e in self._edits.items()}
+        return {key: e.currentText().strip() for key, e in self._edits.items()}
