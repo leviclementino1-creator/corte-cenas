@@ -59,6 +59,18 @@ def _main() -> int:
         _setup_log()
     except Exception:
         pass
+    # Nenhum subprocesso (ffmpeg, checagens de libs) pode piscar janela de
+    # CMD — remendo global, antes de qualquer import pesado.
+    try:
+        from app.no_console import harden_subprocess
+        harden_subprocess()
+    except Exception:
+        pass
+    # A ultralytics tenta rodar `pip install` sozinha via subprocess quando
+    # acha que falta dependência — inútil num app congelado e uma das fontes
+    # do CMD piscando durante a análise.
+    import os
+    os.environ.setdefault("YOLO_AUTOINSTALL", "false")
     try:
         return _run()
     except SystemExit:

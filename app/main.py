@@ -45,6 +45,8 @@ def _load_splash_pixmap() -> QPixmap | None:
 
 def main() -> int:
     setup_logging()  # no-op if run.py already did it
+    from .no_console import harden_subprocess
+    harden_subprocess()  # no-op if run.py already did it
     app = QApplication(sys.argv)
     app.setApplicationName("Corte Cenas")
     app.setWindowIcon(_load_app_icon())
