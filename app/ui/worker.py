@@ -130,11 +130,18 @@ class DiscoveryCommitWorker(QObject):
     finished = Signal(object)   # PipelineResult
     failed = Signal(str)
 
-    def __init__(self, config: Config, result, names: dict[int, str]) -> None:
+    def __init__(
+        self,
+        config: Config,
+        result,
+        names: dict[int, str],
+        removed: dict[int, list[int]] | None = None,
+    ) -> None:
         super().__init__()
         self.config = config
         self.result = result
         self.names = names
+        self.removed = removed or {}
 
     def run(self) -> None:
         try:
@@ -143,6 +150,7 @@ class DiscoveryCommitWorker(QObject):
             out = pipeline.commit_discovery(
                 self.result, self.names,
                 on_progress=lambda s, f, m: self.stage.emit(s, float(f), str(m)),
+                removed=self.removed,
             )
             _log.info(
                 "=== Descoberta salva: %d shots, %d personagens (%s) ===",

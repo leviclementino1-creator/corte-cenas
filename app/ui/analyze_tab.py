@@ -543,7 +543,9 @@ class AnalyzeTab(QWidget):
 
         self.status_label.setText("Salvando personagens descobertos...")
         self._thread = QThread(self)
-        self._worker = DiscoveryCommitWorker(self.config, disc, dlg.names())
+        self._worker = DiscoveryCommitWorker(
+            self.config, disc, dlg.names(), dlg.removed()
+        )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.stage.connect(self._on_stage)

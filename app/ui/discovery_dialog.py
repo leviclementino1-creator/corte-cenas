@@ -28,11 +28,59 @@ from . import quiet
 _THUMB = 84
 
 
+class _Thumb(QLabel):
+    """Foto do grupo, clicável: um clique marca como REMOVIDA (não vira
+    referência), outro clique restaura. O clustering acerta muito, mas quando
+    um rosto alheio se infiltra num grupo, é aqui que o usuário o expulsa —
+    antes de a foto errada contaminar o banco de refs."""
+
+    _STYLE_OK = "QLabel{background:#1a1b1e;border-radius:4px;}"
+    _STYLE_REMOVED = (
+        "QLabel{background:#1a1b1e;border-radius:4px;"
+        "border:2px solid #d9534f;}"
+    )
+
+    def __init__(self, jpg: bytes) -> None:
+        super().__init__()
+        self.removed = False
+        pm = QPixmap()
+        pm.loadFromData(jpg)
+        self._pm_ok = pm.scaled(
+            _THUMB, _THUMB,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        # Versão esmaecida pra estado "removida" (sem efeitos de cena — um
+        # pixmap escurecido é barato e óbvio).
+        dim = QPixmap(self._pm_ok.size())
+        dim.fill(Qt.GlobalColor.transparent)
+        from PySide6.QtGui import QPainter
+        p = QPainter(dim)
+        p.setOpacity(0.25)
+        p.drawPixmap(0, 0, self._pm_ok)
+        p.end()
+        self._pm_removed = dim
+        self.setPixmap(self._pm_ok)
+        self.setFixedSize(_THUMB, _THUMB)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet(self._STYLE_OK)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Foto errada no grupo? Clique pra removê-la "
+                        "(clique de novo pra restaurar).")
+
+    def mousePressEvent(self, event) -> None:
+        self.removed = not self.removed
+        self.setPixmap(self._pm_removed if self.removed else self._pm_ok)
+        self.setStyleSheet(self._STYLE_REMOVED if self.removed else self._STYLE_OK)
+        event.accept()
+
+
 class DiscoveryNamingDialog(QDialog):
     def __init__(self, result: DiscoveryResult, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.result = result
         self._edits: dict[int, QComboBox] = {}
+        self._thumbs: dict[int, list[_Thumb]] = {}
         self.setWindowTitle("Modo Descoberta — quem é quem?")
         self.setMinimumSize(680, 480)
         self.resize(760, 640)
@@ -53,7 +101,9 @@ class DiscoveryNamingDialog(QDialog):
             f"{self.result.total_faces} rostos de {len(self.result.shots)} shots.<br>"
             "Dê nome a quem você quer organizar — <b>vazio = ignorar</b>. "
             "Se o mesmo personagem aparecer em dois grupos (de frente / de perfil), "
-            "use o <b>mesmo nome</b> nos dois que o app funde.<br>"
+            "use o <b>mesmo nome</b> nos dois que o app funde. "
+            "<b>Foto errada no meio? Clique nela pra remover</b> — ela não vira "
+            "referência.<br>"
             "Os rostos nomeados viram referências: os próximos episódios desse "
             "anime já saem no modo automático."
         )
@@ -72,19 +122,15 @@ class DiscoveryNamingDialog(QDialog):
 
             thumbs = QHBoxLayout()
             thumbs.setSpacing(4)
-            for jpg in g.thumbs_jpg[:5]:
-                pm = QPixmap()
-                pm.loadFromData(jpg)
-                lab = QLabel()
-                lab.setPixmap(pm.scaled(
-                    _THUMB, _THUMB,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                ))
-                lab.setFixedSize(_THUMB, _THUMB)
-                lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                lab.setStyleSheet("QLabel{background:#1a1b1e;border-radius:4px;}")
-                thumbs.addWidget(lab)
+            # Mostra TODAS as fotos que virariam referência (ref_crops_jpg) —
+            # o que você vê é exatamente o que vai pro banco; cada uma pode
+            # ser removida com um clique.
+            group_thumbs: list[_Thumb] = []
+            for jpg in g.ref_crops_jpg:
+                t = _Thumb(jpg)
+                group_thumbs.append(t)
+                thumbs.addWidget(t)
+            self._thumbs[g.key] = group_thumbs
             thumbs.addStretch(1)
             row.addLayout(thumbs)
 
@@ -161,3 +207,11 @@ class DiscoveryNamingDialog(QDialog):
 
     def names(self) -> dict[int, str]:
         return {key: e.currentText().strip() for key, e in self._edits.items()}
+
+    def removed(self) -> dict[int, list[int]]:
+        """Índices (em ref_crops_jpg) das fotos que o usuário removeu,
+        por grupo. O commit pula essas na hora de salvar as referências."""
+        return {
+            key: [i for i, t in enumerate(ts) if t.removed]
+            for key, ts in self._thumbs.items()
+        }

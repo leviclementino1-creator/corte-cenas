@@ -960,13 +960,17 @@ class Pipeline:
         result: DiscoveryResult,
         names: dict[int, str],
         on_progress: ProgressCb | None = None,
+        removed: dict[int, list[int]] | None = None,
     ) -> PipelineResult:
         """Fecha o Modo Descoberta com os nomes dados pelo usuário: cria os
         personagens, atribui os shots, salva os crops como referências (os
         próximos episódios rodam no modo normal) e organiza as pastas.
-        Grupos sem nome são ignorados; dois grupos com o MESMO nome fundem."""
+        Grupos sem nome são ignorados; dois grupos com o MESMO nome fundem.
+        `removed`: índices de ref_crops_jpg que o usuário clicou pra tirar
+        (rosto alheio infiltrado no grupo) — não viram referência."""
         cb = on_progress or _noop
         cfg = self.cfg
+        removed = removed or {}
 
         by_name: dict[str, list[DiscoveredGroup]] = {}
         for g in result.groups:
@@ -995,7 +999,10 @@ class Pipeline:
             d.mkdir(parents=True, exist_ok=True)
             paths: list[Path] = []
             for g in gs:
-                for jpg in g.ref_crops_jpg:
+                skip = set(removed.get(g.key) or [])
+                for gi, jpg in enumerate(g.ref_crops_jpg):
+                    if gi in skip:
+                        continue
                     if len(paths) >= 10:
                         break
                     p = d / f"auto_disc_{len(paths):02d}.jpg"
