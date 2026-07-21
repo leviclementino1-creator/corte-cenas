@@ -211,7 +211,15 @@ class RefsPreviewWorker(QObject):
             per_char = {name: len(paths) for name, paths in refs.items()}
             folder = str(store.anime_dir(cache_id) / "characters")
             self.finished.emit(
-                {"folder": folder, "per_char": per_char, "title": bundle.title}
+                {
+                    "folder": folder,
+                    "per_char": per_char,
+                    "title": bundle.title,
+                    # Fonte fora do ar durante a busca? O diálogo mostra na
+                    # cara — sem isso o usuário vê a lista bonita da reserva
+                    # e acha que o MyAnimeList funcionou.
+                    "warnings": list(provider.source_warnings),
+                }
             )
         except Exception as e:
             tb = traceback.format_exc()

@@ -748,13 +748,23 @@ class AnalyzeTab(QWidget):
             f"{info.get('title')}: {total} imagens em {len(per_char)} personagens ({summary}...)"
         )
 
+        warnings = info.get("warnings") or []
         box = QMessageBox(self)
-        set_quiet_icon(box, QMessageBox.Icon.Information)
-        box.setWindowTitle("Refs baixadas")
-        box.setText(
-            f"{info.get('title')}\n"
-            f"{total} imagens em {len(per_char)} personagens."
+        set_quiet_icon(
+            box,
+            QMessageBox.Icon.Warning if warnings else QMessageBox.Icon.Information,
         )
+        box.setWindowTitle("Refs baixadas" + (" (com aviso)" if warnings else ""))
+        head = f"{info.get('title')}\n{total} imagens em {len(per_char)} personagens."
+        if warnings:
+            head += (
+                "\n\n⚠️ ATENÇÃO: o MyAnimeList estava fora do ar — estas fotos "
+                "vieram das reservas (AniList/Kitsu), poucas por personagem.\n"
+                + "\n".join(f"• {w}" for w in warnings)
+                + "\n\nTente de novo mais tarde pra completar as galerias, ou "
+                "use o Modo Descoberta agora."
+            )
+        box.setText(head)
         box.setInformativeText(
             "Abre a pasta pra inspecionar o que foi baixado.\n\n"
             "Cada personagem tem sua subpasta. Você pode adicionar .jpg/.png "

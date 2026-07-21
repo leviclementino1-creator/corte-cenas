@@ -10,6 +10,7 @@ from ..pipeline_types import AnimeNotFoundError
 from .anilist import AniListAnime, AniListClient, AniListRelation
 from .danbooru import DanbooruClient, character_tag_candidates
 from .jikan import JikanClient
+from .kitsu import KitsuClient
 
 _ROLE_WEIGHT = {"Main": 0, "MAIN": 0, "Supporting": 1, "SUPPORTING": 1, "Background": 2, "BACKGROUND": 2}
 
@@ -111,6 +112,7 @@ class AnimeProvider:
         self.cache_root.mkdir(parents=True, exist_ok=True)
         self.anilist = AniListClient()
         self.jikan = JikanClient()
+        self.kitsu = KitsuClient()
         self.danbooru = DanbooruClient()
         # Problemas de fonte na ÚLTIMA resolve() (ex.: MyAnimeList fora do
         # ar). O pipeline lê isto pra avisar o usuário — "tenta de novo mais
@@ -120,6 +122,7 @@ class AnimeProvider:
     def close(self) -> None:
         self.anilist.close()
         self.jikan.close()
+        self.kitsu.close()
         self.danbooru.close()
 
     def _cache_id(self, anilist_id: int | None, mal_id: int | None) -> str:
@@ -392,6 +395,10 @@ class AnimeProvider:
                 f"O MyAnimeList não respondeu em {cast_fails} de "
                 f"{len(franchise_mal_ids)} consulta(s) de elenco (erro de servidor)."
             )
+        elif merged:
+            # Confirmação explícita de fonte: dá pra ver no log/status que o
+            # elenco veio MESMO do MyAnimeList (e não só das reservas).
+            status(f"MyAnimeList OK: {len(merged)} personagens da franquia.")
 
         # 2b) AniList também tem o elenco com foto — reserva completa quando o
         # MyAnimeList está fora do ar (dias inteiros de 504 em jul/2026) e
@@ -416,8 +423,8 @@ class AnimeProvider:
                 status(f"AniList: +1 foto pra {enriched} personagens.")
         elif al_chars and not merged:
             # Reserva total: o elenco inteiro vem da AniList (1 foto por
-            # personagem — pouco pra análise direta, mas suficiente pro
-            # batismo com sugestões do Modo Descoberta).
+            # personagem). Somado ao retrato da Kitsu logo abaixo, chega nas
+            # 2 fotos mínimas — a análise roda mesmo com o MAL fora do ar.
             for ac in al_chars[:max_characters]:
                 merged[ac.name.lower().strip()] = {
                     "mal_id": None,
@@ -431,6 +438,43 @@ class AnimeProvider:
                 f"⚠️ Elenco veio da reserva (AniList, {len(merged)} personagens) — "
                 "o MyAnimeList está fora do ar."
             )
+
+        # 2c) Kitsu — retrato extra por personagem, achado direto pelo id do
+        # MAL (endpoint de mapeamento — sem busca por nome, sem ambiguidade).
+        kitsu_chars: list[tuple[str, str | None]] = []
+        if mal_id is not None:
+            try:
+                kitsu_chars = self.kitsu.characters_by_mal_id(mal_id)
+            except Exception:
+                kitsu_chars = []
+        if kitsu_chars and merged:
+            by_tokens_k = {_name_tokens(c["name"]): k for k, c in merged.items()}
+            enriched_k = 0
+            for kname, kimg in kitsu_chars:
+                if not kimg:
+                    continue
+                k = by_tokens_k.get(_name_tokens(kname))
+                if k is not None and not merged[k].get("kitsu_image"):
+                    merged[k]["kitsu_image"] = kimg
+                    enriched_k += 1
+            if enriched_k:
+                status(f"Kitsu: +1 foto pra {enriched_k} personagens.")
+        elif kitsu_chars and not merged:
+            # AniList e MAL fora do ar ao mesmo tempo: última reserva.
+            for kname, kimg in kitsu_chars[:max_characters]:
+                merged[kname.lower().strip()] = {
+                    "mal_id": None,
+                    "name": kname,
+                    "role": "Supporting",
+                    "image": kimg,
+                    "kitsu_image": kimg,
+                    "source_mal_ids": set(),
+                }
+            if merged:
+                status(
+                    f"⚠️ Elenco veio da Kitsu ({len(merged)} personagens) — "
+                    "MyAnimeList e AniList indisponíveis."
+                )
 
         # Sort main first then supporting, cap at max_characters.
         sorted_chars = sorted(
@@ -467,11 +511,11 @@ class AnimeProvider:
             for u in jikan_urls + dbooru_urls:
                 if u not in urls:
                     urls.append(u)
-            # Foto da AniList sempre entra (fonte extra, boa qualidade);
+            # Fotos da AniList e da Kitsu sempre entram (fontes extras);
             # o retrato do MAL só como último recurso.
-            al_img = ch.get("anilist_image")
-            if al_img and al_img not in urls:
-                urls.append(al_img)
+            for extra_img in (ch.get("anilist_image"), ch.get("kitsu_image")):
+                if extra_img and extra_img not in urls:
+                    urls.append(extra_img)
             if not urls and ch.get("image"):
                 urls.append(ch["image"])
 
