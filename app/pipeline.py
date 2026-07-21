@@ -87,6 +87,7 @@ class Pipeline:
         use_ai_recognition: bool = False,
         ai_mode: AIMode | str = AIMode.FULL,
         ai_review_ambiguous: bool = False,
+        merge_previous: bool = False,
     ) -> PipelineResult:
         cb = on_progress or _noop
         cfg = self.cfg
@@ -122,6 +123,20 @@ class Pipeline:
             title_english=bundle.title_english,
         )
         episode_id = self.db.upsert_episode(anime_id, info.season, info.episode, str(info.source))
+
+        # Modo "adicionar" da reanálise: fotografa as atribuições atuais
+        # ANTES de limpar — elas voltam por cima do resultado novo no final
+        # (a análise nova ganha nos empates; bloqueios manuais ganham de tudo).
+        merge_snapshot: list[dict] = []
+        if merge_previous:
+            merge_snapshot = self.db.assignments_snapshot(episode_id)
+            if merge_snapshot:
+                print(
+                    f"[CorteCenas] Modo adicionar: {len(merge_snapshot)} "
+                    "atribuições da análise anterior serão preservadas.",
+                    flush=True,
+                )
+
         self.db.clear_episode_shots(episode_id)
 
         # Bloqueios da curadoria manual entram JÁ na classificação (não só na
@@ -654,6 +669,7 @@ class Pipeline:
             ],
             refs_dir=refs_dir_str,
             low_refs_warning=low_refs_warning,
+            merge_snapshot=merge_snapshot,
         )
 
     def _finalize_episode(
@@ -673,6 +689,7 @@ class Pipeline:
         characters_json: list[dict],
         refs_dir: str | None = None,
         low_refs_warning: str | None = None,
+        merge_snapshot: list[dict] | None = None,
     ) -> PipelineResult:
         """Shared end-of-pipeline stage for both CLIP and AI paths:
           - drop characters below min_shots_per_character (cleans DB too)
@@ -697,14 +714,37 @@ class Pipeline:
         if dropped:
             print(f"[CorteCenas] Removidos (poucos shots): {', '.join(dropped)}")
 
+        idx_to_dbid = {
+            shot.idx: sid for (shot, _f, _k), sid in zip(cut_results, shot_db_ids)
+        }
+
+        # Modo "adicionar" da reanálise: devolve as atribuições da análise
+        # anterior por cima do resultado novo (INSERT OR IGNORE — a análise
+        # nova ganha quando o par já existe). Vem antes da curadoria manual,
+        # que ainda ganha de tudo (bloqueio remove inclusive o que voltou).
+        if merge_snapshot:
+            merged_back = 0
+            for snap in merge_snapshot:
+                sid = idx_to_dbid.get(snap["shot_idx"])
+                if sid is None:
+                    continue
+                self.db.merge_assignment(
+                    sid, snap["character_id"], snap["confidence"],
+                    reviewed=snap.get("reviewed") or 0,
+                    approved=snap.get("approved"),
+                )
+                merged_back += 1
+            print(
+                f"[CorteCenas] Modo adicionar: {merged_back} atribuições "
+                "antigas reaplicadas por cima do resultado novo."
+            )
+            cb("organize", -1.0, f"Somando análise anterior ({merged_back} atribuições)")
+
         # Curadoria manual lembrada de análises anteriores: bloqueios tiram o
         # que a IA re-adicionou, adições devolvem o que o usuário confirmou.
         # Vem DEPOIS do drop de poucos-shots pra decisão do usuário ganhar.
         overrides = self.db.manual_overrides(episode_id)
         if overrides:
-            idx_to_dbid = {
-                shot.idx: sid for (shot, _f, _k), sid in zip(cut_results, shot_db_ids)
-            }
             n_block = n_add = 0
             for ov in overrides:
                 sid = idx_to_dbid.get(ov["shot_idx"])

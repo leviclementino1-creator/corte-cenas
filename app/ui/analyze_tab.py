@@ -458,6 +458,53 @@ class AnalyzeTab(QWidget):
             skip_tail_seconds=tail_s,
         )
 
+        # Reanálise de um episódio que já tem resultado salvo: o usuário
+        # escolhe se o resultado novo SUBSTITUI o antigo (padrão — chutes
+        # ruins da análise anterior somem) ou SOMA por cima (nada que já foi
+        # identificado se perde; erros antigos ficam até serem removidos na
+        # mão). A curadoria manual sobrevive nas duas opções.
+        merge_previous = False
+        if not discovery:
+            try:
+                from ..storage.db import Database
+                _db = Database(self.config.cache_path / "index.db")
+                already = _db.has_analysis(
+                    str(info.source), info.anime, info.season, info.episode
+                )
+            except Exception:
+                already = False
+            if already:
+                box = QMessageBox(self)
+                set_quiet_icon(box, QMessageBox.Icon.Question)
+                box.setWindowTitle("Reanalisar episódio")
+                box.setText(
+                    "Este episódio já tem uma análise salva.\n"
+                    "Como aplicar o resultado novo?"
+                )
+                box.setInformativeText(
+                    "• Substituir: as pastas refletem só a análise nova — "
+                    "chutes errados da antiga somem (recomendado após "
+                    "reforçar refs).\n"
+                    "• Adicionar: mantém tudo que já foi identificado e soma "
+                    "o novo — nada se perde, mas erros antigos ficam até "
+                    "você remover.\n\n"
+                    "Sua curadoria manual (remover/mover/aprovar) é "
+                    "respeitada nas duas opções."
+                )
+                btn_replace = box.addButton(
+                    "Substituir (recomendado)", QMessageBox.ButtonRole.AcceptRole
+                )
+                btn_merge = box.addButton(
+                    "Adicionar por cima", QMessageBox.ButtonRole.ActionRole
+                )
+                btn_cancel = box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+                box.setDefaultButton(btn_replace)
+                box.exec()
+                clicked = box.clickedButton()
+                if clicked is btn_cancel:
+                    return
+                merge_previous = clicked is btn_merge
+
         self.run_btn.setEnabled(False)
         self.run_ai_btn.setEnabled(False)
         self.discovery_btn.setEnabled(False)
@@ -480,6 +527,7 @@ class AnalyzeTab(QWidget):
         self._worker = PipelineWorker(
             self.config, info, use_ai_recognition=use_ai, ai_mode=ai_mode,
             ai_review_ambiguous=ai_review, discovery=discovery,
+            merge_previous=merge_previous,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)

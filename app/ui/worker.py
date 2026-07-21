@@ -45,6 +45,7 @@ class PipelineWorker(QObject):
         ai_mode: AIMode = AIMode.FULL,
         ai_review_ambiguous: bool = False,
         discovery: bool = False,
+        merge_previous: bool = False,
     ) -> None:
         super().__init__()
         self.config = config
@@ -53,6 +54,7 @@ class PipelineWorker(QObject):
         self.ai_mode = ai_mode
         self.ai_review_ambiguous = ai_review_ambiguous
         self.discovery = discovery
+        self.merge_previous = merge_previous
         self._cancel_requested = False
 
     def request_cancel(self) -> None:
@@ -88,6 +90,7 @@ class PipelineWorker(QObject):
                 use_ai_recognition=self.use_ai_recognition,
                 ai_mode=self.ai_mode,
                 ai_review_ambiguous=self.ai_review_ambiguous,
+                merge_previous=self.merge_previous,
             )
             _log.info(
                 "=== Análise concluída: %d shots, %d personagens (%s) ===",

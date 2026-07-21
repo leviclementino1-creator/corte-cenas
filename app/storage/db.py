@@ -297,6 +297,60 @@ class Database:
             )
         return out
 
+    # --- reanálise: substituir vs adicionar ---
+
+    def has_analysis(
+        self, source: str, anime_title: str, season: int, episode: int
+    ) -> bool:
+        """True se este episódio já tem atribuições salvas (pra UI perguntar
+        'substituir ou adicionar?'). Casa por arquivo fonte OU por
+        título+temporada+episódio."""
+        with self.connect() as c:
+            row = c.execute(
+                """SELECT 1 FROM shot_character sc
+                   JOIN shot s ON s.id = sc.shot_id
+                   JOIN episode e ON e.id = s.episode_id
+                   LEFT JOIN anime a ON a.id = e.anime_id
+                   WHERE e.source_file = ?
+                      OR (a.title = ? COLLATE NOCASE
+                          AND e.season = ? AND e.episode = ?)
+                   LIMIT 1""",
+                (source, anime_title, season, episode),
+            ).fetchone()
+            return row is not None
+
+    def assignments_snapshot(self, episode_id: int) -> list[dict]:
+        """Foto das atribuições atuais POR NÚMERO de cena (sobrevive ao
+        clear_episode_shots) — insumo do modo 'adicionar' da reanálise."""
+        with self.connect() as c:
+            rows = c.execute(
+                """SELECT s.idx AS shot_idx, sc.character_id, sc.confidence,
+                          sc.reviewed, sc.approved
+                   FROM shot_character sc
+                   JOIN shot s ON s.id = sc.shot_id
+                   WHERE s.episode_id = ?""",
+                (episode_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def merge_assignment(
+        self,
+        shot_id: int,
+        character_id: int,
+        confidence: float,
+        reviewed: int = 0,
+        approved: int | None = None,
+    ) -> None:
+        """Devolve uma atribuição antiga SEM sobrescrever a nova (a análise
+        recente ganha quando o par já existe)."""
+        with self.connect() as c:
+            c.execute(
+                "INSERT OR IGNORE INTO shot_character"
+                "(shot_id, character_id, confidence, reviewed, approved) "
+                "VALUES(?,?,?,?,?)",
+                (shot_id, character_id, confidence, reviewed, approved),
+            )
+
     # --- curadoria manual persistente ---
 
     def record_manual(
