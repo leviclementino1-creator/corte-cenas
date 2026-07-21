@@ -32,9 +32,15 @@ Você arrasta um episódio pra janela. O app:
 
 1. 🎬 **Detecta e corta** cada shot (mudança de cena) em um `.mp4` separado
 2. 🔍 **Busca os personagens** do anime automaticamente (AniList + MyAnimeList) — incluindo temporadas anteriores da franquia
-3. 🧠 **Reconhece quem aparece** em cada shot (YOLO detecta os rostos, CLIP compara com as fotos de referência — ou, se preferir, uma IA generativa classifica)
-4. 📁 **Organiza tudo** em `by_character/<Nome>/` e `by_pair/<A>+<B>/` usando hardlinks (sem duplicar espaço em disco)
-5. 📱 Ainda gera **versão vertical 1080×1920** de qualquer personagem pra Reels/TikTok, com enquadramento no rosto
+3. 🧠 **Reconhece quem aparece** em cada shot (YOLO detecta os rostos, CLIP compara com as fotos de referência) — e uma **segunda passada** usa as próprias cenas identificadas como referência pra resgatar as que ficaram sem dono
+4. 🤖 Opcional: uma **IA generativa revisa só os casos duvidosos** (barato) ou o episódio inteiro
+5. 📁 **Organiza tudo** em `by_character/<Nome>/` e `by_pair/<A>+<B>/` usando hardlinks (sem duplicar espaço em disco)
+6. 📱 Ainda gera **versão vertical 1080×1920** de qualquer personagem pra Reels/TikTok, com enquadramento no rosto
+
+E quando o anime é **novo demais** (sem fotos nas bases) ou **não existe nelas**: o
+**🔍 Modo Descoberta** agrupa os rostos do próprio episódio, você batiza cada grupo
+(com dropdown do elenco oficial e sugestões automáticas quando o anime é conhecido)
+e essas fotos viram o banco de referências — que só melhora a cada episódio.
 
 ```
 Output/Dr Stone/S04E25/
@@ -91,21 +97,33 @@ Confira os campos (pra temporadas específicas tipo "Dr. Stone S4", preencher ce
 
 | Botão | O que faz | Custo |
 |---|---|---|
-| **Analisar episódio** 🟢 | Pipeline local: YOLO + CLIP comparam com fotos de referência | Grátis, ilimitado |
-| **Analisar com IA** 🔵 | Gemini classifica cada shot (dropdown com 2 modos) | Gasta quota da API key |
-
-No modo IA, o **Híbrido (recomendado)** manda só os rostos detectados (mais barato e preciso); o **Completo** manda o frame inteiro.
+| **Testar refs (preview)** | Mostra quantas fotos cada personagem tem ANTES de gastar tempo de análise | Grátis |
+| **Analisar episódio** 🟢 | O principal: YOLO + CLIP + segunda passada de resgate | Grátis, ilimitado |
+| **Analisar + IA nos duvidosos** 🔵 | Igual ao verde, mas os shots que ficaram "quase" vão pra IA desempatar | Pouca quota |
+| **🔍 Modo Descoberta** | Agrupa os rostos do próprio episódio pra você batizar — cria/reforça o banco de refs | Grátis |
 
 Presets de rigor: **Auto (recomendado)** equilibra; **Muito Fiel** quase não erra mas marca menos; **Pouco Fiel** marca mais e você filtra depois.
 
 Mudou de ideia no meio? **✕ Cancelar análise** — os shots já cortados ficam em cache e a próxima rodada continua de onde parou.
 
+**Fluxo típico pra um anime novo:** Testar refs → se tiver pouca foto, roda a
+**Descoberta** e batiza os grupos (o app sugere os nomes quando conhece o anime)
+→ **Analisar episódio** no verde. As refs batizadas entram na análise e nos
+próximos episódios tudo já funciona direto no verde.
+
+Se o anime **não for encontrado** nas bases online, o app oferece a Descoberta
+sozinho — e a partir do episódio 2 resolve o anime pelo banco local, sem internet.
+
 ### 3. Aba Resultados
 
 - Lista de personagens com a contagem de shots de cada um
 - **Duplo clique** num thumbnail abre o `.mp4` do shot
-- **Botão direito** num thumbnail: aprovar, remover ou mover pra outro personagem
+- **Botão direito**: aprovar, remover ou mover pra outro personagem — com
+  **Ctrl/Shift/laço** pra selecionar vários de uma vez
+- 🧠 **Curadoria com memória**: removeu/moveu/aprovou → a decisão **sobrevive à
+  reanálise**. Pode reanalisar quanto quiser que o app não desfaz teu trabalho
 - **Exportar vertical 1080×1920** — versão Reels/TikTok focada no rosto do personagem selecionado
+- **Exportar refs deste anime** — zip do banco de referências pra compartilhar
 - **Reforçar refs com este ep** — usa os shots identificados pra engordar o banco de referências (melhora o próximo episódio)
 
 ---
@@ -123,9 +141,11 @@ Situações conhecidas:
 
 | Sintoma | Causa | O que fazer |
 |---|---|---|
-| "0 personagens identificados" ou erro de refs insuficientes | As fontes de fotos (MyAnimeList/Jikan) instáveis, ou anime/temporada nova sem fotos ainda | Tentar mais tarde (os cortes ficam em cache); conferir com **Testar refs (preview)** |
-| Erro de quota da IA | Free tier do dia esgotou (um episódio inteiro consome muito) | Esperar o reset diário, ou usar o **Analisar episódio** (local, sem limite) |
+| Erro de refs insuficientes com aviso "⚠️ CONFIRMADO: MyAnimeList fora do ar" | O MyAnimeList/Jikan vive caindo (dias de erro 504) — o app detecta e avisa | Tentar de novo em alguns minutos (cortes ficam em cache) — ou usar o **Modo Descoberta**, que não depende dessas fontes. O elenco vem da reserva (AniList) automaticamente |
+| Anime/temporada nova sem fotos nas bases | Bases ainda não têm imagens | **Modo Descoberta** → batizar → analisar no verde |
+| Erro de quota da IA | Free tier do dia esgotou | Esperar o reset diário, ou usar o **Analisar episódio** (local, sem limite) |
 | App fecha ao abrir | Erro fatal — gera `crash.log` na mesma pasta de logs | Mandar o `crash.log` |
+| Frame de outra cena no fim de um clipe antigo | Cortes feitos antes da v0.3.4 (bug corrigido) | Apagar a pasta `shots/` do episódio no Output e reanalisar |
 
 ---
 
@@ -160,14 +180,18 @@ O cache é reaproveitado entre episódios do mesmo anime (e da mesma franquia): 
 
 1. **Parse** — extrai anime/temporada/episódio do nome do arquivo
 2. **Detecção de shots** — [PySceneDetect](https://github.com/Breakthrough/PySceneDetect) `ContentDetector`, com progresso em tempo real
-3. **Corte + keyframes** — FFmpeg gera o `.mp4` de cada shot + 3 keyframes JPG
-4. **Banco de personagens** — [AniList GraphQL](https://docs.anilist.co/) resolve o anime e a franquia inteira (BFS pelas relações: sequels, prequels, spin-offs); [Jikan](https://jikan.moe/) traz as fotos de cada personagem. Se o AniList estiver fora, cai no MyAnimeList (sem agrupamento de franquia)
-5. **Refs** — até 8 imagens por personagem, filtradas (manga preto-e-branco descartado); rosto de cada ref é recortado pra casar com o espaço de comparação
+3. **Corte + keyframes** — FFmpeg gera o `.mp4` de cada shot (NVENC quando a GPU suporta, cortes em paralelo; margem de meio frame pra nenhum frame da cena seguinte vazar) + 3 keyframes JPG
+4. **Banco de personagens** — [AniList GraphQL](https://docs.anilist.co/) resolve o anime e a franquia inteira (BFS pelas relações: sequels, prequels, spin-offs); [Jikan](https://jikan.moe/) traz as fotos de cada personagem, com a **AniList como reserva de elenco** quando o Jikan cai (e +1 foto AniList por personagem quando não cai). Pastas locais de personagem (Descoberta, refs manuais) sempre entram
+5. **Refs** — imagens filtradas (manga preto-e-branco descartado); rosto de cada ref é recortado pra casar com o espaço de comparação
 6. **Embeddings** — `open_clip ViT-L/14`; centroide por personagem
-7. **Análise** — YOLO [`deepghs/anime_face_detection`](https://huggingface.co/deepghs/anime_face_detection) detecta os rostos de cada keyframe → CLIP → cosine contra os centroides → votação entre keyframes (personagem precisa aparecer em ≥2 pra valer)
-8. **Organização** — hardlinks NTFS em `by_character/` e `by_pair/`, `shots.json` + `characters.json`
+7. **Análise** — YOLO [`deepghs/anime_face_detection`](https://huggingface.co/deepghs/anime_face_detection) (com cascata pra [anime_head](https://huggingface.co/deepghs/anime_head_detection) quando o rosto escapa) → CLIP → cosine contra os centroides → votação entre keyframes
+8. **Segunda passada** — as cenas identificadas com confiança viram referências temporárias do próprio episódio (mesmo traço/ângulo/luz); as sem dono são recomparadas contra elas com voto único por rosto. Resgata tipicamente **um terço do episódio** que a comparação com refs externas perdia
+9. **Revisão IA (opcional)** — só os shots que ficaram "quase" (similaridade na zona cinzenta) vão pro Gemini, com teto de custo, retry, fallback de provider e circuit breaker de quota
+10. **Organização** — hardlinks NTFS em `by_character/` e `by_pair/`, `shots.json` + `characters.json`, reaplicando a curadoria manual lembrada
 
-No modo IA, os passos 6-7 viram chamadas ao Gemini (frame inteiro ou crops YOLO), com retry, fallback de provider e circuit breaker de quota.
+O **Modo Descoberta** troca os passos 4-7 por clustering não-supervisionado dos
+rostos do episódio (aglomerativo average-linkage) + tela de batismo; os grupos
+nomeados viram refs e personagens de verdade.
 
 <details>
 <summary><b>🏗️ Arquitetura de pastas do código</b> (clique pra expandir)</summary>
@@ -210,14 +234,17 @@ installer.iss              Inno Setup 6
 <details>
 <summary><b>🧪 Escolhas técnicas</b> (clique pra expandir)</summary>
 
-- **Re-encode `libx264 ultrafast`** em vez de stream-copy — corte preciso no frame, sem flash no início do clipe
+- **Re-encode `libx264 ultrafast` / NVENC** em vez de stream-copy — corte preciso no frame, sem flash no início do clipe; duração pela saída com margem de meio frame (sem frame da cena seguinte no fim)
 - **open_clip ViT-L/14** — melhor discriminação de personagem que ViT-B/32; GPU em segundos, CPU em minutos
-- **YOLO deepghs anime_face** — ~3x o hit rate do `lbpcascade_animeface` clássico (que fica como fallback)
+- **YOLO deepghs anime_face + cascata anime_head** — cobre rostos de perfil/ângulo difícil que o detector de rosto perde
 - **Centroide por personagem** em vez de 1-NN — robusto contra refs ruins
 - **Votação entre keyframes** — personagem que só aparece em 1 de 3 keyframes é quase sempre ruído
+- **Segunda passada com voto único por rosto** — cada rosto conta pra UM personagem só; sem isso, personagens que dividem muitas cenas contaminavam o resgate um do outro
+- **Clustering average-linkage na Descoberta** — o greedy por centroide encadeava 90% dos rostos num blob só; average-linkage entrega grupos puros (errar separando > errar juntando: mesclar na tela de batismo é fácil)
+- **Busca com variantes de partícula e truncamento** — "dewa"/"de wa", títulos de fansub encurtados
 - **Hardlinks NTFS** — um shot em N pastas sem duplicar bytes
 - **Franchise pooling** — Dr. Stone S4 herda refs de S1-S3 via relações do AniList
-- **Toda falha externa é barulhenta** — API fora do ar, quota esgotada e modelo aposentado geram mensagens específicas e ficam no `app.log`; nada degrada em silêncio
+- **Toda falha externa é barulhenta** — API fora do ar (com confirmação: "o MyAnimeList estava fora do ar"), quota esgotada e modelo aposentado geram mensagens específicas e ficam no `app.log`; nada degrada em silêncio; banco montado durante queda de fonte não vai pro cache
 </details>
 
 ---
@@ -256,13 +283,15 @@ Todo mundo com o app instalado recebe a oferta de update (delta de ~53 MB) no pr
 
 ## 🗺️ Roadmap
 
-- [ ] **Banco de refs curadas no GitHub** — fonte de fotos controlada por nós, imune a queda de API e com designs atuais das temporadas novas
+- [ ] **Banco de refs curadas no GitHub** — fonte de fotos controlada por nós, imune a queda de API e com designs atuais das temporadas novas (o botão "Exportar refs" já gera o insumo)
 - [ ] **Resultados em tempo real** — shots aparecendo na aba Resultados enquanto a análise roda
 - [ ] **Contador de uso do free tier** + estimativa de custo antes de rodar com IA
-- [ ] **Revisão manual em lote** — aprovar/rejeitar shots de um personagem de uma vez
+- [ ] **Ponte verde→Descoberta** — depois da análise, oferecer batismo pros rostos que sobraram sem dono
 - [ ] **Barra de progresso do download do CLIP** (~890 MB na primeira análise)
-- [ ] Cascade de detecção de rosto (frontal + perfil)
 - [ ] Transcrição (Whisper) pra reforçar identificação por fala
+- [x] ~~Cascade de detecção de rosto~~ (v0.2.0)
+- [x] ~~Revisão em lote (Ctrl/Shift na grade)~~ (v0.3.1)
+- [x] ~~Modo Descoberta~~ (v0.3.0)
 
 ---
 
