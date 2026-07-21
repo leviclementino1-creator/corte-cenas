@@ -1,14 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QDoubleSpinBox,
-    QMenu,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -254,12 +253,15 @@ class AnalyzeTab(QWidget):
         self.run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.run_btn.clicked.connect(self._start)
 
-        self.run_ai_btn = QPushButton("Analisar com IA  ▾")
+        # A análise "premium": o mesmo pipeline do botão verde + IA revisando
+        # só os shots duvidosos. Clique direto — os modos "IA em tudo" foram
+        # aposentados da UI (o híbrido faz o mesmo com ~10% do custo).
+        self.run_ai_btn = QPushButton("Analisar + IA nos duvidosos")
         self.run_ai_btn.setToolTip(
-            "Clica pra escolher o modo:\n"
-            "• Completo — envia o frame inteiro pro Gemini (mais caro, identifica tudo)\n"
-            "• YOLO + IA (híbrido) — YOLO extrai rostos, Gemini identifica cada um "
-            "(mais barato, mais preciso, pula shots sem rosto)"
+            "Igual ao Analisar episódio, com um extra: os shots em que o "
+            "reconhecimento local ficou em dúvida vão pra IA desempatar.\n"
+            "Gasta pouquíssima quota (~10-20% do modo IA antigo). "
+            "Precisa de API key em ⚙ Configurações."
         )
         self.run_ai_btn.setStyleSheet(
             "QPushButton{background:#4169E1;color:white;font-weight:bold;padding:10px 16px;border-radius:6px;}"
@@ -267,31 +269,23 @@ class AnalyzeTab(QWidget):
             "QPushButton:disabled{background:#555;}"
         )
         self.run_ai_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        ai_menu = QMenu(self.run_ai_btn)
-        act_review = QAction("CLIP + IA só nos duvidosos (recomendado, ~10x mais barato)", self)
-        act_review.setToolTip(
-            "O CLIP local identifica tudo de graça; só os shots em que ele "
-            "ficou em dúvida vão pra IA desempatar. Melhor custo-benefício."
+        self.run_ai_btn.clicked.connect(lambda: self._start(ai_review=True))
+
+        self.discovery_btn = QPushButton("🔍 Modo Descoberta")
+        self.discovery_btn.setToolTip(
+            "Agrupa os rostos do episódio por semelhança e você dá os nomes "
+            "— os prints viram referências.\n"
+            "• Anime novo/desconhecido: cria o banco do zero, sem depender "
+            "de nenhum site\n"
+            "• Anime conhecido: reforça as refs, com os nomes já sugeridos"
         )
-        act_review.triggered.connect(lambda: self._start(ai_review=True))
-        act_hybrid = QAction("IA em tudo — YOLO + Gemini (gasta mais quota)", self)
-        act_hybrid.triggered.connect(lambda: self._start(use_ai=True, ai_mode=AIMode.HYBRID))
-        act_full = QAction("IA em tudo — frame inteiro (mais caro)", self)
-        act_full.triggered.connect(lambda: self._start(use_ai=True, ai_mode=AIMode.FULL))
-        act_discovery = QAction("🔍 Modo Descoberta — agrupar rostos e batizar (grátis)", self)
-        act_discovery.setToolTip(
-            "Agrupa os rostos do episódio por semelhança e você dá os nomes. "
-            "Funciona sem banco online e também serve pra REFORÇAR as refs "
-            "de um anime conhecido — os grupos vêm com nome sugerido."
+        self.discovery_btn.setStyleSheet(
+            "QPushButton{background:#3a3d43;color:#ddd;padding:10px 14px;border-radius:6px;}"
+            "QPushButton:hover{background:#4b4f57;color:#fff;}"
+            "QPushButton:disabled{background:#2a2c30;color:#666;}"
         )
-        act_discovery.triggered.connect(lambda: self._start(discovery=True))
-        ai_menu.addAction(act_review)
-        ai_menu.addSeparator()
-        ai_menu.addAction(act_hybrid)
-        ai_menu.addAction(act_full)
-        ai_menu.addSeparator()
-        ai_menu.addAction(act_discovery)
-        self.run_ai_btn.setMenu(ai_menu)
+        self.discovery_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.discovery_btn.clicked.connect(lambda: self._start(discovery=True))
 
         # Only visible while an analysis is running. Cooperative cancel: the
         # worker stops at the next shot/stage boundary, so the click can take
@@ -308,7 +302,9 @@ class AnalyzeTab(QWidget):
 
         action_row.addStretch(1)
         action_row.addWidget(self.preview_btn)
-        action_row.addSpacing(12)
+        action_row.addSpacing(6)
+        action_row.addWidget(self.discovery_btn)
+        action_row.addSpacing(16)
         action_row.addWidget(self.run_btn)
         action_row.addSpacing(8)
         action_row.addWidget(self.run_ai_btn)
@@ -464,6 +460,7 @@ class AnalyzeTab(QWidget):
 
         self.run_btn.setEnabled(False)
         self.run_ai_btn.setEnabled(False)
+        self.discovery_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.cancel_btn.setVisible(True)
         self._reset_stages()
@@ -505,6 +502,7 @@ class AnalyzeTab(QWidget):
         beco sem saída, oferece o Modo Descoberta na hora."""
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
+        self.discovery_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
         self.status_label.setText("Anime não encontrado nas bases online.")
         self.status_label.setStyleSheet("color:#DDB077;font-weight:bold;")
@@ -535,6 +533,7 @@ class AnalyzeTab(QWidget):
         if not dlg.exec():
             self.run_btn.setEnabled(True)
             self.run_ai_btn.setEnabled(True)
+            self.discovery_btn.setEnabled(True)
             self.cancel_btn.setVisible(False)
             self.status_label.setText(
                 "Descoberta cancelada — nada foi salvo (os shots cortados "
@@ -569,6 +568,7 @@ class AnalyzeTab(QWidget):
         self.cancel_btn.setVisible(False)
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
+        self.discovery_btn.setEnabled(True)
         self.progress.setValue(0)
         self._reset_stages()
         self.status_label.setText(
@@ -612,6 +612,7 @@ class AnalyzeTab(QWidget):
         )
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
+        self.discovery_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
         self.pipeline_finished.emit(result)
         # Skeleton-crew run (1-2 characters usable, rest skipped for lack of
@@ -648,6 +649,7 @@ class AnalyzeTab(QWidget):
         self.status_label.setStyleSheet("color:#ff6b6b;font-weight:bold;")
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
+        self.discovery_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
 
         box = QMessageBox(self)
@@ -680,6 +682,7 @@ class AnalyzeTab(QWidget):
         self.status_label.setStyleSheet("color:#ff6b6b;font-weight:bold;")
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
+        self.discovery_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
 
         box = QMessageBox(self)
