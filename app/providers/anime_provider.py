@@ -93,6 +93,12 @@ def local_cache_id(anime_name: str) -> str:
     return f"local-{slug}"
 
 
+def _name_tokens(name: str) -> frozenset[str]:
+    """Nome como conjunto de palavras, pra casar formatos diferentes entre as
+    fontes: Jikan usa "Tempest, Rimuru", AniList usa "Rimuru Tempest"."""
+    return frozenset(re.sub(r"[^a-z0-9 ]+", " ", name.lower()).split())
+
+
 class AnimeProvider:
     """Resolves an anime name into a character list with multiple reference URLs.
 
@@ -106,6 +112,10 @@ class AnimeProvider:
         self.anilist = AniListClient()
         self.jikan = JikanClient()
         self.danbooru = DanbooruClient()
+        # Problemas de fonte na ÚLTIMA resolve() (ex.: MyAnimeList fora do
+        # ar). O pipeline lê isto pra avisar o usuário — "tenta de novo mais
+        # tarde" só é um bom conselho quando a gente CONFIRMA que foi a fonte.
+        self.source_warnings: list[str] = []
 
     def close(self) -> None:
         self.anilist.close()
@@ -261,6 +271,7 @@ class AnimeProvider:
                     "(sem agrupamento de temporadas)..."
                 )
             jikan_hit = None
+            fails_pre_search = self.jikan.failures
             for q in queries:
                 jikan_hit = self.jikan.search_anime(q)
                 if jikan_hit is not None:
@@ -277,11 +288,19 @@ class AnimeProvider:
                     )
                     local.cache_id_override = local_cache_id(anime_name)
                     return local
+                mal_down = (
+                    "\n\n⚠️ Detalhe importante: o MyAnimeList não respondeu "
+                    "(erro de servidor) durante a busca — pode ser só "
+                    "instabilidade da fonte. Vale tentar de novo em alguns "
+                    "minutos."
+                    if self.jikan.failures > fails_pre_search
+                    else ""
+                )
                 raise AnimeNotFoundError(
                     f"Anime '{anime_name}' não foi encontrado na AniList nem no "
                     "MyAnimeList. Verifique o nome (sem tags de fansub ou "
                     "qualidade) — ou use o Modo Descoberta pra identificar os "
-                    "personagens pelo próprio episódio."
+                    "personagens pelo próprio episódio." + mal_down
                 )
             # Fake an AniListAnime so the rest of the flow keeps working. We
             # use the MAL id for anilist_id too — cache paths will look like
@@ -341,6 +360,8 @@ class AnimeProvider:
             return cached
 
         status(f"Baixando personagens de {len(franchise_mal_ids)} temporada(s)...")
+        self.source_warnings = []
+        fails_start = self.jikan.failures
 
         # 2) Collect characters from every season, merge by name.
         merged: dict[str, dict] = {}     # key = lowercase name
@@ -365,6 +386,52 @@ class AnimeProvider:
                     if _ROLE_WEIGHT.get(jc.role, 3) < _ROLE_WEIGHT.get(merged[key]["role"], 3):
                         merged[key]["role"] = jc.role
 
+        cast_fails = self.jikan.failures - fails_start
+        if cast_fails:
+            self.source_warnings.append(
+                f"O MyAnimeList não respondeu em {cast_fails} de "
+                f"{len(franchise_mal_ids)} consulta(s) de elenco (erro de servidor)."
+            )
+
+        # 2b) AniList também tem o elenco com foto — reserva completa quando o
+        # MyAnimeList está fora do ar (dias inteiros de 504 em jul/2026) e
+        # fonte EXTRA de fotos quando não está.
+        al_chars: list = []
+        if anilist_id is not None:
+            try:
+                al_chars = self.anilist.get_characters(root_id or anilist_id)
+            except Exception:
+                pass
+        if al_chars and merged:
+            # Enriquecer: casa por tokens do nome (formatos diferem entre as
+            # fontes) e anexa a foto da AniList como referência extra.
+            by_tokens = {_name_tokens(c["name"]): k for k, c in merged.items()}
+            enriched = 0
+            for ac in al_chars:
+                k = by_tokens.get(_name_tokens(ac.name))
+                if k is not None and ac.image:
+                    merged[k]["anilist_image"] = ac.image
+                    enriched += 1
+            if enriched:
+                status(f"AniList: +1 foto pra {enriched} personagens.")
+        elif al_chars and not merged:
+            # Reserva total: o elenco inteiro vem da AniList (1 foto por
+            # personagem — pouco pra análise direta, mas suficiente pro
+            # batismo com sugestões do Modo Descoberta).
+            for ac in al_chars[:max_characters]:
+                merged[ac.name.lower().strip()] = {
+                    "mal_id": None,
+                    "name": ac.name,
+                    "role": ac.role,
+                    "image": ac.image,
+                    "anilist_image": ac.image,
+                    "source_mal_ids": set(),
+                }
+            status(
+                f"⚠️ Elenco veio da reserva (AniList, {len(merged)} personagens) — "
+                "o MyAnimeList está fora do ar."
+            )
+
         # Sort main first then supporting, cap at max_characters.
         sorted_chars = sorted(
             merged.values(), key=lambda c: (_ROLE_WEIGHT.get(c["role"], 3), c["name"])
@@ -376,12 +443,14 @@ class AnimeProvider:
 
             # 1. Jikan — pictures for this character's MAL id. A character has
             # one canonical MAL id even if they appear in many seasons, so one
-            # call is enough.
+            # call is enough. (mal_id é None quando o personagem veio da
+            # reserva AniList — sem galeria do MAL pra buscar.)
             jikan_urls: list[str] = []
-            pics = self.jikan.character_pictures(ch["mal_id"])
-            for u in pics:
-                if u not in jikan_urls:
-                    jikan_urls.append(u)
+            if ch["mal_id"] is not None:
+                pics = self.jikan.character_pictures(ch["mal_id"])
+                for u in pics:
+                    if u not in jikan_urls:
+                        jikan_urls.append(u)
 
             # 2. Danbooru (optional, collages can contaminate centroids).
             dbooru_urls: list[str] = []
@@ -398,6 +467,11 @@ class AnimeProvider:
             for u in jikan_urls + dbooru_urls:
                 if u not in urls:
                     urls.append(u)
+            # Foto da AniList sempre entra (fonte extra, boa qualidade);
+            # o retrato do MAL só como último recurso.
+            al_img = ch.get("anilist_image")
+            if al_img and al_img not in urls:
+                urls.append(al_img)
             if not urls and ch.get("image"):
                 urls.append(ch["image"])
 
@@ -411,6 +485,13 @@ class AnimeProvider:
                 )
             )
 
+        pic_fails = self.jikan.failures - fails_start - cast_fails
+        if pic_fails and pic_fails >= max(1, len(sorted_chars) // 2):
+            self.source_warnings.append(
+                f"As galerias de fotos do MyAnimeList falharam em {pic_fails} de "
+                f"{len(sorted_chars)} personagens (erro de servidor)."
+            )
+
         bundle = AnimeBundle(
             anilist_id=anilist_id,
             mal_id=mal_id,
@@ -420,5 +501,14 @@ class AnimeProvider:
             franchise_ids=franchise_anilist_ids,
             franchise_root_id=root_id,
         )
-        self.save_cache(cache_id, bundle)
+        # Banco montado com fonte fora do ar é DEGRADADO — cachear ele
+        # congelaria o estrago (o "reusando banco cacheado" pularia o MAL
+        # pra sempre). Sem cache, a próxima análise tenta completo de novo.
+        if self.jikan.failures == fails_start:
+            self.save_cache(cache_id, bundle)
+        else:
+            status(
+                "Banco NÃO salvo no cache (fonte instável) — a próxima "
+                "análise busca tudo de novo."
+            )
         return bundle

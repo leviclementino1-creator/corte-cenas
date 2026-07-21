@@ -31,6 +31,10 @@ class JikanClient:
         self.client = httpx.Client(timeout=timeout, headers={"Accept": "application/json"})
         self.min_interval = min_interval
         self._last = 0.0
+        # Chamadas que morreram mesmo após retries — o provider compara
+        # antes/depois pra saber se o MyAnimeList estava fora do ar (e avisar
+        # o usuário em vez de entregar um "0 personagens" mudo).
+        self.failures = 0
 
     def close(self) -> None:
         self.client.close()
@@ -62,6 +66,7 @@ class JikanClient:
                 continue
             break
         print(f"[Jikan] {path} falhou apos retries (HTTP {last_status})", flush=True)
+        self.failures += 1
         return None
 
     def search_anime(self, name: str) -> JikanAnime | None:

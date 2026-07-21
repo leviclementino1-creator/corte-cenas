@@ -107,6 +107,12 @@ class Pipeline:
             )
         finally:
             provider.close()
+        # Fonte fora do ar? Guarda pra avisar — no progresso agora e, se a
+        # análise morrer por falta de refs, na mensagem de erro ("tenta de
+        # novo mais tarde" só é bom conselho quando é confirmado).
+        source_warnings = list(provider.source_warnings)
+        for w in source_warnings:
+            print(f"[CorteCenas] AVISO de fonte: {w}", flush=True)
         cb("fetch_characters", 1.0, f"{len(bundle.characters)} personagens")
 
         anime_id = self.db.upsert_anime(
@@ -269,14 +275,29 @@ class Pipeline:
         # would burn minutes of GPU to deliver a guaranteed-empty result —
         # fail now, with the actual reason and a way out.
         if not entries:
+            if source_warnings:
+                cause = (
+                    "⚠️ CONFIRMADO: o MyAnimeList estava fora do ar durante esta "
+                    "análise —\n" + "\n".join(f"• {w}" for w in source_warnings) +
+                    "\n\nMuito provavelmente é SÓ isso. O que fazer:\n"
+                    "• Tente de novo daqui a alguns minutos — os shots cortados "
+                    "ficam em cache, a reanálise vai direto pro banco de "
+                    "personagens;\n"
+                    "• Ou use o Modo Descoberta agora: ele identifica os rostos "
+                    "pelo próprio episódio, sem depender dessas fontes;\n"
+                )
+            else:
+                cause = (
+                    "Causa mais comum: as fontes de imagens (Jikan/MyAnimeList) "
+                    "estão instáveis ou fora do ar agora. O que fazer:\n"
+                    "• Tente de novo mais tarde (os shots cortados ficam em cache, "
+                    "a próxima rodada pula direto pro banco de personagens);\n"
+                )
             raise InsufficientRefsError(
                 "Nenhum personagem ficou com fotos de referência suficientes "
                 f"(mínimo {cfg.min_references_per_character} por personagem) — "
                 "a análise não teria como identificar ninguém.\n\n"
-                "Causa mais comum: as fontes de imagens (Jikan/MyAnimeList) "
-                "estão instáveis ou fora do ar agora. O que fazer:\n"
-                "• Tente de novo mais tarde (os shots cortados ficam em cache, "
-                "a próxima rodada pula direto pro banco de personagens);\n"
+                + cause +
                 "• Ou adicione fotos manualmente: 'Abrir pasta de refs' neste "
                 "aviso — cada personagem tem uma subpasta; prints do próprio "
                 "episódio funcionam.\n\n"
@@ -295,6 +316,11 @@ class Pipeline:
                 f"suficientes — {len(skipped_few_refs)} ficaram de fora e não "
                 "podem ser identificados neste episódio."
             )
+            if source_warnings:
+                low_refs_warning += (
+                    "\n\n⚠️ O MyAnimeList estava instável durante esta análise — "
+                    "reanalisar mais tarde deve recuperar o elenco completo."
+                )
 
         matcher = CharacterMatcher(entries)
 
