@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QElapsedTimer, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QDoubleSpinBox,
@@ -21,9 +22,17 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSpinBox,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
+
+
+def _fmt_clock(seconds: float) -> str:
+    s = max(0, int(round(seconds)))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
 
 
 PRESETS = {
@@ -65,6 +74,15 @@ class AnalyzeTab(QWidget):
         self.skip_store = SkipRangesStore(self.config.cache_path)
         self._thread: QThread | None = None
         self._worker: PipelineWorker | None = None
+        # Cronômetro + estimativa de término ("tipo Claude"): decorrido pelo
+        # relógio, restante extrapolado do progresso real com suavização.
+        self._clock = QElapsedTimer()
+        self._overall = 0.0
+        self._eta_smooth: float | None = None
+        self._tick = QTimer(self)
+        self._tick.setInterval(1000)
+        self._tick.timeout.connect(self._update_clock)
+        self._tray: QSystemTrayIcon | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -319,7 +337,18 @@ class AnalyzeTab(QWidget):
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        pv.addWidget(self.progress)
+        prow = QHBoxLayout()
+        prow.addWidget(self.progress, 1)
+        self.clock_label = QLabel("")
+        self.clock_label.setStyleSheet(
+            "color:#9fdca3;font-family:Consolas,monospace;font-size:12px;"
+        )
+        self.clock_label.setToolTip(
+            "Tempo decorrido · estimativa de término (calculada pelo ritmo "
+            "real das etapas — fica mais precisa conforme avança)"
+        )
+        prow.addWidget(self.clock_label)
+        pv.addLayout(prow)
 
         self.status_label = QLabel("Aguardando...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -513,6 +542,11 @@ class AnalyzeTab(QWidget):
         self._reset_stages()
         self._reset_status_style()
         self.progress.setValue(0)
+        self._clock.start()
+        self._overall = 0.0
+        self._eta_smooth = None
+        self.clock_label.setText("⏱ 0:00")
+        self._tick.start()
         if discovery:
             suffix = " (Modo Descoberta)"
         elif use_ai:
@@ -548,6 +582,7 @@ class AnalyzeTab(QWidget):
     def _on_anime_not_found(self, message: str) -> None:
         """Anime sem match na AniList/MAL e sem banco local — em vez de um
         beco sem saída, oferece o Modo Descoberta na hora."""
+        self._stop_clock("")
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
         self.discovery_btn.setEnabled(True)
@@ -574,6 +609,12 @@ class AnalyzeTab(QWidget):
     def _on_discovery_ready(self, disc) -> None:
         """Grupos prontos — abre a tela de batismo; confirmado, o commit
         roda em thread própria e desagua no fluxo normal de conclusão."""
+        secs = self._stop_clock()
+        self._notify(
+            "Corte Cenas — Descoberta pronta",
+            f"{len(disc.groups)} personagens encontrados em {_fmt_clock(secs)}. "
+            "Hora de dar os nomes!",
+        )
         self.status_label.setText(
             f"{len(disc.groups)} personagens descobertos — dê os nomes na janela."
         )
@@ -615,6 +656,7 @@ class AnalyzeTab(QWidget):
         self._worker.request_cancel()
 
     def _on_cancelled(self) -> None:
+        self._stop_clock("")
         self.cancel_btn.setVisible(False)
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
@@ -640,6 +682,7 @@ class AnalyzeTab(QWidget):
         if idx >= 0:
             frac = max(0.0, min(1.0, fraction)) if fraction >= 0 else 0.5
             overall = (idx + frac) / len(STAGES)
+            self._overall = overall
             self.progress.setValue(int(overall * 100))
             for i in range(self.stage_list.count()):
                 it = self.stage_list.item(i)
@@ -656,9 +699,18 @@ class AnalyzeTab(QWidget):
         self.progress.setValue(100)
         for i in range(self.stage_list.count()):
             self.stage_list.item(i).setText(f"●  {STAGES[i][1]}")
+        secs = self._stop_clock()
+        tempo = f" em {_fmt_clock(secs)}" if secs >= 1 else ""
         self.status_label.setText(
-            f"Concluído: {result.total_shots} shots · "
+            f"Concluído{tempo}: {result.total_shots} shots · "
             f"{result.total_characters} personagens identificados."
+        )
+        self.clock_label.setText(f"✅ {_fmt_clock(secs)}")
+        self._notify(
+            "Corte Cenas — Análise concluída",
+            f"{result.anime_title} {result.season}x{result.episode:02d}: "
+            f"{result.total_shots} cenas, {result.total_characters} "
+            f"personagens{tempo}.",
         )
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
@@ -694,7 +746,9 @@ class AnalyzeTab(QWidget):
         """Zero characters got usable reference photos. Instead of a dead-end
         error, offer the way out: open the refs folder so the user can drop
         face images per character and re-run."""
+        self._stop_clock("")
         first_line = message.splitlines()[0] if message else "refs insuficientes"
+        self._notify("Corte Cenas — Análise parou", first_line)
         self.status_label.setText(f"Erro: {first_line}")
         self.status_label.setStyleSheet("color:#ff6b6b;font-weight:bold;")
         self.run_btn.setEnabled(True)
@@ -727,7 +781,9 @@ class AnalyzeTab(QWidget):
             self._start(discovery=True)
 
     def _on_failed(self, message: str) -> None:
+        self._stop_clock("")
         first_line = message.splitlines()[0] if message else "falhou"
+        self._notify("Corte Cenas — Análise falhou", first_line)
         self.status_label.setText(f"Erro: {first_line}")
         self.status_label.setStyleSheet("color:#ff6b6b;font-weight:bold;")
         self.run_btn.setEnabled(True)
@@ -749,6 +805,65 @@ class AnalyzeTab(QWidget):
 
     def _reset_status_style(self) -> None:
         self.status_label.setStyleSheet("color:#bbb;")
+
+    # --- cronômetro + notificação ---
+
+    def _update_clock(self) -> None:
+        if not self._clock.isValid():
+            return
+        secs = self._clock.elapsed() / 1000.0
+        txt = f"⏱ {_fmt_clock(secs)}"
+        # Estimativa só depois de progresso real (antes disso seria chute):
+        # extrapola pelo ritmo global e suaviza pra não ficar pulando.
+        if self._overall >= 0.06 and secs > 12:
+            remaining = secs / self._overall - secs
+            if self._eta_smooth is None:
+                self._eta_smooth = remaining
+            else:
+                self._eta_smooth = 0.85 * self._eta_smooth + 0.15 * remaining
+            txt += f"  ·  resta ~{_fmt_clock(self._eta_smooth)}"
+        self.clock_label.setText(txt)
+
+    def _stop_clock(self, final_text: str | None = None) -> float:
+        """Para o tique e devolve o total em segundos."""
+        secs = self._clock.elapsed() / 1000.0 if self._clock.isValid() else 0.0
+        self._tick.stop()
+        self.clock_label.setText(
+            final_text if final_text is not None else f"⏱ {_fmt_clock(secs)}"
+        )
+        return secs
+
+    def _notify(self, title: str, body: str) -> None:
+        """Toast do Windows — só quando a janela NÃO está em foco (análise é
+        longa, o usuário foi fazer outra coisa; se está olhando, não enche).
+        Sem som próprio, regra da casa; o clique traz a janela de volta."""
+        win = self.window()
+        if win.isActiveWindow():
+            return
+        QApplication.alert(win)  # pisca na barra de tarefas
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        if self._tray is None:
+            self._tray = QSystemTrayIcon(win.windowIcon(), self)
+            self._tray.setToolTip("Corte Cenas")
+            self._tray.activated.connect(lambda *_: self._focus_from_tray())
+            self._tray.messageClicked.connect(self._focus_from_tray)
+        self._tray.show()
+        self._tray.showMessage(
+            title, body, QSystemTrayIcon.MessageIcon.Information, 8000
+        )
+        QTimer.singleShot(15000, self._hide_tray)
+
+    def _focus_from_tray(self) -> None:
+        w = self.window()
+        w.showNormal()
+        w.raise_()
+        w.activateWindow()
+        self._hide_tray()
+
+    def _hide_tray(self) -> None:
+        if self._tray is not None:
+            self._tray.hide()
 
     def _cleanup_thread(self) -> None:
         if self._worker is not None:
