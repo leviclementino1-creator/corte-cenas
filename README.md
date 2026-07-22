@@ -193,9 +193,18 @@ Se as duas estiverem preenchidas, a NavyAI é usada primeiro e o Gemini assume a
 O cache é reaproveitado entre episódios do mesmo anime (e da mesma franquia): o segundo episódio analisa muito mais rápido. E cada episódio guarda as features caras (rostos + embeddings) junto dos metadados — **reanalisar o mesmo episódio leva segundos**. Apagar o cache só força refazer os downloads.
 
 Em **⚙ Configurações → Referências e cache**: abrir a pasta de refs com um
-clique, **🧹 limpar só as fotos baixadas** (galerias online costumam trazer
-lixo — batismos e fotos manuais ficam intactos), **♻️ restaurar os padrões de
-análise** e, como último recurso, **🗑 apagar o cache inteiro**.
+clique, **🧩 fundir pastas duplicadas** (mesmo personagem escrito diferente
+pelas fontes — "Tempest, Rimuru" ≡ "Rimuru Tempest" — ou mesmo anime com id
+diferente; mostra o plano antes de aplicar), **🧹 limpar só as fotos
+baixadas** (galerias online costumam trazer lixo — batismos e fotos manuais
+ficam intactos), **♻️ restaurar os padrões de análise** e, como último
+recurso, **🗑 apagar o cache inteiro**.
+
+E a duplicação **não volta**: pasta de refs, personagem no banco e batismo
+passam a casar nomes por conjunto de palavras ([naming.py](app/naming.py)) —
+qualquer fonte que escreva o nome noutro formato reusa o que já existe
+(subset tipo "Rimuru" ⊂ "Rimuru Tempest" só quando inambíguo; a família
+Greyrat inteira nunca é fundida por engano).
 
 ---
 

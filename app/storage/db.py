@@ -174,6 +174,19 @@ class Database:
             ).fetchone()
             if row:
                 return row["id"]
+            # Mesmo personagem escrito de outro jeito ("Tempest, Rimuru" ≡
+            # "Rimuru Tempest"; "Rimuru" do batismo quando inambíguo) reusa
+            # a linha existente — senão cada formato de fonte criava um
+            # personagem próprio no banco e nos Resultados.
+            from ..naming import find_token_match
+            rows = c.execute(
+                "SELECT id, name FROM character WHERE anime_id=?", (anime_id,)
+            ).fetchall()
+            match = find_token_match(name, [r["name"] for r in rows])
+            if match is not None:
+                for r in rows:
+                    if r["name"] == match:
+                        return r["id"]
             cur = c.execute(
                 "INSERT INTO character(anilist_id, mal_id, anime_id, name, role) VALUES(?,?,?,?,?)",
                 (anilist_id, mal_id, anime_id, name, role),

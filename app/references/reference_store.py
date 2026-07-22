@@ -55,7 +55,25 @@ class ReferenceStore:
         return resolve_anime_dir(self.root.parent, cache_id)
 
     def character_dir(self, cache_id: str, character_name: str) -> Path:
-        return self.anime_dir(cache_id) / "characters" / _slug(character_name)
+        """Pasta do personagem — REUSANDO uma existente que seja a mesma
+        pessoa escrita de outro jeito ("Tempest, Rimuru" ≡ "Rimuru Tempest",
+        "Rimuru" batizado ⊂ "Rimuru Tempest" quando inambíguo). Sem isso,
+        cada fonte que 'vencia' num dia criava a própria pasta e o banco de
+        refs se fragmentava."""
+        chars_root = self.anime_dir(cache_id) / "characters"
+        exact = chars_root / _slug(character_name)
+        if exact.exists():
+            return exact
+        if chars_root.exists():
+            from ..naming import find_token_match
+            existing = [
+                d.name for d in chars_root.iterdir()
+                if d.is_dir() and not d.name.startswith("_")
+            ]
+            match = find_token_match(character_name, existing)
+            if match is not None:
+                return chars_root / match
+        return exact
 
     def ensure_references(
         self,

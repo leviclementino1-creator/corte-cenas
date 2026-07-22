@@ -106,6 +106,14 @@ class SettingsDialog(QDialog):
         cache_layout.addLayout(open_row)
 
         clean_row = QHBoxLayout()
+        merge_btn = QPushButton("🧩  Fundir duplicados")
+        merge_btn.setToolTip(
+            "Acha pastas que são o MESMO personagem escrito diferente "
+            "(\"Tempest, Rimuru\" ≡ \"Rimuru Tempest\") ou o mesmo anime com "
+            "id diferente, mostra o plano e funde tudo com um clique."
+        )
+        merge_btn.clicked.connect(self._merge_dupes)
+        clean_row.addWidget(merge_btn)
         clean_btn = QPushButton("🧹  Limpar fotos baixadas")
         clean_btn.setToolTip(
             "Apaga SÓ as imagens que vieram das galerias online (as que têm "
@@ -349,6 +357,49 @@ class SettingsDialog(QDialog):
             self, "Limpeza concluída",
             f"{removed} fotos de catálogo apagadas em {animes} anime(s). "
             "Batismos e fotos manuais preservados.",
+        )
+
+    def _merge_dupes(self) -> None:
+        from ..cache_tools import merge_duplicates
+        plan = merge_duplicates(self.config.cache_path, apply=False)
+        if not plan["anime"] and not plan["chars"]:
+            QMessageBox.information(
+                self, "Sem duplicatas",
+                "Nenhuma pasta duplicada de personagem ou anime encontrada. 👌",
+            )
+            return
+        lines: list[str] = []
+        for srcs, canon in plan["anime"]:
+            lines.append(f"🎬 {' + '.join(srcs)}  →  {canon}")
+        for anime, srcs, canon in plan["chars"]:
+            lines.append(f"👤 [{anime.split(' [')[0]}] {' + '.join(srcs)}  →  {canon}")
+        preview = "\n".join(lines[:20])
+        if len(lines) > 20:
+            preview += f"\n… e mais {len(lines) - 20} fusões."
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Fundir duplicados")
+        box.setText(
+            f"Encontrei <b>{len(plan['chars'])}</b> personagem(ns) e "
+            f"<b>{len(plan['anime'])}</b> anime(s) duplicados. Fundir assim?"
+        )
+        box.setInformativeText(
+            preview + "\n\nAs fotos são movidas pra pasta de nome mais "
+            "completo (nada é apagado, só duplicata exata de download). "
+            "Reanalise os episódios depois pra refazer as contagens."
+        )
+        yes = box.addButton("🧩 Fundir", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is not yes:
+            return
+        result = merge_duplicates(self.config.cache_path, apply=True)
+        QMessageBox.information(
+            self, "Fusão concluída",
+            f"{len(result['chars'])} personagem(ns) e {len(result['anime'])} "
+            f"anime(s) fundidos, {result['moved']} arquivos reorganizados.\n\n"
+            "A partir de agora o app reusa a pasta existente mesmo quando a "
+            "fonte escreve o nome diferente — isso não volta a acontecer.",
         )
 
     def _reset_analysis_defaults(self) -> None:

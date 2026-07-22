@@ -1891,12 +1891,16 @@ class Pipeline:
     @staticmethod
     def _local_only_characters(ref_store: ReferenceStore, cache_id: str, bundle) -> list[str]:
         """Nomes de pastas em <anime>/characters/ com imagens dentro que não
-        correspondem (por slug) a nenhum personagem do bundle online."""
+        correspondem a nenhum personagem do bundle online — nem por slug,
+        nem por tokens ("Rimuru" batizado casa com "Tempest, Rimuru" do
+        elenco e NÃO vira personagem duplicado)."""
+        from .naming import find_token_match
         from .references.reference_store import slug_for
         chars_dir = ref_store.anime_dir(cache_id) / "characters"
         if not chars_dir.exists():
             return []
         known = {slug_for(ch.name) for ch in bundle.characters}
+        bundle_names = [ch.name for ch in bundle.characters]
         exts = {".jpg", ".jpeg", ".png", ".webp"}
         out: list[str] = []
         for d in sorted(chars_dir.iterdir()):
@@ -1904,6 +1908,8 @@ class Pipeline:
                 continue
             if d.name in known:
                 continue
+            if find_token_match(d.name, bundle_names) is not None:
+                continue  # mesmo personagem com nome noutro formato
             if any(f.suffix.lower() in exts for f in d.iterdir() if f.is_file()):
                 out.append(d.name)
         return out
