@@ -30,17 +30,41 @@ def _load_app_icon() -> QIcon:
 
 
 def _load_splash_pixmap() -> QPixmap | None:
-    """Return the 256px icon variant scaled for the splash screen, or None."""
+    """Cartão do splash: logo centrada num retângulo arredondado escuro com
+    espaço pro texto embaixo. Os cantos ficam TRANSPARENTES e a janela recebe
+    a máscara arredondada — morre o quadrado preto atrás da logo."""
     candidates = []
     if hasattr(sys, "_MEIPASS"):
         candidates.append(Path(sys._MEIPASS) / "app" / "assets" / "icon_256.png")
     candidates.append(Path(__file__).resolve().parent / "assets" / "icon_256.png")
+    logo = None
     for p in candidates:
         if p.exists():
             pm = QPixmap(str(p))
             if not pm.isNull():
-                return pm
-    return None
+                logo = pm
+                break
+    if logo is None:
+        return None
+
+    from PySide6.QtGui import QColor, QPainter, QPainterPath
+
+    W, H, R = 300, 320, 26
+    card = QPixmap(W, H)
+    card.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(card)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath()
+    path.addRoundedRect(0, 0, W, H, R, R)
+    painter.fillPath(path, QColor(30, 31, 34))
+    lg = logo.scaled(
+        180, 180,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    painter.drawPixmap((W - lg.width()) // 2, 34, lg)
+    painter.end()
+    return card
 
 
 def main() -> int:
@@ -59,6 +83,9 @@ def main() -> int:
     pixmap = _load_splash_pixmap()
     if pixmap is not None:
         splash = QSplashScreen(pixmap, Qt.WindowType.WindowStaysOnTopHint)
+        # A máscara recorta a JANELA no formato do cartão — sem ela, os
+        # cantos transparentes viravam a moldura quadrada preta.
+        splash.setMask(pixmap.mask())
         splash.show()
 
     def status(text: str) -> None:

@@ -273,6 +273,40 @@ class ResultsTab(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, c)
             self.char_list.addItem(item)
 
+        # Duplas (o conteúdo do by_pair, que antes só existia como pasta):
+        # shots em que os DOIS aparecem, contados direto do banco.
+        if ep_id is None:
+            return
+        by_shot = self.db.assignments_for_episode(ep_id)
+        pair_counts: dict[tuple[int, int], dict] = {}
+        for assigns in by_shot.values():
+            if len(assigns) < 2:
+                continue
+            srt = sorted(assigns, key=lambda a: a["id"])
+            for i in range(len(srt)):
+                for j in range(i + 1, len(srt)):
+                    key = (srt[i]["id"], srt[j]["id"])
+                    e = pair_counts.setdefault(
+                        key,
+                        {"names": (srt[i]["name"], srt[j]["name"]), "count": 0},
+                    )
+                    e["count"] += 1
+        if not pair_counts:
+            return
+        sep = QListWidgetItem("───────  Duplas  ───────")
+        sep.setFlags(Qt.ItemFlag.NoItemFlags)
+        sep.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.char_list.addItem(sep)
+        ranked = sorted(pair_counts.items(), key=lambda kv: -kv[1]["count"])[:40]
+        for (id_a, id_b), e in ranked:
+            na, nb = e["names"]
+            item = QListWidgetItem(f"{na} + {nb}  ({e['count']})")
+            item.setData(
+                Qt.ItemDataRole.UserRole,
+                {"pair": True, "ids": (id_a, id_b), "name": f"{na} + {nb}"},
+            )
+            self.char_list.addItem(item)
+
     def _on_character_selected(self) -> None:
         items = self.char_list.selectedItems()
         if not items or self.grid is None:
@@ -280,10 +314,22 @@ class ResultsTab(QWidget):
             self.btn_vertical.setEnabled(False)
             return
         c = items[0].data(Qt.ItemDataRole.UserRole)
-        shots = self.db.shots_for_character(
-            c["id"],
-            episode_id=self._current_result.episode_id if self._current_result else None,
-        )
+        if not c:
+            return  # separador "Duplas"
+        ep_id = self._current_result.episode_id if self._current_result else None
+        if c.get("pair"):
+            # Dupla: interseção dos shots dos dois personagens.
+            id_a, id_b = c["ids"]
+            shots_a = self.db.shots_for_character(id_a, episode_id=ep_id)
+            ids_b = {s["id"] for s in self.db.shots_for_character(id_b, episode_id=ep_id)}
+            shots = [s for s in shots_a if s["id"] in ids_b]
+            self.grid.load_for_character(shots, c["name"])
+            # Refs/vertical/curadoria são POR personagem — na dupla, só ver e
+            # dar play (duplo clique).
+            self.btn_refs.setEnabled(False)
+            self.btn_vertical.setEnabled(False)
+            return
+        shots = self.db.shots_for_character(c["id"], episode_id=ep_id)
         self.grid.load_for_character(shots, c["name"])
         self.btn_refs.setEnabled(self._anime_cache_id is not None)
         self.btn_vertical.setEnabled(
@@ -295,6 +341,8 @@ class ResultsTab(QWidget):
         if not items or not self._anime_cache_id:
             return
         c = items[0].data(Qt.ItemDataRole.UserRole)
+        if not c or c.get("pair"):
+            return
         folder = self.ref_store.character_dir(self._anime_cache_id, c["name"])
         folder.mkdir(parents=True, exist_ok=True)
         self._open_path(folder)
@@ -359,6 +407,8 @@ class ResultsTab(QWidget):
         if not items or self._current_result is None:
             return
         c = items[0].data(Qt.ItemDataRole.UserRole)
+        if not c or c.get("pair"):
+            return
         shots = self.db.shots_for_character(
             c["id"],
             episode_id=self._current_result.episode_id if self._current_result else None,
@@ -506,6 +556,13 @@ class ResultsTab(QWidget):
         if not items or self._current_result is None or not shots:
             return
         current_char = items[0].data(Qt.ItemDataRole.UserRole)
+        if not current_char or current_char.get("pair"):
+            quiet.information(
+                self, "Curadoria é por personagem",
+                "Pra remover/mover/aprovar uma cena, selecione o personagem "
+                "individual na lista — a visão de dupla é só pra navegar."
+            )
+            return
         shot_ids = [int(s.get("id") or 0) for s in shots]
         pairs = [(sid, s) for sid, s in zip(shot_ids, shots) if sid]
         if not pairs:
@@ -550,8 +607,8 @@ class ResultsTab(QWidget):
         self._reload_characters()
         # Try to re-select the same character we were viewing
         for i in range(self.char_list.count()):
-            row = self.char_list.item(i)
-            if row.data(Qt.ItemDataRole.UserRole)["id"] == current_char["id"]:
+            d = self.char_list.item(i).data(Qt.ItemDataRole.UserRole)
+            if d and not d.get("pair") and d.get("id") == current_char["id"]:
                 self.char_list.setCurrentRow(i)
                 break
         self._on_character_selected()
