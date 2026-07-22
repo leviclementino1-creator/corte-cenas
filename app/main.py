@@ -30,9 +30,9 @@ def _load_app_icon() -> QIcon:
 
 
 def _load_splash_pixmap() -> QPixmap | None:
-    """Cartão do splash: logo centrada num retângulo arredondado escuro com
-    espaço pro texto embaixo. Os cantos ficam TRANSPARENTES e a janela recebe
-    a máscara arredondada — morre o quadrado preto atrás da logo."""
+    """Splash de verdade: a LOGO ORIGINAL flutuando (transparência per-pixel
+    da janela, sem cartão nem máscara serrilhada), com um balão escuro
+    discreto só atrás da faixa de texto pra dar leitura em qualquer fundo."""
     candidates = []
     if hasattr(sys, "_MEIPASS"):
         candidates.append(Path(sys._MEIPASS) / "app" / "assets" / "icon_256.png")
@@ -49,22 +49,21 @@ def _load_splash_pixmap() -> QPixmap | None:
 
     from PySide6.QtGui import QColor, QPainter, QPainterPath
 
-    W, H, R = 300, 320, 26
-    card = QPixmap(W, H)
-    card.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(card)
+    band_h = 46                      # balão do texto (2 linhas compactas)
+    gap = 8
+    W, H = logo.width(), logo.height() + gap + band_h
+    canvas = QPixmap(W, H)
+    canvas.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(canvas)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    path = QPainterPath()
-    path.addRoundedRect(0, 0, W, H, R, R)
-    painter.fillPath(path, QColor(30, 31, 34))
-    lg = logo.scaled(
-        180, 180,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-    painter.drawPixmap((W - lg.width()) // 2, 34, lg)
+    painter.drawPixmap(0, 0, logo)   # a logo, intocada
+    # Balão-legenda: mesmo tom do fundo da logo (contínuo visualmente),
+    # bem arredondado — legível em desktop claro ou escuro.
+    pill = QPainterPath()
+    pill.addRoundedRect(W * 0.14, H - band_h, W * 0.72, band_h, band_h / 2.2, band_h / 2.2)
+    painter.fillPath(pill, QColor(30, 31, 34, 235))
     painter.end()
-    return card
+    return canvas
 
 
 def main() -> int:
@@ -83,9 +82,9 @@ def main() -> int:
     pixmap = _load_splash_pixmap()
     if pixmap is not None:
         splash = QSplashScreen(pixmap, Qt.WindowType.WindowStaysOnTopHint)
-        # A máscara recorta a JANELA no formato do cartão — sem ela, os
-        # cantos transparentes viravam a moldura quadrada preta.
-        splash.setMask(pixmap.mask())
+        # Transparência REAL da janela (per-pixel): a logo flutua sozinha na
+        # tela — sem quadrado preto, sem máscara serrilhada, sem cartão.
+        splash.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         splash.show()
 
     def status(text: str) -> None:
