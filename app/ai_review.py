@@ -375,3 +375,70 @@ def classify_face_crops(
             conf = 0.0
         out.append((name, conf))
     return out, usage
+
+
+def classify_group(
+    client: NavyAIClient,
+    group_crops: list[bytes],
+    candidates: list[tuple[str, list[bytes]]],
+    anime_title: str,
+) -> tuple[str | None, float, dict]:
+    """Revisão por GRUPO (contact sheet): todas as imagens da grade são o
+    MESMO personagem — o modelo escolhe qual candidato corresponde, ou
+    UNKNOWN. Identidade agregada é um problema mais fácil e estável que
+    classificar um crop isolado: uma piscada ou um perfil não decide nada
+    sozinho, e UMA resposta vale por todas as cenas do grupo.
+
+    Retorna (nome_ou_None, confiança, usage)."""
+    if not group_crops or not candidates:
+        return None, 0.0, {}
+
+    cand_names = [n for n, _ in candidates]
+    preamble = [
+        f'You are identifying a character from the anime "{anime_title}".',
+        "",
+        f"The {len(group_crops)} GROUP images below all show the SAME "
+        "character (grouped automatically by visual similarity within one "
+        "episode) — different angles, expressions and lighting of one person.",
+        "",
+        "Compare the GROUP as a whole against each candidate's reference "
+        "images. Judge by hair color + hairstyle, head accessories, eye "
+        "color/shape and outfit. Base the decision on the clearest group "
+        "images — ignore blurry or partial ones.",
+        "",
+        "Return \"none\" if the group does not clearly match any candidate, "
+        "or if two candidates are equally plausible. Do not force a match.",
+        "",
+        "Return ONLY JSON: {\"character\": \"<exact candidate name or "
+        "'none'>\", \"confidence\": <0-1>, \"reason\": \"<specific visual "
+        "feature>\"}.",
+        "",
+        "Candidates: " + ", ".join(cand_names),
+    ]
+    content: list[dict] = [{"type": "text", "text": "\n".join(preamble)}]
+    content.append({"type": "text", "text": "GROUP (same character):"})
+    for crop in group_crops:
+        content.append({"type": "image_url", "image_url": {"url": client._data_url(crop)}})
+    for name, refs in candidates:
+        if not refs:
+            continue
+        content.append({"type": "text", "text": f"CANDIDATE — {name}:"})
+        for ref in refs[:2]:
+            content.append({"type": "image_url", "image_url": {"url": client._data_url(ref)}})
+
+    data = client.post_content(content, max_tokens=1536)
+    raw, usage = client._extract_content_and_usage(data)
+    if raw is None:
+        return None, 0.0, usage
+    parsed = client._parse_json_response(raw)
+    if not isinstance(parsed, dict):
+        return None, 0.0, usage
+    name = parsed.get("character")
+    name = name.strip() if isinstance(name, str) else ""
+    try:
+        conf = float(parsed.get("confidence") or 0.0)
+    except (ValueError, TypeError):
+        conf = 0.0
+    if not name or name.lower() in ("none", "unknown"):
+        return None, conf, usage
+    return name, conf, usage

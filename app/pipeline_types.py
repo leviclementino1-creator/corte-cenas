@@ -188,3 +188,7 @@ class PipelineResult:
     # offering the refs folder. 3+ usable characters = no nagging.
     low_refs_warning: str | None = None
     refs_dir: str | None = None
+    # Ponte verde→batismo: grupos de cenas que o resgate por grupo não
+    # conseguiu nomear, empacotados como DiscoveryResult — a UI oferece a
+    # tela de batismo no fim da análise. None = nada sobrou.
+    leftover_groups: "DiscoveryResult | None" = None

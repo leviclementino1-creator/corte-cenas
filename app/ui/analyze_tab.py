@@ -631,10 +631,18 @@ class AnalyzeTab(QWidget):
             return
 
         self.status_label.setText("Salvando personagens descobertos...")
+        self._start_discovery_commit(disc, dlg.names(), dlg.removed())
+
+    def _start_discovery_commit(
+        self, disc, names: dict, removed: dict
+    ) -> None:
+        """Commit do batismo em thread própria — usado tanto pelo Modo
+        Descoberta quanto pela ponte verde→batismo (grupos sem nome)."""
+        self.run_btn.setEnabled(False)
+        self.run_ai_btn.setEnabled(False)
+        self.discovery_btn.setEnabled(False)
         self._thread = QThread(self)
-        self._worker = DiscoveryCommitWorker(
-            self.config, disc, dlg.names(), dlg.removed()
-        )
+        self._worker = DiscoveryCommitWorker(self.config, disc, names, removed)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.stage.connect(self._on_stage)
@@ -741,6 +749,35 @@ class AnalyzeTab(QWidget):
                 p = Path(result.refs_dir)
                 p.mkdir(parents=True, exist_ok=True)
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+
+        # Ponte verde→batismo: sobraram grupos de rostos que se parecem
+        # entre si mas não bateram com referência nenhuma — oferece dar
+        # nome agora, sem precisar rodar o Modo Descoberta separado.
+        if result.leftover_groups and result.leftover_groups.groups:
+            lg = result.leftover_groups
+            box = QMessageBox(self)
+            set_quiet_icon(box, QMessageBox.Icon.Question)
+            box.setWindowTitle("Grupos sem nome")
+            box.setText(
+                f"{len(lg.groups)} grupo(s) de cenas ficaram sem personagem — "
+                "rostos que se parecem entre si, mas não bateram com nenhuma "
+                "referência conhecida."
+            )
+            box.setInformativeText(
+                "Quer batizar agora? Dar nome coloca essas cenas nas pastas "
+                "e vira referência — os próximos episódios já reconhecem "
+                "sozinhos. Grupo de figurante? Deixa o nome vazio."
+            )
+            bat_btn = box.addButton(
+                "🔍 Batizar agora", QMessageBox.ButtonRole.AcceptRole
+            )
+            box.addButton("Depois", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if box.clickedButton() is bat_btn:
+                dlg = DiscoveryNamingDialog(lg, self)
+                if dlg.exec():
+                    self.status_label.setText("Salvando personagens batizados...")
+                    self._start_discovery_commit(lg, dlg.names(), dlg.removed())
 
     def _on_refs_missing(self, message: str, refs_dir: str) -> None:
         """Zero characters got usable reference photos. Instead of a dead-end

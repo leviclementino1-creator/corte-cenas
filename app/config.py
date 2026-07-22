@@ -143,6 +143,21 @@ class Config:
     second_pass_threshold: float = 0.86
     second_pass_min_sources: int = 2        # shots-fonte mínimos por personagem
     second_pass_max_bank: int = 40          # refs de episódio máximas por personagem
+
+    # Resgate por GRUPO (Descoberta embutida no verde): os rostos que
+    # sobraram sem dono são agrupados entre si (mesma pessoa a 0.86+ no
+    # próprio episódio) e o GRUPO é comparado com os protótipos — mediana
+    # de representantes diversos, com margem e concordância. Evidência
+    # agregada permite régua mais baixa que a de um crop isolado; grupos
+    # que nem assim resolverem vão pra tela de batismo no fim.
+    cluster_rescue: bool = True
+    cluster_min_faces: int = 5              # rostos mínimos pra decidir por grupo
+    cluster_min_shots: int = 3              # espalhados por N cenas no mínimo
+    cluster_min_sim: float = 0.72           # mediana mínima vs protótipos
+    cluster_margin: float = 0.05            # folga sobre o 2º candidato
+    cluster_agreement: float = 0.6          # fração dos reps votando no top-1
+    cluster_review_low: float = 0.62        # acima disso (sem aceitar) → IA por grupo
+    cluster_max_reps: int = 8               # representantes diversos por grupo
     face_crop_padding: float = 0.25         # around detected face; more context helps CLIP
     # AI hybrid mode crops get WIDER padding so hair/headband is fully
     # visible — that's often the only thing telling apart similar-styled

@@ -204,8 +204,10 @@ O cache é reaproveitado entre episódios do mesmo anime (e da mesma franquia): 
 6. **Embeddings** — `open_clip ViT-L/14`; as refs de cada personagem são agrupadas por **modo visual** (average-linkage) e cada grupo vira um **protótipo** — a similaridade é contra o protótipo mais parecido, não contra a média de tudo
 7. **Análise** — YOLO [`deepghs/anime_face_detection`](https://huggingface.co/deepghs/anime_face_detection) (com cascata pra [anime_head](https://huggingface.co/deepghs/anime_head_detection) quando o rosto escapa, **em lote por shot**) → CLIP → cosine contra os protótipos → votação entre keyframes. Boxes e embeddings de cada keyframe ficam num **cache por episódio** (reanálise pula GPU) e cada etapa tem o tempo medido no `app.log` + `timings.json`
 8. **Segunda passada** — as cenas identificadas com confiança viram referências temporárias do próprio episódio (mesmo traço/ângulo/luz); as sem dono são recomparadas contra elas com voto único por rosto. Resgata tipicamente **um terço do episódio** que a comparação com refs externas perdia
+9. **Resgate por grupo (Descoberta embutida)** — os rostos que AINDA sobraram são agrupados entre si (mesma pessoa dentro do episódio) e cada **grupo inteiro** é comparado com os protótipos: mediana de representantes diversos + margem + concordância. Pega o personagem que pontuava "quase" em todas as cenas e nunca ganhava semente; grupos que nem assim resolverem viram **oferta de batismo** no fim da análise
 9. **Revisão IA (opcional)** — só os shots que ficaram "quase" (similaridade na zona cinzenta) vão pro Gemini, com teto de custo, retry, fallback de provider e circuit breaker de quota
-10. **Organização** — hardlinks NTFS em `by_character/` e `by_pair/`, `shots.json` + `characters.json`, reaplicando a curadoria manual lembrada
+10. **Revisão IA por grupo (opcional)** — grupo na zona cinzenta vai pro Gemini como *contact sheet* (várias expressões do mesmo rosto vs refs dos top-3 candidatos): uma pergunta responde dezenas de cenas
+11. **Organização** — hardlinks NTFS em `by_character/` e `by_pair/`, `shots.json` + `characters.json`, reaplicando a curadoria manual lembrada
 
 O **Modo Descoberta** troca os passos 4-7 por clustering não-supervisionado dos
 rostos do episódio (aglomerativo average-linkage) + tela de batismo; os grupos
@@ -313,10 +315,10 @@ Todo mundo com o app instalado recebe a oferta de update (delta de ~53 MB) no pr
 - [ ] **Banco de refs curadas no GitHub** — fonte de fotos controlada por nós, imune a queda de API e com designs atuais das temporadas novas (o botão "Exportar refs" já gera o insumo)
 - [ ] **Resultados em tempo real** — shots aparecendo na aba Resultados enquanto a análise roda
 - [ ] **Contador de uso do free tier** + estimativa de custo antes de rodar com IA
-- [ ] **Ponte verde→Descoberta** — depois da análise, oferecer batismo pros rostos que sobraram sem dono
 - [ ] **Barra de progresso do download do CLIP** (~890 MB na primeira análise)
 - [ ] **Benchmark CCIP × CLIP** — testar o embedding da DeepGHS treinado especificamente pra "mesmo personagem de anime?" contra o CLIP atual, usando o cache de features
 - [ ] Transcrição (Whisper) pra reforçar identificação por fala
+- [x] ~~Ponte verde→Descoberta (batismo dos grupos que sobraram)~~ (v0.4.1)
 - [x] ~~Cascade de detecção de rosto~~ (v0.2.0)
 - [x] ~~Revisão em lote (Ctrl/Shift na grade)~~ (v0.3.1)
 - [x] ~~Modo Descoberta~~ (v0.3.0)

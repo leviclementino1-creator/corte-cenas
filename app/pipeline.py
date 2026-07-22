@@ -7,7 +7,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .ai_review import NavyAIClient, QuotaExhaustedError, classify_face_crops, classify_frame
+from .ai_review import (
+    NavyAIClient,
+    QuotaExhaustedError,
+    classify_face_crops,
+    classify_frame,
+    classify_group,
+)
 from .config import Config
 from .keyframe_extractor import cut_all_shots
 from .matching.character_matcher import (
@@ -31,6 +37,7 @@ from .matching.feature_cache import FeatureCache
 # import AIMode, PipelineResult, STAGES` without dragging in torch just to
 # read a type name. UI modules should prefer `from .pipeline_types import ...`.
 from .matching.face_clustering import FaceObservation, cluster_faces, pick_representatives
+from .matching.group_rescue import decide, diverse_representatives, rank_characters
 from .matching.second_pass import ShotFaces, build_episode_banks, rescue_unassigned
 from .pipeline_types import (
     AIMode,
@@ -486,6 +493,8 @@ class Pipeline:
             shot_best_sim = 0.0
             shot_boxes_ai: list[tuple[Path, np.ndarray]] = []
             face_embs_kf: list[np.ndarray] = []
+            face_refs_kf: list[tuple] = []   # (kf_path, box_idx) por linha de embs
+            collect_faces = cfg.second_pass or cfg.cluster_rescue
             for kf_path in kfs:
                 boxes, embs = feats.get(kf_path, (None, None))
                 if boxes is None or len(boxes) == 0 or embs is None or embs.size == 0:
@@ -493,8 +502,9 @@ class Pipeline:
                 had_any_faces = True
                 if ai_review_ambiguous:
                     shot_boxes_ai.append((kf_path, boxes))
-                if cfg.second_pass:
+                if collect_faces:
                     face_embs_kf.append(embs)
+                    face_refs_kf.extend((kf_path, bi) for bi in range(len(embs)))
                 d = dict(matcher.assign_best_per_query(embs, margin=cfg.argmax_margin))
                 per_kf_assigns.append(d)
                 if ai_review_ambiguous:
@@ -596,12 +606,13 @@ class Pipeline:
                             "crops": crops_jpg,
                             "best_sim": shot_best_sim,
                         })
-            if cfg.second_pass:
+            if collect_faces:
                 shot_faces.append(
                     ShotFaces(
                         pos=len(per_shot_names) - 1,
                         embs=np.vstack(face_embs_kf) if face_embs_kf else None,
                         assigned=list(assigns),
+                        face_refs=face_refs_kf,
                     )
                 )
         kf_cache.save()
@@ -672,6 +683,239 @@ class Pipeline:
                     )
         else:
             cb("second_pass", 1.0, "—")
+
+        # === Resgate por GRUPO: a Descoberta embutida na análise verde ===
+        # Os rostos que AINDA estão sem dono são agrupados entre si (mesma
+        # pessoa dentro do episódio) e cada grupo é comparado inteiro contra
+        # os protótipos — mediana de representantes diversos, com margem e
+        # concordância. Pega o personagem que a primeira passada nunca
+        # enxerga: aquele cujos crops pontuam todos "quase" contra as refs
+        # externas e por isso nunca ganha semente de banco.
+        leftover_result: DiscoveryResult | None = None
+        group_review: list[dict] = []
+        leftover_clusters: list[dict] = []
+        pool_embs: list[np.ndarray] = []
+        pool_meta: list[tuple[int, tuple | None]] = []  # (pos, (kf, box_idx))
+        if cfg.cluster_rescue and entries:
+            for sf in shot_faces:
+                if sf.embs is None or sf.embs.size == 0 or per_shot_names[sf.pos]:
+                    continue
+                refs_sf = sf.face_refs or [None] * len(sf.embs)
+                for row, fr in zip(sf.embs, refs_sf):
+                    pool_embs.append(np.asarray(row, dtype=np.float32))
+                    pool_meta.append((sf.pos, fr))
+            clusters = []
+            if len(pool_embs) >= cfg.cluster_min_faces:
+                observations = [
+                    FaceObservation(
+                        shot_pos=pool_meta[i][0],
+                        shot_id=shot_db_ids[pool_meta[i][0]],
+                        shot_idx=cut_results[pool_meta[i][0]][0].idx,
+                        embedding=pool_embs[i],
+                        crop_jpg=b"",
+                    )
+                    for i in range(len(pool_embs))
+                ]
+                cb("second_pass", -1.0,
+                   f"Agrupando {len(observations)} rostos que sobraram sem dono...")
+                clusters = cluster_faces(observations)
+            n_group_shots = 0
+            n_groups_named = 0
+            for cl in clusters:
+                embs_cl = np.stack([pool_embs[i] for i in cl.members])
+                positions = sorted({pool_meta[i][0] for i in cl.members})
+                if (
+                    len(cl.members) < cfg.cluster_min_faces
+                    or len(positions) < cfg.cluster_min_shots
+                ):
+                    continue  # pequeno demais pra decisão em bloco ou batismo
+                rep_local = diverse_representatives(embs_cl, cfg.cluster_max_reps)
+                ranking = rank_characters(embs_cl[rep_local], entries)
+                ginfo = {
+                    "cluster": cl,
+                    "positions": positions,
+                    "rep_refs": [pool_meta[cl.members[j]][1] for j in rep_local],
+                    "ranking": ranking,
+                }
+                winner = decide(
+                    ranking,
+                    min_sim=cfg.cluster_min_sim,
+                    margin=cfg.cluster_margin,
+                    min_agreement=cfg.cluster_agreement,
+                )
+                if winner is not None:
+                    n = self._assign_cluster(
+                        winner, ranking[0].median, positions, blocked_pairs,
+                        cut_results, shot_db_ids, per_shot_names,
+                    )
+                    n_group_shots += n
+                    n_groups_named += 1
+                    print(
+                        f"[grupo] {len(cl.members)} rostos/{len(positions)} cenas "
+                        f"-> {winner.name} (mediana {ranking[0].median:.2f}, "
+                        f"{int(ranking[0].agreement * 100)}% dos reps)"
+                    )
+                elif (
+                    ai_review_ambiguous
+                    and ranking
+                    and ranking[0].median >= cfg.cluster_review_low
+                ):
+                    group_review.append(ginfo)
+                else:
+                    leftover_clusters.append(ginfo)
+            if clusters:
+                print(
+                    f"[grupo] {n_groups_named} grupos nomeados em bloco "
+                    f"({n_group_shots} cenas); {len(group_review)} pra IA; "
+                    f"{len(leftover_clusters)} pro batismo."
+                )
+                cb(
+                    "second_pass", 1.0,
+                    f"Grupos: {n_group_shots} cenas nomeadas em bloco"
+                    if n_group_shots else "Grupos sem match direto",
+                )
+
+        # === Revisão IA por GRUPO (contact sheet) ===
+        # Uma pergunta por grupo — o modelo vê várias expressões do mesmo
+        # rosto e a resposta vale por todas as cenas do grupo. Muito mais
+        # barato e estável que perguntar cena a cena.
+        if ai_review_ambiguous and group_review:
+            cb("ai_review", -1.0, f"{len(group_review)} grupos duvidosos → IA")
+            try:
+                gclient = self._build_ai_client()
+            except RuntimeError as e:
+                print(f"[AI grupo] Pulado: {e}", flush=True)
+                gclient = None
+                leftover_clusters.extend(group_review)
+            if gclient is not None:
+                name_to_entry = {e.name: e for e in entries}
+                resolved_g = 0
+                g_pt = g_ct = 0
+                try:
+                    for gi, ginfo in enumerate(group_review, 1):
+                        cb("ai_review", -1.0, f"IA no grupo {gi}/{len(group_review)}")
+                        crops = self._materialize_crops(
+                            kf_cache, ginfo["rep_refs"], cfg.face_crop_padding_ai
+                        )[:6]
+                        cands = []
+                        for gs in ginfo["ranking"][:3]:
+                            jpgs = self._candidate_ref_jpgs(
+                                refs_per_char.get(gs.entry.name, [])
+                            )
+                            if jpgs:
+                                cands.append((gs.entry.name, jpgs))
+                        if not crops or not cands:
+                            leftover_clusters.append(ginfo)
+                            continue
+                        try:
+                            vname, vconf, usage = classify_group(
+                                gclient, crops, cands, bundle.title
+                            )
+                        except QuotaExhaustedError as e:
+                            print(f"[AI grupo] Quota esgotou: {e}", flush=True)
+                            leftover_clusters.append(ginfo)
+                            leftover_clusters.extend(group_review[gi:])
+                            break
+                        except Exception as e:
+                            print(f"[AI grupo] ERRO no grupo {gi}: {e}", flush=True)
+                            leftover_clusters.append(ginfo)
+                            continue
+                        g_pt += int(usage.get("prompt_tokens") or 0)
+                        g_ct += int(usage.get("completion_tokens") or 0)
+                        if vname in name_to_entry and vconf >= cfg.default_threshold:
+                            entry = name_to_entry[vname]
+                            n = self._assign_cluster(
+                                entry, vconf, ginfo["positions"], blocked_pairs,
+                                cut_results, shot_db_ids, per_shot_names,
+                            )
+                            resolved_g += 1
+                            print(
+                                f"[AI grupo] {len(ginfo['positions'])} cenas -> "
+                                f"{vname} (conf {vconf:.2f}, {n} atribuídas)"
+                            )
+                        else:
+                            leftover_clusters.append(ginfo)
+                finally:
+                    gclient.close()
+                print(
+                    f"[AI grupo] {resolved_g}/{len(group_review)} grupos resolvidos "
+                    f"| tokens: {g_pt:,}+{g_ct:,}",
+                    flush=True,
+                )
+        elif group_review:
+            leftover_clusters.extend(group_review)
+
+        # Cena que ganhou dono via grupo sai da fila de revisão por cena.
+        if ambiguous:
+            before_g = len(ambiguous)
+            ambiguous = [a for a in ambiguous if not per_shot_names[a["pos"]]]
+            if before_g != len(ambiguous):
+                print(
+                    f"[grupo] {before_g - len(ambiguous)} duvidosos resolvidos "
+                    "em bloco sem gastar IA por cena."
+                )
+
+        # Grupos que sobraram → ponte pro batismo no fim da análise.
+        if leftover_clusters:
+            groups_out: list[DiscoveredGroup] = []
+            for gk, ginfo in enumerate(leftover_clusters):
+                thumbs = self._materialize_crops(
+                    kf_cache, ginfo["rep_refs"], cfg.face_crop_padding
+                )
+                if not thumbs:
+                    continue
+                cl = ginfo["cluster"]
+                positions = ginfo["positions"]
+                ranking = ginfo["ranking"]
+                sug, sug_sim = "", 0.0
+                if ranking and ranking[0].median >= 0.60:
+                    sug, sug_sim = ranking[0].entry.name, ranking[0].median
+                conf_map: dict[int, float] = {}
+                for i in cl.members:
+                    pos_i = pool_meta[i][0]
+                    s = float(pool_embs[i] @ cl.centroid)
+                    conf_map[pos_i] = max(conf_map.get(pos_i, 0.0), s)
+                groups_out.append(DiscoveredGroup(
+                    key=gk,
+                    n_faces=len(cl.members),
+                    n_shots=len(positions),
+                    thumbs_jpg=thumbs[:6],
+                    ref_crops_jpg=thumbs[:8],
+                    shot_ids=[shot_db_ids[p] for p in positions],
+                    shot_positions=positions,
+                    shot_conf=conf_map,
+                    centroid_bytes=to_bytes(cl.centroid.astype(np.float32)),
+                    suggested_name=sug,
+                    suggested_sim=sug_sim,
+                ))
+            if groups_out:
+                leftover_result = DiscoveryResult(
+                    anime_title=bundle.title,
+                    season=info.season,
+                    episode=info.episode,
+                    anime_id=anime_id,
+                    episode_id=episode_id,
+                    episode_root=episode_root,
+                    cache_id=cache_id,
+                    shots=[
+                        DiscoveryShot(
+                            pos=p, shot_id=sid, idx=shot_b.idx,
+                            file=str(sf_file), keyframes=[str(k) for k in kfs_b],
+                            start=shot_b.start, end=shot_b.end,
+                        )
+                        for p, ((shot_b, sf_file, kfs_b), sid)
+                        in enumerate(zip(cut_results, shot_db_ids))
+                    ],
+                    groups=groups_out,
+                    total_faces=len(pool_embs),
+                    online=True,
+                    roster=[c.name for c in bundle.characters],
+                )
+                print(
+                    f"[grupo] {len(groups_out)} grupos sem nome — batismo "
+                    "será oferecido no fim.",
+                    flush=True,
+                )
 
         # === Revisão IA dos duvidosos (modo híbrido) ===
         # O CLIP resolveu o grosso de graça; só a zona cinzenta gasta API.
@@ -775,6 +1019,7 @@ class Pipeline:
             low_refs_warning=low_refs_warning,
             merge_snapshot=merge_snapshot,
         )
+        result.leftover_groups = leftover_result
         self._report_timings(timer, metadata_dir)
         return result
 
@@ -1301,6 +1546,30 @@ class Pipeline:
             episode=result.episode,
             source=Path(result.shots[0].file) if result.shots else Path("."),
         )
+        # Ponte verde→batismo: o commit roda DEPOIS de uma análise completa,
+        # e o characters.json existente carrega o elenco inteiro — os nomes
+        # batizados entram por cima sem apagar os demais.
+        chars_json = [
+            {
+                "name": n,
+                "character_id": name_to_id[n],
+                "threshold": cfg.default_threshold,
+                "reference_count": len(refs_per_char.get(n, [])),
+            }
+            for n in by_name
+        ]
+        meta_file = result.episode_root / "metadata" / "characters.json"
+        try:
+            if meta_file.exists():
+                old = json.loads(meta_file.read_text(encoding="utf-8"))
+                have = {c.get("name") for c in chars_json}
+                chars_json.extend(
+                    c for c in old
+                    if isinstance(c, dict) and c.get("name") not in have
+                )
+        except Exception:
+            pass
+
         return self._finalize_episode(
             cb=cb,
             info=info,
@@ -1313,15 +1582,7 @@ class Pipeline:
             shot_db_ids=[s.shot_id for s in result.shots],
             per_shot_names=per_shot_names,
             name_to_id=name_to_id,
-            characters_json=[
-                {
-                    "name": n,
-                    "character_id": name_to_id[n],
-                    "threshold": cfg.default_threshold,
-                    "reference_count": len(refs_per_char.get(n, [])),
-                }
-                for n in by_name
-            ],
+            characters_json=chars_json,
             refs_dir=str(store.anime_dir(result.cache_id) / "characters"),
         )
 
@@ -1516,6 +1777,87 @@ class Pipeline:
             if e.size:
                 emb_parts.append(e)
         return emb_parts, faces_found
+
+    def _assign_cluster(
+        self,
+        entry: CharacterEntry,
+        conf: float,
+        positions: list[int],
+        blocked_pairs: dict[int, set[int]],
+        cut_results: list,
+        shot_db_ids: list[int],
+        per_shot_names: list[list[str]],
+    ) -> int:
+        """Atribui um personagem a TODAS as cenas de um grupo resolvido,
+        pulando os pares (cena, personagem) bloqueados pela curadoria."""
+        n = 0
+        for pos in positions:
+            idx = cut_results[pos][0].idx
+            if entry.id in blocked_pairs.get(idx, set()):
+                continue
+            self.db.assign_character(shot_db_ids[pos], entry.id, float(conf))
+            if entry.name not in per_shot_names[pos]:
+                per_shot_names[pos].append(entry.name)
+            n += 1
+        return n
+
+    @staticmethod
+    def _materialize_crops(
+        kf_cache: FeatureCache,
+        face_refs: list,
+        pad: float,
+        max_px: int = 256,
+        quality: int = 86,
+    ) -> list[bytes]:
+        """Reconstrói os JPEGs dos crops a partir da proveniência
+        (keyframe, índice do box) + boxes cacheados — só quem precisa de
+        imagem paga a releitura do disco. Uma imagem por keyframe, memoizada."""
+        out: list[bytes] = []
+        crops_memo: dict[str, list] = {}
+        for fr in face_refs:
+            if not fr:
+                continue
+            kf_path, bi = fr
+            key = str(kf_path)
+            if key not in crops_memo:
+                boxes = kf_cache.get(Path(kf_path), "boxes")
+                crops: list = []
+                if boxes is not None and len(boxes):
+                    img = cv2.imread(key)
+                    if img is not None:
+                        crops = crops_from_boxes(img, boxes, pad)[0]
+                crops_memo[key] = crops
+            crops = crops_memo[key]
+            if bi >= len(crops):
+                continue
+            c = crops[bi]
+            h, w = c.shape[:2]
+            scale = max_px / max(h, w)
+            if scale < 1.0:
+                c = cv2.resize(c, (int(w * scale), int(h * scale)))
+            ok, enc = cv2.imencode(".jpg", c, [cv2.IMWRITE_JPEG_QUALITY, quality])
+            if ok:
+                out.append(enc.tobytes())
+        return out
+
+    @staticmethod
+    def _candidate_ref_jpgs(paths: list[Path], max_imgs: int = 2) -> list[bytes]:
+        """Até `max_imgs` refs de um candidato, redimensionadas pro prompt."""
+        out: list[bytes] = []
+        for p in paths[:6]:
+            img = cv2.imread(str(p))
+            if img is None:
+                continue
+            h, w = img.shape[:2]
+            scale = 256 / max(h, w)
+            if scale < 1.0:
+                img = cv2.resize(img, (int(w * scale), int(h * scale)))
+            ok, enc = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            if ok:
+                out.append(enc.tobytes())
+            if len(out) >= max_imgs:
+                break
+        return out
 
     @staticmethod
     def _store_kf(

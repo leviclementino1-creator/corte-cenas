@@ -29,6 +29,10 @@ class ShotFaces:
     pos: int                     # posição na lista per_shot_names
     embs: np.ndarray | None      # None ou (N, D)
     assigned: list[tuple[int, float]]  # (char_id, conf) da primeira passada
+    # Proveniência de cada linha de embs: (keyframe, índice do box no cache).
+    # É o que permite rematerializar o CROP de um rosto depois — contact
+    # sheet da IA por grupo e thumbnails do batismo — sem guardar JPEG.
+    face_refs: list[tuple] | None = None
 
 
 def build_episode_banks(
