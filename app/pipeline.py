@@ -10,11 +10,23 @@ import numpy as np
 from .ai_review import NavyAIClient, QuotaExhaustedError, classify_face_crops, classify_frame
 from .config import Config
 from .keyframe_extractor import cut_all_shots
-from .matching.character_matcher import CharacterEntry, CharacterMatcher, build_centroid
+from .matching.character_matcher import (
+    CharacterEntry,
+    CharacterMatcher,
+    build_centroid,
+    build_prototypes,
+)
 from .matching.cooccurrence import count_pairs
 from .matching.credit_detector import is_credits_frame
 from .matching.embedding_engine import EmbeddingEngine, from_bytes, to_bytes
-from .matching.face_detector import AnimeFaceDetector, ensure_cascade, smart_portrait_crop
+from .matching.face_detector import (
+    MODEL_SIGNATURE,
+    AnimeFaceDetector,
+    crops_from_boxes,
+    ensure_cascade,
+    smart_portrait_crop,
+)
+from .matching.feature_cache import FeatureCache
 # Lightweight types re-exported here so callers can keep `from .pipeline
 # import AIMode, PipelineResult, STAGES` without dragging in torch just to
 # read a type name. UI modules should prefer `from .pipeline_types import ...`.
@@ -29,6 +41,7 @@ from .pipeline_types import (
     PipelineResult,
     ProgressCb,
     STAGES,
+    StageTimer,
 )
 from .providers.anime_provider import (
     AnimeBundle,
@@ -89,7 +102,8 @@ class Pipeline:
         ai_review_ambiguous: bool = False,
         merge_previous: bool = False,
     ) -> PipelineResult:
-        cb = on_progress or _noop
+        timer = StageTimer()
+        cb = timer.wrap(on_progress or _noop)
         cfg = self.cfg
 
         episode_root, metadata_dir, cut_results = self._prepare_shots(info, cb)
@@ -219,27 +233,15 @@ class Pipeline:
                 ai_mode=AIMode(ai_mode) if not isinstance(ai_mode, AIMode) else ai_mode,
             )
 
-        # 5) Embeddings
-        clip_msg = "Carregando modelo CLIP..."
-        if _clip_needs_download(cfg.clip_model, cfg.clip_pretrained):
-            clip_msg = (
-                "Baixando modelo CLIP (~890 MB) — só na primeira execução, "
-                "depois fica cacheado. Pode demorar 1-3 min."
-            )
-        cb("embed_refs", -1.0, clip_msg)
-        engine = EmbeddingEngine(
-            model_name=cfg.clip_model,
-            pretrained=cfg.clip_pretrained,
-            use_cuda=cfg.use_cuda,
+        # 5) Embeddings — modelos LAZY: com os caches de features cheios
+        # (reanálise típica), nem o CLIP nem o YOLO chegam a ser carregados
+        # e a análise vira só a matemática do matcher.
+        get_engine, get_face_det = self._lazy_models(cb)
+        feat_meta = self._feature_meta()
+        ref_cache = FeatureCache(
+            ref_store.anime_dir(cache_id) / "ref_features.npz", feat_meta
         )
-        if engine.on_device_fallback:
-            cb("embed_refs", -1.0, engine.on_device_fallback)
-            print(f"[CorteCenas] {engine.on_device_fallback}")
-
-        # Face detector is also used for the references so the rep space
-        # matches: face crop (ref) vs face crop (query), not whole ref vs
-        # face crop. This removes background contamination from centroids.
-        face_det = AnimeFaceDetector(ensure_cascade(cfg.models_path))
+        kf_cache = FeatureCache(metadata_dir / "face_cache.npz", feat_meta)
 
         db_chars = {c["name"]: c for c in self.db.get_characters_for_anime(anime_id)}
         entries: list[CharacterEntry] = []
@@ -254,34 +256,32 @@ class Pipeline:
                 skipped_few_refs.append(f"{ch.name}({len(paths)})")
                 continue
 
-            # Detect faces in each ref. If a face is found, the face crop is
-            # added; if not, a smart center-crop of the portrait (removes
-            # white margins) is used. The centroid then averages both kinds,
-            # so it captures both face-level features *and* overall silhouette
-            # (hair, clothing, body shape) which are what distinguish one
-            # anime character from another generically-similar face.
-            face_imgs: list = []
-            faces_found = 0
-            for p in paths:
-                img = cv2.imread(str(p))
-                if img is None:
-                    continue
-                crops = face_det.crop_faces(img, pad=cfg.face_crop_padding)
-                if crops:
-                    face_imgs.extend(crops)
-                    faces_found += len(crops)
-                else:
-                    face_imgs.append(smart_portrait_crop(img))
+            # Detect faces in each ref (cache primeiro; YOLO em lote só nos
+            # arquivos novos). If a face is found, the face crops are used;
+            # if not, a smart center-crop of the portrait (removes white
+            # margins). Os embeddings viram os protótipos por modo visual
+            # (multi_prototype) + um centroide global que vai pro DB pras
+            # sugestões da Descoberta.
+            emb_parts, faces_found = self._ref_features(
+                paths, ref_cache, get_engine, get_face_det
+            )
             ref_stats.append((ch.name, len(paths), faces_found))
-            if not face_imgs:
+            if not emb_parts:
                 continue
-            embs = engine.embed_images(face_imgs)
+            embs = np.concatenate(emb_parts, axis=0)
             centroid = build_centroid(embs)
             if centroid is None:
                 continue
             db_row = db_chars.get(ch.name)
             if not db_row:
                 continue
+            protos = None
+            if cfg.multi_prototype:
+                protos = build_prototypes(
+                    embs,
+                    merge_threshold=cfg.prototype_merge_threshold,
+                    max_prototypes=cfg.max_prototypes_per_character,
+                )
             self.db.set_character_embedding(
                 db_row["id"], to_bytes(centroid), reference_count=len(paths)
             )
@@ -291,14 +291,24 @@ class Pipeline:
                     name=ch.name,
                     centroid=centroid,
                     threshold=cfg.default_threshold,
+                    prototypes=protos,
                 )
             )
+        ref_cache.save()
         print(
             "[CorteCenas] Refs por personagem (refs/rostos):",
             ", ".join(f"{n}={rc}/{fc}" for n, rc, fc in ref_stats),
         )
         if skipped_few_refs:
             print(f"[CorteCenas] Ignorados (poucas refs): {', '.join(skipped_few_refs)}")
+        if cfg.multi_prototype and entries:
+            print(
+                "[CorteCenas] Protótipos por personagem:",
+                ", ".join(
+                    f"{e.name}={1 if e.prototypes is None else len(e.prototypes)}"
+                    for e in entries
+                ),
+            )
         cb("embed_refs", 1.0, f"{len(entries)} personagens com embedding")
 
         # Zero characters with embeddings = nothing can ever match. Seen in
@@ -357,7 +367,7 @@ class Pipeline:
 
         matcher = CharacterMatcher(entries)
 
-        # 6) Analyze shots — face_det reused from step 5
+        # 6) Analyze shots — YOLO+CLIP via cache, modelos lazy do passo 5
 
         per_shot_names: list[list[str]] = []
         shot_db_ids: list[int] = []
@@ -372,6 +382,7 @@ class Pipeline:
         # per_shot_names). Só rostos — o fallback de keyframe inteiro fica de
         # fora do banco (distribuição diferente contaminaria as comparações).
         shot_faces: list[ShotFaces] = []
+        kf_hits = kf_total = 0
         for i, (shot, shot_file, kfs) in enumerate(cut_results, 1):
             cb("analyze_shots", i / max(total, 1), f"Shot {i}/{total}")
             main_kf = kfs[len(kfs) // 2] if kfs else None
@@ -385,20 +396,86 @@ class Pipeline:
             )
             shot_db_ids.append(shot_id)
 
+            # Leitura preguiçosa: cache cheio = nenhuma imagem aberta.
+            imgs_loaded: dict[Path, np.ndarray | None] = {}
+
+            def _img(p: Path) -> np.ndarray | None:
+                if p not in imgs_loaded:
+                    imgs_loaded[p] = cv2.imread(str(p))
+                return imgs_loaded[p]
+
             # Credit / OP / ED detection — skip shots dominated by text overlay.
             if cfg.skip_credit_shots and kfs:
                 credit_count = 0
                 for kf_path in kfs:
-                    img = cv2.imread(str(kf_path))
-                    if img is None:
-                        continue
-                    if is_credits_frame(img, cfg.credit_edge_threshold):
+                    flag = kf_cache.get(kf_path, "credit")
+                    if flag is None:
+                        img = _img(kf_path)
+                        if img is None:
+                            continue
+                        flag = np.array(
+                            [1 if is_credits_frame(img, cfg.credit_edge_threshold) else 0],
+                            dtype=np.uint8,
+                        )
+                        kf_cache.put(kf_path, "credit", flag)
+                    if int(flag[0]):
                         credit_count += 1
                 if credit_count >= cfg.credit_min_keyframes:
                     credit_shots += 1
                     per_shot_names.append([])
                     shot_faces.append(ShotFaces(len(per_shot_names) - 1, None, []))
                     continue
+
+            # --- Features por keyframe: cache → YOLO+CLIP em lote só nos
+            # que faltam. boxes (brutos) e embeddings (crops com padding)
+            # ficam pareados 1:1 — é o que permite rematerializar os crops
+            # dos duvidosos depois sem guardar JPEG nenhum.
+            feats: dict[Path, tuple[np.ndarray, np.ndarray | None]] = {}
+            missing: list[Path] = []
+            for kf_path in kfs:
+                kf_total += 1
+                boxes = kf_cache.get(kf_path, "boxes")
+                embs_c = kf_cache.get(kf_path, "embs")
+                if boxes is not None and (len(boxes) == 0 or embs_c is not None):
+                    kf_hits += 1
+                    feats[kf_path] = (boxes, embs_c)
+                else:
+                    missing.append(kf_path)
+            if missing:
+                good = [(p, _img(p)) for p in missing]
+                good = [(p, im) for p, im in good if im is not None]
+                if good:
+                    batch = get_face_det().crop_faces_batch(
+                        [im for _, im in good], pad=cfg.face_crop_padding
+                    )
+                    flat: list[np.ndarray] = []
+                    spans: list[tuple[Path, list, int]] = []
+                    for (p, _im), (crops, kept) in zip(good, batch):
+                        spans.append((p, kept, len(crops)))
+                        flat.extend(crops)
+                    embs_all = (
+                        get_engine().embed_images(flat)
+                        if flat
+                        else np.zeros((0, 1), dtype=np.float32)
+                    )
+                    if flat and len(embs_all) != len(flat):
+                        # Pareamento quebrou — refaz keyframe a keyframe
+                        # (caro, mas raro) pra não gravar cache torto.
+                        for (p, _im), (crops, kept) in zip(good, batch):
+                            e = (
+                                get_engine().embed_images(crops)
+                                if crops
+                                else np.zeros((0, 1), dtype=np.float32)
+                            )
+                            if len(e) != len(kept):
+                                continue
+                            self._store_kf(kf_cache, feats, p, kept, e)
+                    else:
+                        off = 0
+                        for p, kept, n_crops in spans:
+                            e = embs_all[off:off + n_crops]
+                            off += n_crops
+                            self._store_kf(kf_cache, feats, p, kept, e)
 
             # Per-keyframe face-based assignments. Tracking votes across
             # keyframes lets us filter out single-frame cameos (a character
@@ -407,19 +484,15 @@ class Pipeline:
             per_kf_assigns: list[dict[int, float]] = []
             had_any_faces = False
             shot_best_sim = 0.0
-            shot_crops: list = []
+            shot_boxes_ai: list[tuple[Path, np.ndarray]] = []
             face_embs_kf: list[np.ndarray] = []
             for kf_path in kfs:
-                img = cv2.imread(str(kf_path))
-                if img is None:
-                    continue
-                crops = face_det.crop_faces(img, pad=cfg.face_crop_padding)
-                if not crops:
+                boxes, embs = feats.get(kf_path, (None, None))
+                if boxes is None or len(boxes) == 0 or embs is None or embs.size == 0:
                     continue
                 had_any_faces = True
                 if ai_review_ambiguous:
-                    shot_crops.extend(crops)
-                embs = engine.embed_images(crops)
+                    shot_boxes_ai.append((kf_path, boxes))
                 if cfg.second_pass:
                     face_embs_kf.append(embs)
                 d = dict(matcher.assign_best_per_query(embs, margin=cfg.argmax_margin))
@@ -451,10 +524,20 @@ class Pipeline:
                 # No faces detected in any keyframe → whole-keyframe fallback.
                 # Use a bumped margin/threshold internally to reduce background
                 # noise contamination.
-                q_embs = engine.embed_images([Path(p) for p in kfs])
-                assigns = matcher.assign_best_per_query(
-                    q_embs, margin=max(cfg.argmax_margin, 0.05)
-                )
+                q_parts: list[np.ndarray] = []
+                for kf_path in kfs:
+                    q = kf_cache.get(kf_path, "kfemb")
+                    if q is None:
+                        q = get_engine().embed_images([kf_path])
+                        if q.size:
+                            kf_cache.put(kf_path, "kfemb", q.astype(np.float32))
+                    if q.size:
+                        q_parts.append(q)
+                if q_parts:
+                    assigns = matcher.assign_best_per_query(
+                        np.concatenate(q_parts, axis=0),
+                        margin=max(cfg.argmax_margin, 0.05),
+                    )
 
             # Par (cena, personagem) bloqueado pelo usuário não entra — nem
             # no banco, nem como fonte da segunda passada.
@@ -476,20 +559,35 @@ class Pipeline:
             else:
                 per_shot_names.append([])
                 # Ficou sem dono mas chegou perto? Candidato à revisão da IA.
+                # Os crops são rematerializados AQUI, a partir dos boxes —
+                # só os duvidosos pagam a releitura da imagem.
                 if (
                     ai_review_ambiguous
-                    and shot_crops
+                    and shot_boxes_ai
                     and cfg.ai_review_low <= shot_best_sim < cfg.default_threshold
                 ):
                     crops_jpg: list[bytes] = []
-                    for c in shot_crops[:5]:
-                        ch_, cw_ = c.shape[:2]
-                        scale = 256 / max(ch_, cw_)
-                        if scale < 1.0:
-                            c = cv2.resize(c, (int(cw_ * scale), int(ch_ * scale)))
-                        ok_, enc_ = cv2.imencode(".jpg", c, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                        if ok_:
-                            crops_jpg.append(enc_.tobytes())
+                    for kf_path, boxes in shot_boxes_ai:
+                        if len(crops_jpg) >= 5:
+                            break
+                        img = _img(kf_path)
+                        if img is None:
+                            continue
+                        crops, _kept = crops_from_boxes(
+                            img, boxes, cfg.face_crop_padding
+                        )
+                        for c in crops:
+                            if len(crops_jpg) >= 5:
+                                break
+                            ch_, cw_ = c.shape[:2]
+                            scale = 256 / max(ch_, cw_)
+                            if scale < 1.0:
+                                c = cv2.resize(c, (int(cw_ * scale), int(ch_ * scale)))
+                            ok_, enc_ = cv2.imencode(
+                                ".jpg", c, [cv2.IMWRITE_JPEG_QUALITY, 85]
+                            )
+                            if ok_:
+                                crops_jpg.append(enc_.tobytes())
                     if crops_jpg:
                         ambiguous.append({
                             "pos": len(per_shot_names) - 1,  # índice em per_shot_names
@@ -506,7 +604,13 @@ class Pipeline:
                         assigned=list(assigns),
                     )
                 )
+        kf_cache.save()
         print(f"[CorteCenas] Rostos detectados em {shots_with_faces}/{total} shots.")
+        if kf_total:
+            print(
+                f"[CorteCenas] Features de keyframe: {kf_hits}/{kf_total} "
+                "vindas do cache (YOLO+CLIP pulados)."
+            )
         if cfg.skip_credit_shots:
             print(f"[CorteCenas] Shots ignorados por créditos/texto: {credit_shots}/{total}")
 
@@ -646,7 +750,7 @@ class Pipeline:
         else:
             cb("ai_review", 1.0, "—")
 
-        return self._finalize_episode(
+        result = self._finalize_episode(
             cb=cb,
             info=info,
             episode_id=episode_id,
@@ -671,6 +775,8 @@ class Pipeline:
             low_refs_warning=low_refs_warning,
             merge_snapshot=merge_snapshot,
         )
+        self._report_timings(timer, metadata_dir)
+        return result
 
     def _finalize_episode(
         self,
@@ -818,7 +924,8 @@ class Pipeline:
         """Análise SEM banco online: corta o episódio, detecta e embedda os
         rostos, e agrupa por identidade. Retorna os grupos anônimos pra tela
         de batismo — commit_discovery() fecha o trabalho com os nomes."""
-        cb = on_progress or _noop
+        timer = StageTimer()
+        cb = timer.wrap(on_progress or _noop)
         cfg = self.cfg
         episode_root, metadata_dir, cut_results = self._prepare_shots(info, cb)
 
@@ -889,19 +996,8 @@ class Pipeline:
                 print(f"[Descoberta] Refs pra sugestão falharam: {e}", flush=True)
         cb("download_refs", 1.0, "—")
 
-        clip_msg = "Carregando modelo CLIP..."
-        if _clip_needs_download(cfg.clip_model, cfg.clip_pretrained):
-            clip_msg = (
-                "Baixando modelo CLIP (~890 MB) — só na primeira execução, "
-                "depois fica cacheado. Pode demorar 1-3 min."
-            )
-        cb("embed_refs", -1.0, clip_msg)
-        engine = EmbeddingEngine(
-            model_name=cfg.clip_model,
-            pretrained=cfg.clip_pretrained,
-            use_cuda=cfg.use_cuda,
-        )
-        face_det = AnimeFaceDetector(ensure_cascade(cfg.models_path))
+        get_engine, get_face_det = self._lazy_models(cb)
+        kf_cache = FeatureCache(metadata_dir / "face_cache.npz", self._feature_meta())
 
         # Centroides provisórios das refs escassas (mesmo recorte de rosto da
         # análise normal). Só entram nomes que ainda não têm centroide do DB.
@@ -915,11 +1011,11 @@ class Pipeline:
                     img = cv2.imread(str(p))
                     if img is None:
                         continue
-                    crops = face_det.crop_faces(img, pad=cfg.face_crop_padding)
+                    crops = get_face_det().crop_faces(img, pad=cfg.face_crop_padding)
                     imgs.extend(crops if crops else [smart_portrait_crop(img)])
                 if not imgs:
                     continue
-                centroid = build_centroid(engine.embed_images(imgs))
+                centroid = build_centroid(get_engine().embed_images(imgs))
                 if centroid is not None:
                     known_centroids.append((name, centroid))
             print(f"[Descoberta] {len(known_centroids)} centroides provisórios "
@@ -934,6 +1030,7 @@ class Pipeline:
         observations: list[FaceObservation] = []
         shots_out: list[DiscoveryShot] = []
         total = len(cut_results)
+        kf_hits = kf_total = 0
         for i, (shot, shot_file, kfs) in enumerate(cut_results, 1):
             cb("analyze_shots", i / max(total, 1), f"Shot {i}/{total}")
             main_kf = kfs[len(kfs) // 2] if kfs else None
@@ -950,14 +1047,73 @@ class Pipeline:
                 file=str(shot_file), keyframes=[str(k) for k in kfs],
                 start=shot.start, end=shot.end,
             ))
+
+            imgs_loaded: dict[Path, np.ndarray | None] = {}
+
+            def _img(p: Path) -> np.ndarray | None:
+                if p not in imgs_loaded:
+                    imgs_loaded[p] = cv2.imread(str(p))
+                return imgs_loaded[p]
+
+            # Mesmo esquema da análise normal: cache de boxes+embeddings por
+            # keyframe, YOLO+CLIP em lote só nos que faltam. A descoberta
+            # ainda relê a imagem quando há rosto (precisa do JPEG do crop
+            # pra tela de batismo), mas a parte cara de GPU é pulada.
+            feats: dict[Path, tuple[np.ndarray, np.ndarray | None]] = {}
+            missing: list[Path] = []
             for kf_path in kfs:
-                img = cv2.imread(str(kf_path))
+                kf_total += 1
+                boxes = kf_cache.get(kf_path, "boxes")
+                embs_c = kf_cache.get(kf_path, "embs")
+                if boxes is not None and (len(boxes) == 0 or embs_c is not None):
+                    kf_hits += 1
+                    feats[kf_path] = (boxes, embs_c)
+                else:
+                    missing.append(kf_path)
+            if missing:
+                good = [(p, _img(p)) for p in missing]
+                good = [(p, im) for p, im in good if im is not None]
+                if good:
+                    batch = get_face_det().crop_faces_batch(
+                        [im for _, im in good], pad=cfg.face_crop_padding
+                    )
+                    flat: list[np.ndarray] = []
+                    spans: list[tuple[Path, list, int]] = []
+                    for (p, _im), (crops, kept) in zip(good, batch):
+                        spans.append((p, kept, len(crops)))
+                        flat.extend(crops)
+                    embs_all = (
+                        get_engine().embed_images(flat)
+                        if flat
+                        else np.zeros((0, 1), dtype=np.float32)
+                    )
+                    if flat and len(embs_all) != len(flat):
+                        for (p, _im), (crops, kept) in zip(good, batch):
+                            e = (
+                                get_engine().embed_images(crops)
+                                if crops
+                                else np.zeros((0, 1), dtype=np.float32)
+                            )
+                            if len(e) != len(kept):
+                                continue
+                            self._store_kf(kf_cache, feats, p, kept, e)
+                    else:
+                        off = 0
+                        for p, kept, n_crops in spans:
+                            e = embs_all[off:off + n_crops]
+                            off += n_crops
+                            self._store_kf(kf_cache, feats, p, kept, e)
+
+            for kf_path in kfs:
+                boxes, embs = feats.get(kf_path, (None, None))
+                if boxes is None or len(boxes) == 0 or embs is None or embs.size == 0:
+                    continue
+                img = _img(kf_path)
                 if img is None:
                     continue
-                crops = face_det.crop_faces(img, pad=cfg.face_crop_padding)
-                if not crops:
-                    continue
-                embs = engine.embed_images(crops)
+                crops, _kept = crops_from_boxes(img, boxes, cfg.face_crop_padding)
+                if len(crops) != len(embs):
+                    continue  # keyframe mudou entre o cache e a releitura
                 for crop, emb in zip(crops, embs):
                     ch_, cw_ = crop.shape[:2]
                     scale = 256 / max(ch_, cw_)
@@ -970,6 +1126,12 @@ class Pipeline:
                             embedding=np.asarray(emb, dtype=np.float32),
                             crop_jpg=enc_.tobytes(),
                         ))
+        kf_cache.save()
+        if kf_total:
+            print(
+                f"[Descoberta] Features de keyframe: {kf_hits}/{kf_total} do cache.",
+                flush=True,
+            )
 
         cb("second_pass", 1.0, "—")
         cb("ai_review", 1.0, "—")
@@ -1012,6 +1174,7 @@ class Pipeline:
         print(f"[Descoberta] {len(observations)} rostos → {len(groups)} grupos "
               f"({', '.join(str(g.n_faces) for g in groups[:10])}...)", flush=True)
 
+        self._report_timings(timer, metadata_dir)
         return DiscoveryResult(
             anime_title=anime_title,
             season=info.season,
@@ -1249,6 +1412,139 @@ class Pipeline:
             on_progress=cut_cb,
         )
         return episode_root, metadata_dir, cut_results
+
+    def _lazy_models(self, cb: ProgressCb):
+        """(get_engine, get_face_det) com carga adiada: os modelos só sobem
+        quando alguma feature NÃO está no cache. Reanálise com cache cheio
+        não paga o load do CLIP (~5s + VRAM) nem o do YOLO."""
+        cfg = self.cfg
+        holder: dict[str, object] = {"engine": None, "face_det": None}
+
+        def get_engine() -> EmbeddingEngine:
+            if holder["engine"] is None:
+                clip_msg = "Carregando modelo CLIP..."
+                if _clip_needs_download(cfg.clip_model, cfg.clip_pretrained):
+                    clip_msg = (
+                        "Baixando modelo CLIP (~890 MB) — só na primeira "
+                        "execução, depois fica cacheado. Pode demorar 1-3 min."
+                    )
+                cb("embed_refs", -1.0, clip_msg)
+                engine = EmbeddingEngine(
+                    model_name=cfg.clip_model,
+                    pretrained=cfg.clip_pretrained,
+                    use_cuda=cfg.use_cuda,
+                )
+                if engine.on_device_fallback:
+                    cb("embed_refs", -1.0, engine.on_device_fallback)
+                    print(f"[CorteCenas] {engine.on_device_fallback}")
+                holder["engine"] = engine
+            return holder["engine"]
+
+        def get_face_det() -> AnimeFaceDetector:
+            if holder["face_det"] is None:
+                # Face detector is also used for the references so the rep
+                # space matches: face crop (ref) vs face crop (query), not
+                # whole ref vs face crop. This removes background
+                # contamination from the prototypes.
+                holder["face_det"] = AnimeFaceDetector(ensure_cascade(cfg.models_path))
+            return holder["face_det"]
+
+        return get_engine, get_face_det
+
+    def _feature_meta(self) -> dict:
+        """Tudo que, mudando, invalida boxes/embeddings cacheados."""
+        cfg = self.cfg
+        return {
+            "clip": f"{cfg.clip_model}/{cfg.clip_pretrained}",
+            "detector": MODEL_SIGNATURE,
+            "pad": cfg.face_crop_padding,
+            "credit_thr": cfg.credit_edge_threshold,
+        }
+
+    def _ref_features(
+        self, paths: list[Path], ref_cache: FeatureCache, get_engine, get_face_det
+    ) -> tuple[list[np.ndarray], int]:
+        """Embeddings das imagens de referência de UM personagem, com cache
+        por arquivo e detecção/embedding em lote só nos que faltam.
+        Retorna (blocos de embeddings, nº de rostos detectados)."""
+        cfg = self.cfg
+        emb_parts: list[np.ndarray] = []
+        faces_found = 0
+        misses: list[Path] = []
+        for p in paths:
+            boxes = ref_cache.get(p, "boxes")
+            embs_c = ref_cache.get(p, "embs")
+            if boxes is not None and embs_c is not None:
+                faces_found += int(len(boxes))
+                if embs_c.size:
+                    emb_parts.append(embs_c)
+            else:
+                misses.append(p)
+        if not misses:
+            return emb_parts, faces_found
+
+        imgs = [cv2.imread(str(p)) for p in misses]
+        good = [(p, im) for p, im in zip(misses, imgs) if im is not None]
+        if not good:
+            return emb_parts, faces_found
+        batch = get_face_det().crop_faces_batch(
+            [im for _, im in good], pad=cfg.face_crop_padding
+        )
+        flat_crops: list[np.ndarray] = []
+        spans: list[tuple[Path, list, int]] = []  # (arquivo, boxes mantidos, nº crops)
+        for (p, im), (crops, kept) in zip(good, batch):
+            if not crops:
+                # Sem rosto na ref → retrato central (boxes ficam vazios; o
+                # embedding do retrato ainda vale — silhueta/cabelo contam).
+                crops, kept = [smart_portrait_crop(im)], []
+            spans.append((p, kept, len(crops)))
+            flat_crops.extend(crops)
+        embs_all = get_engine().embed_images(flat_crops)
+        if len(embs_all) != len(flat_crops):
+            # Pareamento crop↔embedding quebrou (imagem indecodificável no
+            # meio do lote) — usa o que veio, mas sem gravar cache torto.
+            if embs_all.size:
+                emb_parts.append(embs_all.astype(np.float32))
+            return emb_parts, faces_found
+        off = 0
+        for p, kept, n_crops in spans:
+            e = embs_all[off:off + n_crops].astype(np.float32)
+            off += n_crops
+            ref_cache.put(p, "boxes", np.array(kept, dtype=np.int32).reshape(-1, 4))
+            ref_cache.put(p, "embs", e)
+            faces_found += len(kept)
+            if e.size:
+                emb_parts.append(e)
+        return emb_parts, faces_found
+
+    @staticmethod
+    def _store_kf(
+        cache: FeatureCache,
+        feats: dict,
+        p: Path,
+        kept: list,
+        embs: np.ndarray,
+    ) -> None:
+        """Grava boxes+embeddings de um keyframe no cache e no dict do shot.
+        Invariante: len(boxes) == len(embs) — crop e embedding pareados."""
+        boxes_arr = np.array(kept, dtype=np.int32).reshape(-1, 4)
+        cache.put(p, "boxes", boxes_arr)
+        e = embs.astype(np.float32) if embs.size else None
+        if e is not None:
+            cache.put(p, "embs", e)
+        feats[p] = (boxes_arr, e)
+
+    @staticmethod
+    def _report_timings(timer: StageTimer, metadata_dir: Path) -> None:
+        """Relatório final por etapa: app.log (print) + timings.json do
+        episódio — a régua que diz onde a próxima otimização deve morar."""
+        print(f"[Tempos] {timer.report()}", flush=True)
+        try:
+            (metadata_dir / "timings.json").write_text(
+                json.dumps(timer.to_json(), indent=2), encoding="utf-8"
+            )
+        except OSError:
+            pass
 
     @staticmethod
     def _local_only_characters(ref_store: ReferenceStore, cache_id: str, bundle) -> list[str]:

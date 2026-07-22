@@ -41,6 +41,37 @@ _YOLO_FILE = "face_detect_v1.4_s/model.pt"  # 22MB, ~34ms/img on GPU
 _HEAD_REPO = "deepghs/anime_head_detection"
 _HEAD_FILE = "head_detect_v0.5_s/model.pt"
 
+# Assinatura dos modelos de detecção — entra na meta do FeatureCache: trocar
+# de modelo invalida boxes/embeddings cacheados sem precisar carregá-los.
+MODEL_SIGNATURE = f"{_YOLO_REPO}/{_YOLO_FILE}|{_HEAD_REPO}/{_HEAD_FILE}"
+
+
+def crops_from_boxes(
+    image_bgr: np.ndarray,
+    boxes: list[tuple[int, int, int, int]] | np.ndarray,
+    pad: float,
+) -> tuple[list[np.ndarray], list[tuple[int, int, int, int]]]:
+    """Recorta os boxes com padding proporcional, clipado na imagem.
+    Devolve (crops, boxes_mantidos) — box que cai fora da imagem some dos
+    dois, mantendo o pareamento 1:1 crop↔box (o FeatureCache depende disso
+    pra rematerializar crops a partir de boxes cacheados)."""
+    h, w = image_bgr.shape[:2]
+    crops: list[np.ndarray] = []
+    kept: list[tuple[int, int, int, int]] = []
+    for (x, y, fw, fh) in boxes:
+        x, y, fw, fh = int(x), int(y), int(fw), int(fh)
+        px = int(fw * pad)
+        py = int(fh * pad)
+        x0 = max(0, x - px)
+        y0 = max(0, y - py)
+        x1 = min(w, x + fw + px)
+        y1 = min(h, y + fh + py)
+        crop = image_bgr[y0:y1, x0:x1]
+        if crop.size > 0:
+            crops.append(crop)
+            kept.append((x, y, fw, fh))
+    return crops, kept
+
 
 def ensure_yolo_anime_face() -> Path:
     """Download (and cache) the deepghs anime face YOLOv8 model from HuggingFace.
@@ -105,83 +136,130 @@ class AnimeFaceDetector:
                 print(f"[CorteCenas] Head-detect indisponível ({e}); só face detect.")
                 self._head_yolo = None
 
-    def detect(
-        self,
-        image_bgr: np.ndarray,
-        min_size: int = 32,
-        max_ratio: float = 0.75,
+    @staticmethod
+    def _size_filter(
+        boxes: list[tuple[int, int, int, int]],
+        img_w: int,
+        img_h: int,
+        min_size: int,
+        max_ratio: float,
     ) -> list[tuple[int, int, int, int]]:
-        """Detect anime faces.
-
-        Filters out:
+        """Filters out:
           • tiny faces (h < `min_size`) — usually scenery FPs
           • extreme close-ups (w/W or h/H >= `max_ratio`) — the face covers
             most of the frame, meaning we only see partial features
             (mouth + eye, or a cheek), which downstream identifiers cannot
             reliably match to a specific character.
         """
-        if image_bgr is None or image_bgr.size == 0:
-            return []
-        img_h, img_w = image_bgr.shape[:2]
+        kept = []
+        for (x, y, w, h) in boxes:
+            if h < min_size:
+                continue
+            if max_ratio > 0 and (w / img_w >= max_ratio or h / img_h >= max_ratio):
+                continue
+            kept.append((x, y, w, h))
+        return kept
 
-        def _size_filter(boxes: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
-            kept = []
-            for (x, y, w, h) in boxes:
-                if h < min_size:
-                    continue
-                if max_ratio > 0 and (w / img_w >= max_ratio or h / img_h >= max_ratio):
-                    continue
-                kept.append((x, y, w, h))
-            return kept
+    def detect(
+        self,
+        image_bgr: np.ndarray,
+        min_size: int = 32,
+        max_ratio: float = 0.75,
+    ) -> list[tuple[int, int, int, int]]:
+        """Detect anime faces in a single image."""
+        return self.detect_batch([image_bgr], min_size=min_size, max_ratio=max_ratio)[0]
 
-        if self._yolo is not None:
-            out = _size_filter(self._predict_boxes(self._yolo, image_bgr))
-            if out or self._head_yolo is None:
-                return out
+    def detect_batch(
+        self,
+        images: list[np.ndarray],
+        min_size: int = 32,
+        max_ratio: float = 0.75,
+    ) -> list[list[tuple[int, int, int, int]]]:
+        """Detecta em LOTE: o modelo de rosto roda uma vez pra lista inteira
+        e o de cabeça só nos frames que ficaram sem rosto — mesmo resultado
+        de chamar detect() imagem a imagem, com uma fração das idas à GPU."""
+        out: list[list[tuple[int, int, int, int]]] = [[] for _ in images]
+        valid = [
+            (i, img) for i, img in enumerate(images)
+            if img is not None and img.size > 0
+        ]
+        if not valid:
+            return out
+
+        if self._yolo is None:
+            # Fallback lbpcascade: sem lote — CPU imagem a imagem.
+            for i, img in valid:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                gray = cv2.equalizeHist(gray)
+                faces = self._cascade.detectMultiScale(
+                    gray, scaleFactor=1.08, minNeighbors=3,
+                    minSize=(min_size, min_size),
+                )
+                h, w = img.shape[:2]
+                out[i] = self._size_filter(
+                    [tuple(map(int, f)) for f in faces], w, h, min_size, max_ratio
+                )
+            return out
+
+        face_boxes = self._predict_boxes_batch(self._yolo, [img for _, img in valid])
+        misses: list[tuple[int, np.ndarray]] = []
+        for (i, img), boxes in zip(valid, face_boxes):
+            h, w = img.shape[:2]
+            out[i] = self._size_filter(boxes, w, h, min_size, max_ratio)
+            if not out[i]:
+                misses.append((i, img))
+        if misses and self._head_yolo is not None:
             # Cascade stage 2: no frontal face found — try heads (profiles,
             # downcast, small/far characters).
-            return _size_filter(self._predict_boxes(self._head_yolo, image_bgr))
+            head_boxes = self._predict_boxes_batch(
+                self._head_yolo, [img for _, img in misses]
+            )
+            for (i, img), boxes in zip(misses, head_boxes):
+                h, w = img.shape[:2]
+                out[i] = self._size_filter(boxes, w, h, min_size, max_ratio)
+        return out
 
-        gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-        gray = cv2.equalizeHist(gray)
-        faces = self._cascade.detectMultiScale(
-            gray, scaleFactor=1.08, minNeighbors=3, minSize=(min_size, min_size)
-        )
-        return _size_filter([tuple(map(int, f)) for f in faces])
-
-    def _predict_boxes(self, model, image_bgr: np.ndarray) -> list[tuple[int, int, int, int]]:
+    def _predict_boxes_batch(
+        self, model, images: list[np.ndarray]
+    ) -> list[list[tuple[int, int, int, int]]]:
         try:
             results = model.predict(
-                image_bgr, conf=self.conf, verbose=False, device=self._device,
+                images, conf=self.conf, verbose=False, device=self._device,
             )
         except Exception:
-            results = model.predict(image_bgr, conf=self.conf, verbose=False, device="cpu")
-        boxes = getattr(results[0], "boxes", None)
-        if boxes is None:
-            return []
-        xyxy = boxes.xyxy
-        xyxy = xyxy.cpu().numpy() if hasattr(xyxy, "cpu") else np.asarray(xyxy)
-        out: list[tuple[int, int, int, int]] = []
-        for (x1, y1, x2, y2) in xyxy:
-            w = int(round(float(x2) - float(x1)))
-            h = int(round(float(y2) - float(y1)))
-            out.append((int(round(float(x1))), int(round(float(y1))), w, h))
+            results = model.predict(images, conf=self.conf, verbose=False, device="cpu")
+        out: list[list[tuple[int, int, int, int]]] = []
+        for res in results:
+            boxes = getattr(res, "boxes", None)
+            if boxes is None:
+                out.append([])
+                continue
+            xyxy = boxes.xyxy
+            xyxy = xyxy.cpu().numpy() if hasattr(xyxy, "cpu") else np.asarray(xyxy)
+            one: list[tuple[int, int, int, int]] = []
+            for (x1, y1, x2, y2) in xyxy:
+                w = int(round(float(x2) - float(x1)))
+                h = int(round(float(y2) - float(y1)))
+                one.append((int(round(float(x1))), int(round(float(y1))), w, h))
+            out.append(one)
         return out
 
     def crop_faces(self, image_bgr: np.ndarray, pad: float = 0.25) -> list[np.ndarray]:
-        h, w = image_bgr.shape[:2]
-        crops: list[np.ndarray] = []
-        for (x, y, fw, fh) in self.detect(image_bgr):
-            px = int(fw * pad)
-            py = int(fh * pad)
-            x0 = max(0, x - px)
-            y0 = max(0, y - py)
-            x1 = min(w, x + fw + px)
-            y1 = min(h, y + fh + py)
-            crop = image_bgr[y0:y1, x0:x1]
-            if crop.size > 0:
-                crops.append(crop)
+        crops, _ = crops_from_boxes(image_bgr, self.detect(image_bgr), pad)
         return crops
+
+    def crop_faces_batch(
+        self, images: list[np.ndarray], pad: float = 0.25
+    ) -> list[tuple[list[np.ndarray], list[tuple[int, int, int, int]]]]:
+        """Por imagem: (crops, boxes_mantidos), com a detecção em lote."""
+        all_boxes = self.detect_batch(images)
+        out = []
+        for img, boxes in zip(images, all_boxes):
+            if img is None or img.size == 0:
+                out.append(([], []))
+            else:
+                out.append(crops_from_boxes(img, boxes, pad))
+        return out
 
 
 def smart_portrait_crop(image_bgr: np.ndarray) -> np.ndarray:

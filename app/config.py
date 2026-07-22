@@ -107,6 +107,15 @@ class Config:
 
     # Matching
     default_threshold: float = 0.80
+    # Multi-protótipo: um centroide único por personagem mistura aparências
+    # incompatíveis (cabelo solto/preso, uniforme/armadura, chibi/arte
+    # oficial) num vetor médio que não parece com NENHUMA delas. Em vez
+    # disso, as refs são agrupadas por "modo visual" (average-linkage) e
+    # cada grupo vira um protótipo — a similaridade do rosto é contra o
+    # protótipo mais parecido, não contra a média de tudo.
+    multi_prototype: bool = True
+    prototype_merge_threshold: float = 0.80  # refs acima disso fundem no mesmo protótipo
+    max_prototypes_per_character: int = 5
     # When True, shots with zero detected faces get no character assignment
     # (instead of falling back to whole-keyframe matching, which produces
     # false positives on scenes that merely share color/composition with

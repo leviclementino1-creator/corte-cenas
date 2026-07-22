@@ -9,8 +9,11 @@ import numpy as np
 class CharacterEntry:
     id: int
     name: str
-    centroid: np.ndarray   # shape (d,)
+    centroid: np.ndarray   # shape (d,) — média global; vai pro DB e pras sugestões
     threshold: float
+    # Multi-protótipo (P, d): um vetor por "modo visual" das refs (cabelo
+    # solto vs preso, uniforme vs armadura...). None → matcher usa o centroide.
+    prototypes: np.ndarray | None = None
 
 
 def build_centroid(reference_embeddings: np.ndarray) -> np.ndarray | None:
@@ -24,19 +27,99 @@ def build_centroid(reference_embeddings: np.ndarray) -> np.ndarray | None:
     return (c / n).astype(np.float32)
 
 
-class CharacterMatcher:
-    """Matches a query embedding against a set of character centroids.
+def build_prototypes(
+    reference_embeddings: np.ndarray,
+    *,
+    merge_threshold: float = 0.80,
+    max_prototypes: int = 5,
+) -> np.ndarray | None:
+    """Agrupa as refs por modo visual e devolve um protótipo por grupo.
 
-    Returns, per shot, the best confidence per character (above that
-    character's threshold). A shot is allowed to carry multiple characters.
+    Average-linkage (mesma escolha do clustering da Descoberta — resiste ao
+    encadeamento A~B~C que um greedy por centroide sofre): funde enquanto o
+    par mais próximo passa de `merge_threshold`, e continua fundindo além do
+    threshold se ainda houver grupos demais (cap adaptativo pela quantidade
+    de refs — poucas refs não sustentam muitos protótipos).
+
+    Com 8+ refs, grupos de UMA ref só são descartados quando há pelo menos
+    dois grupos "de verdade" — uma ref sozinha destoando de todas as outras
+    é mais provavelmente ruído de galeria (fanart com outro personagem,
+    thumbnail errada) do que um modo visual legítimo.
+    """
+    n = len(reference_embeddings)
+    if n == 0:
+        return None
+    embs = np.asarray(reference_embeddings, dtype=np.float32)
+    if n <= 3:
+        return embs.copy()
+
+    cap = 3 if n <= 8 else 4 if n <= 20 else max_prototypes
+    sims = embs @ embs.T
+    clusters: list[list[int]] = [[i] for i in range(n)]
+    while len(clusters) > 1:
+        best_pair, best_s = None, -2.0
+        for i in range(len(clusters)):
+            for j in range(i + 1, len(clusters)):
+                s = float(np.mean(sims[np.ix_(clusters[i], clusters[j])]))
+                if s > best_s:
+                    best_s, best_pair = s, (i, j)
+        if best_s >= merge_threshold or len(clusters) > cap:
+            i, j = best_pair
+            clusters[i] = clusters[i] + clusters[j]
+            del clusters[j]
+        else:
+            break
+
+    if n >= 8:
+        non_single = [c for c in clusters if len(c) >= 2]
+        if len(non_single) >= 2:
+            clusters = non_single
+
+    protos: list[tuple[int, np.ndarray]] = []
+    for c in clusters:
+        m = embs[c].mean(axis=0)
+        norm = float(np.linalg.norm(m))
+        if norm >= 1e-8:
+            protos.append((len(c), m / norm))
+    if not protos:
+        return None
+    protos.sort(key=lambda t: -t[0])
+    return np.stack([p for _, p in protos], axis=0).astype(np.float32)
+
+
+def entry_matrix(entry: CharacterEntry) -> np.ndarray:
+    """Vetores de comparação de um personagem: protótipos quando existem,
+    senão o centroide como matriz (1, d)."""
+    if entry.prototypes is not None and entry.prototypes.size > 0:
+        return entry.prototypes
+    return entry.centroid[None, :]
+
+
+class CharacterMatcher:
+    """Matches query embeddings against each character's prototypes.
+
+    A similaridade de um rosto com um personagem é o MELHOR protótipo dele
+    (max), não a média — um personagem "de cabelo preso" na cena não deve
+    ser penalizado pelas refs de cabelo solto. Um shot pode carregar vários
+    personagens.
     """
 
     def __init__(self, entries: list[CharacterEntry]) -> None:
         self.entries = [e for e in entries if e.centroid is not None and e.centroid.size > 0]
         if self.entries:
-            self.matrix = np.stack([e.centroid for e in self.entries], axis=0)
+            mats = [entry_matrix(e) for e in self.entries]
+            # Linhas contíguas por personagem; reduceat corta nos starts.
+            self._starts = np.cumsum([0] + [m.shape[0] for m in mats[:-1]])
+            self.matrix = np.concatenate(mats, axis=0)
         else:
+            self._starts = np.zeros(0, dtype=np.int64)
             self.matrix = np.zeros((0, 0), dtype=np.float32)
+
+    def _char_sims(self, query_embeddings: np.ndarray) -> np.ndarray:
+        """(Q, C): melhor cosseno de cada query contra cada personagem
+        (máximo sobre os protótipos dele)."""
+        sims = query_embeddings @ self.matrix.T          # (Q, R)
+        return np.maximum.reduceat(sims, self._starts, axis=1)
 
     def score(self, query_embeddings: np.ndarray) -> dict[int, float]:
         """Given N query vectors (e.g. keyframes + face crops for one shot),
@@ -44,9 +127,7 @@ class CharacterMatcher:
         """
         if self.matrix.size == 0 or query_embeddings.size == 0:
             return {}
-        # query_embeddings is (Q, D), matrix is (C, D). Both L2-normalized.
-        sims = query_embeddings @ self.matrix.T  # (Q, C)
-        best = sims.max(axis=0)                  # (C,)
+        best = self._char_sims(query_embeddings).max(axis=0)  # (C,)
         return {self.entries[i].id: float(best[i]) for i in range(len(self.entries))}
 
     def assign(self, query_embeddings: np.ndarray) -> list[tuple[int, float]]:
@@ -68,7 +149,7 @@ class CharacterMatcher:
         that decides whether the AI reviewer gets a look at it."""
         if self.matrix.size == 0 or query_embeddings.size == 0:
             return None
-        sims = query_embeddings @ self.matrix.T
+        sims = self._char_sims(query_embeddings)
         q, c = np.unravel_index(int(np.argmax(sims)), sims.shape)
         return self.entries[int(c)], float(sims[q, c])
 
@@ -82,7 +163,7 @@ class CharacterMatcher:
         """
         if self.matrix.size == 0 or query_embeddings.size == 0:
             return []
-        sims = query_embeddings @ self.matrix.T  # (Q, C)
+        sims = self._char_sims(query_embeddings)  # (Q, C)
         best: dict[int, float] = {}
         for q in range(sims.shape[0]):
             row = sims[q]

@@ -102,6 +102,62 @@ ProgressCb = Callable[[str, float, str], None]
 """(stage_id, fraction_0_to_1, message) — fraction may be -1 when indeterminate."""
 
 
+class StageTimer:
+    """Mede a duração real de cada estágio embrulhando o progress callback.
+
+    O início de um estágio é o instante do último evento anterior a ele (não
+    o primeiro callback dele — estágios que só reportam no fim, como o corte,
+    fariam o trabalho sumir da conta). O relatório vai pro app.log e pro
+    timings.json do episódio — é ele que diz onde investir otimização."""
+
+    def __init__(self) -> None:
+        import time
+        self._clock = time.perf_counter
+        self._t0 = self._clock()
+        self._last = self._t0
+        self._start: dict[str, float] = {}
+        self._end: dict[str, float] = {}
+
+    def wrap(self, cb: ProgressCb) -> ProgressCb:
+        def wrapped(stage: str, frac: float, msg: str) -> None:
+            now = self._clock()
+            if stage not in self._start:
+                self._start[stage] = self._last
+            self._end[stage] = now
+            self._last = now
+            cb(stage, frac, msg)
+        return wrapped
+
+    def durations(self) -> dict[str, float]:
+        labels = dict(STAGES)
+        out: dict[str, float] = {}
+        for sid, _ in STAGES:
+            if sid in self._start:
+                out[sid] = max(0.0, self._end[sid] - self._start[sid])
+        for sid in self._start:  # estágios fora da lista oficial, se houver
+            if sid not in labels:
+                out[sid] = max(0.0, self._end[sid] - self._start[sid])
+        return out
+
+    def total(self) -> float:
+        return self._clock() - self._t0
+
+    def report(self) -> str:
+        labels = dict(STAGES)
+        parts = [
+            f"{labels.get(sid, sid)}: {dur:.1f}s"
+            for sid, dur in self.durations().items()
+            if dur >= 0.05
+        ]
+        return " | ".join(parts) + f" | TOTAL: {self.total():.1f}s"
+
+    def to_json(self) -> dict:
+        return {
+            "total_seconds": round(self.total(), 2),
+            "stages": {k: round(v, 2) for k, v in self.durations().items()},
+        }
+
+
 STAGES = [
     ("parse", "Lendo arquivo"),
     ("detect_shots", "Detectando shots"),

@@ -32,7 +32,7 @@ Você arrasta um episódio pra janela. O app:
 
 1. 🎬 **Detecta e corta** cada shot (mudança de cena) em um `.mp4` separado
 2. 🔍 **Busca os personagens** do anime automaticamente em **3 fontes** (MyAnimeList + AniList + Kitsu, com reservas automáticas se alguma cair) — incluindo temporadas anteriores da franquia
-3. 🧠 **Reconhece quem aparece** em cada shot (YOLO detecta os rostos, CLIP compara com as fotos de referência) — e uma **segunda passada** usa as próprias cenas identificadas como referência pra resgatar as que ficaram sem dono
+3. 🧠 **Reconhece quem aparece** em cada shot (YOLO detecta os rostos, CLIP compara com as fotos de referência agrupadas em **protótipos por visual** — cabelo solto/preso, uniforme/armadura, cada aparência conta sozinha) — e uma **segunda passada** usa as próprias cenas identificadas como referência pra resgatar as que ficaram sem dono
 4. 🤖 Opcional: uma **IA generativa revisa só os casos duvidosos** (barato) ou o episódio inteiro
 5. 📁 **Organiza tudo** em `by_character/<Nome>/` e `by_pair/<A>+<B>/` usando hardlinks (sem duplicar espaço em disco)
 6. 📱 Ainda gera **versão vertical 1080×1920** de qualquer personagem pra Reels/TikTok, com enquadramento no rosto
@@ -110,6 +110,16 @@ Presets de rigor: **Auto (recomendado)** equilibra; **Muito Fiel** quase não er
 
 Mudou de ideia no meio? **✕ Cancelar análise** — os shots já cortados ficam em cache e a próxima rodada continua de onde parou.
 
+Durante a análise, um **cronômetro ao lado da barra** mostra o tempo decorrido e a
+estimativa pra terminar ("⏱ 2:31 · resta ~1:10"), calculada pelo ritmo real. E se
+você estiver em outra janela quando acabar, o app manda uma **notificação do
+Windows** — clicar nela traz a janela de volta.
+
+**Reanalisar é quase instantâneo**: os rostos detectados e os embeddings ficam num
+cache por episódio — a segunda rodada pula YOLO e CLIP inteiros (de minutos pra
+segundos) e vai direto pra decisão. Reanalisar depois de remover/bloquear cenas
+ficou barato de verdade.
+
 **Fluxo típico pra um anime novo:** Testar refs → se tiver pouca foto, roda a
 **Descoberta** e batiza os grupos (o app sugere os nomes quando conhece o anime)
 → **Analisar episódio** no verde. As refs batizadas entram na análise e nos
@@ -121,6 +131,8 @@ sozinho — e a partir do episódio 2 resolve o anime pelo banco local, sem inte
 ### 3. Aba Resultados
 
 - Lista de personagens com a contagem de shots de cada um
+- Seção **Duplas** na mesma lista ("Senku + Kohaku (12)") — clica e vê só as
+  cenas em que os dois aparecem juntos
 - **Duplo clique** num thumbnail abre o `.mp4` do shot
 - **Botão direito**: aprovar, remover ou mover pra outro personagem — com
   **Ctrl/Shift/laço** pra selecionar vários de uma vez
@@ -178,7 +190,7 @@ Se as duas estiverem preenchidas, a NavyAI é usada primeiro e o Gemini assume a
 | Cache (modelos, refs, banco) | `%LOCALAPPDATA%\CorteCenas\CorteCenas\cache\` |
 | Clipes de saída | `Documentos\CorteCenas\Output\` (muda em ⚙ Configurações) |
 
-O cache é reaproveitado entre episódios do mesmo anime (e da mesma franquia): o segundo episódio analisa muito mais rápido. Apagar o cache só força refazer os downloads.
+O cache é reaproveitado entre episódios do mesmo anime (e da mesma franquia): o segundo episódio analisa muito mais rápido. E cada episódio guarda as features caras (rostos + embeddings) junto dos metadados — **reanalisar o mesmo episódio leva segundos**. Apagar o cache só força refazer os downloads.
 
 ---
 
@@ -189,8 +201,8 @@ O cache é reaproveitado entre episódios do mesmo anime (e da mesma franquia): 
 3. **Corte + keyframes** — FFmpeg gera o `.mp4` de cada shot (NVENC quando a GPU suporta, cortes em paralelo; margem de meio frame pra nenhum frame da cena seguinte vazar) + 3 keyframes JPG
 4. **Banco de personagens** — [AniList GraphQL](https://docs.anilist.co/) resolve o anime e a franquia inteira (BFS pelas relações: sequels, prequels, spin-offs); [Jikan](https://jikan.moe/) traz as galerias de fotos, com **AniList e [Kitsu](https://kitsu.app)** como reservas de elenco quando ele cai — os retratos das 3 fontes sempre entram (2-3 fotos garantidas por personagem, acima do mínimo da análise mesmo em queda total). Pastas locais de personagem (Descoberta, refs manuais) sempre entram
 5. **Refs** — imagens filtradas (manga preto-e-branco descartado); rosto de cada ref é recortado pra casar com o espaço de comparação
-6. **Embeddings** — `open_clip ViT-L/14`; centroide por personagem
-7. **Análise** — YOLO [`deepghs/anime_face_detection`](https://huggingface.co/deepghs/anime_face_detection) (com cascata pra [anime_head](https://huggingface.co/deepghs/anime_head_detection) quando o rosto escapa) → CLIP → cosine contra os centroides → votação entre keyframes
+6. **Embeddings** — `open_clip ViT-L/14`; as refs de cada personagem são agrupadas por **modo visual** (average-linkage) e cada grupo vira um **protótipo** — a similaridade é contra o protótipo mais parecido, não contra a média de tudo
+7. **Análise** — YOLO [`deepghs/anime_face_detection`](https://huggingface.co/deepghs/anime_face_detection) (com cascata pra [anime_head](https://huggingface.co/deepghs/anime_head_detection) quando o rosto escapa, **em lote por shot**) → CLIP → cosine contra os protótipos → votação entre keyframes. Boxes e embeddings de cada keyframe ficam num **cache por episódio** (reanálise pula GPU) e cada etapa tem o tempo medido no `app.log` + `timings.json`
 8. **Segunda passada** — as cenas identificadas com confiança viram referências temporárias do próprio episódio (mesmo traço/ângulo/luz); as sem dono são recomparadas contra elas com voto único por rosto. Resgata tipicamente **um terço do episódio** que a comparação com refs externas perdia
 9. **Revisão IA (opcional)** — só os shots que ficaram "quase" (similaridade na zona cinzenta) vão pro Gemini, com teto de custo, retry, fallback de provider e circuit breaker de quota
 10. **Organização** — hardlinks NTFS em `by_character/` e `by_pair/`, `shots.json` + `characters.json`, reaplicando a curadoria manual lembrada
@@ -223,8 +235,9 @@ app/
   providers/               anilist.py, jikan.py, kitsu.py, danbooru.py,
                            anime_provider.py (orquestra fontes + reservas)
   references/              downloader async, filtros, reference_store
-  matching/                face_detector (YOLO + cascata head),
-                           embedding_engine (CLIP), character_matcher,
+  matching/                face_detector (YOLO + cascata head, em lote),
+                           embedding_engine (CLIP), character_matcher
+                           (multi-protótipo), feature_cache (boxes+embeddings),
                            second_pass (resgate), face_clustering (Descoberta),
                            cooccurrence
   storage/                 db (SQLite), metadata_writer, organizer (hardlinks)
@@ -248,7 +261,8 @@ installer.iss              Inno Setup 6
 - **Re-encode `libx264 ultrafast` / NVENC** em vez de stream-copy — corte preciso no frame, sem flash no início do clipe; duração pela saída com margem de meio frame (sem frame da cena seguinte no fim)
 - **open_clip ViT-L/14** — melhor discriminação de personagem que ViT-B/32; GPU em segundos, CPU em minutos
 - **YOLO deepghs anime_face + cascata anime_head** — cobre rostos de perfil/ângulo difícil que o detector de rosto perde
-- **Centroide por personagem** em vez de 1-NN — robusto contra refs ruins
+- **Multi-protótipo por personagem** — um centroide único mistura cabelo solto/preso, uniforme/armadura e chibi num vetor médio que não parece com NENHUMA das aparências (no teste real, o visual alternativo de um personagem pontuava 0.64 no centroide — reprovado — e 0.97 no protótipo certo). Refs solitárias destoantes são descartadas como provável ruído de galeria quando há refs de sobra
+- **Cache de features por episódio** (`face_cache.npz` + `ref_features.npz`) — boxes do YOLO e embeddings do CLIP validados por mtime/tamanho e invalidados por troca de modelo/config; reanálise nem carrega os modelos (~10x mais rápida no E2E: 54s → 5s)
 - **Votação entre keyframes** — personagem que só aparece em 1 de 3 keyframes é quase sempre ruído
 - **Segunda passada com voto único por rosto** — cada rosto conta pra UM personagem só; sem isso, personagens que dividem muitas cenas contaminavam o resgate um do outro
 - **Clustering average-linkage na Descoberta** — o greedy por centroide encadeava 90% dos rostos num blob só; average-linkage entrega grupos puros (errar separando > errar juntando: mesclar na tela de batismo é fácil)
@@ -301,6 +315,7 @@ Todo mundo com o app instalado recebe a oferta de update (delta de ~53 MB) no pr
 - [ ] **Contador de uso do free tier** + estimativa de custo antes de rodar com IA
 - [ ] **Ponte verde→Descoberta** — depois da análise, oferecer batismo pros rostos que sobraram sem dono
 - [ ] **Barra de progresso do download do CLIP** (~890 MB na primeira análise)
+- [ ] **Benchmark CCIP × CLIP** — testar o embedding da DeepGHS treinado especificamente pra "mesmo personagem de anime?" contra o CLIP atual, usando o cache de features
 - [ ] Transcrição (Whisper) pra reforçar identificação por fala
 - [x] ~~Cascade de detecção de rosto~~ (v0.2.0)
 - [x] ~~Revisão em lote (Ctrl/Shift na grade)~~ (v0.3.1)

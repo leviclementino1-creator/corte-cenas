@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .character_matcher import CharacterEntry
+from .character_matcher import CharacterEntry, entry_matrix
 
 
 @dataclass
@@ -41,7 +41,7 @@ def build_episode_banks(
     """Monta o banco de referências do episódio por personagem.
 
     Em cada shot-fonte, cada rosto alimenta só o banco do personagem (entre os
-    atribuídos ao shot) cujo centroide ele mais parece — um rosto nunca entra
+    atribuídos ao shot) com que ele mais parece — um rosto nunca entra
     em dois bancos, senão personagens que dividem muitas cenas contaminariam
     o banco um do outro. Exige `min_sources` shots-fonte pra não construir
     banco em cima de um único acerto possivelmente errado.
@@ -54,8 +54,11 @@ def build_episode_banks(
         chars = [by_id[cid] for cid, _ in sf.assigned if cid in by_id]
         if not chars:
             continue
-        # (n_faces, n_chars): sim de cada rosto ao centroide de cada atribuído
-        sims = sf.embs @ np.stack([c.centroid for c in chars], axis=0).T
+        # (n_faces, n_chars): melhor sim de cada rosto contra os protótipos
+        # de cada personagem atribuído (max sobre os modos visuais dele)
+        sims = np.stack(
+            [np.max(sf.embs @ entry_matrix(c).T, axis=1) for c in chars], axis=1
+        )
         # melhor rosto POR personagem, mas cada rosto só conta pro personagem
         # que é o argmax dele (voto único)
         face_owner = np.argmax(sims, axis=1)  # (n_faces,)
