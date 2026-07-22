@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import QApplication, QSplashScreen
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from . import __version__
 from .applog import get_logger, setup as setup_logging
@@ -66,6 +66,77 @@ def _load_splash_pixmap() -> QPixmap | None:
     return canvas
 
 
+class _FloatingSplash(QLabel):
+    """Splash com transparência REAL. O QSplashScreen do Qt quebra o
+    WA_TranslucentBackground há anos (pinta o pixmap com fundo opaco por
+    dentro) — e janela opaca sem moldura ganha do Windows 11 canto
+    arredondado + borda cinza de 1px desenhados pelo DWM: a "borda feia".
+    Um QLabel frameless translúcido é a solução consagrada nos fóruns do Qt;
+    janela de verdade translúcida nem recebe a decoração do DWM."""
+
+    def __init__(self, pixmap: QPixmap) -> None:
+        super().__init__(
+            None,
+            Qt.WindowType.SplashScreen
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint,
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._base = pixmap
+        self.setPixmap(pixmap)
+        self.setFixedSize(pixmap.size())
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            self.move(
+                geo.center().x() - pixmap.width() // 2,
+                geo.center().y() - pixmap.height() // 2,
+            )
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # A LINHA CINZA de 1px em volta é decoração do próprio Windows 11
+        # (DWM) em janelas sem moldura. Interruptor oficial: border color
+        # NONE + canto sem arredondar, direto na API do DWM.
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = int(self.winId())
+                dwm = ctypes.windll.dwmapi
+                # DWMWA_WINDOW_CORNER_PREFERENCE(33) = DWMWCP_DONOTROUND(1)
+                pref = ctypes.c_int(1)
+                dwm.DwmSetWindowAttribute(
+                    hwnd, 33, ctypes.byref(pref), ctypes.sizeof(pref)
+                )
+                # DWMWA_BORDER_COLOR(34) = DWMWA_COLOR_NONE(0xFFFFFFFE)
+                color = ctypes.c_uint(0xFFFFFFFE)
+                dwm.DwmSetWindowAttribute(
+                    hwnd, 34, ctypes.byref(color), ctypes.sizeof(color)
+                )
+            except Exception:
+                pass
+
+    def showMessage(self, text: str) -> None:
+        """Redesenha o texto na faixa inferior do pixmap (o balão-legenda)."""
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QFont, QPainter
+
+        pm = QPixmap(self._base)
+        painter = QPainter(pm)
+        painter.setPen(Qt.GlobalColor.white)
+        painter.setFont(QFont("Segoe UI", 9))
+        painter.drawText(
+            QRectF(0, 0, pm.width(), pm.height() - 10),
+            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
+            text,
+        )
+        painter.end()
+        self.setPixmap(pm)
+
+    def finish(self, _win: QWidget) -> None:
+        self.close()
+
+
 def main() -> int:
     setup_logging()  # no-op if run.py already did it
     from .no_console import harden_subprocess
@@ -78,22 +149,15 @@ def main() -> int:
     # lento (rede + torch), com o status trocando embaixo do ícone. A janela
     # principal só aparece quando está pronta de verdade — e os diálogos que
     # precisam do usuário (update, deps, GPU) vêm depois, por cima dela.
-    splash: QSplashScreen | None = None
+    splash: _FloatingSplash | None = None
     pixmap = _load_splash_pixmap()
     if pixmap is not None:
-        splash = QSplashScreen(pixmap, Qt.WindowType.WindowStaysOnTopHint)
-        # Transparência REAL da janela (per-pixel): a logo flutua sozinha na
-        # tela — sem quadrado preto, sem máscara serrilhada, sem cartão.
-        splash.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        splash = _FloatingSplash(pixmap)
         splash.show()
 
     def status(text: str) -> None:
         if splash is not None:
-            splash.showMessage(
-                f"Corte Cenas v{__version__}\n{text}",
-                Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
-                Qt.GlobalColor.white,
-            )
+            splash.showMessage(f"Corte Cenas v{__version__}\n{text}")
         app.processEvents()
 
     status("Carregando…")
