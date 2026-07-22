@@ -696,6 +696,9 @@ class Pipeline:
         leftover_clusters: list[dict] = []
         pool_embs: list[np.ndarray] = []
         pool_meta: list[tuple[int, tuple | None]] = []  # (pos, (kf, box_idx))
+        # Rostos DETECTADOS nas refs de cada personagem — a régua de quão
+        # confiáveis são os protótipos dele pra decisões em bloco.
+        faces_by_name = {n: fc for n, _rc, fc in ref_stats}
         if cfg.cluster_rescue and entries:
             for sf in shot_faces:
                 if sf.embs is None or sf.embs.size == 0 or per_shot_names[sf.pos]:
@@ -743,6 +746,22 @@ class Pipeline:
                     margin=cfg.cluster_margin,
                     min_agreement=cfg.cluster_agreement,
                 )
+                if (
+                    winner is not None
+                    and faces_by_name.get(winner.name, 0) < cfg.cluster_min_ref_faces
+                ):
+                    # Refs fracas (retratos sem rosto detectável) não
+                    # sustentam nomear dezenas de cenas sozinho — caso real:
+                    # grupo de 17 rostos batizado em cima de 2 retratinhos.
+                    # Vira sugestão no batismo; o usuário confirma.
+                    print(
+                        f"[grupo] {len(cl.members)} rostos parecem "
+                        f"{winner.name} (mediana {ranking[0].median:.2f}), mas "
+                        f"ele só tem {faces_by_name.get(winner.name, 0)} "
+                        "rosto(s) de referência — vai pro batismo como "
+                        "sugestão, não como decisão."
+                    )
+                    winner = None
                 if winner is not None:
                     n = self._assign_cluster(
                         winner, ranking[0].median, positions, blocked_pairs,
@@ -799,6 +818,13 @@ class Pipeline:
                         )[:6]
                         cands = []
                         for gs in ginfo["ranking"][:3]:
+                            # Candidato com refs fracas não entra no páreo da
+                            # IA — ela só escolheria entre retratos ruins.
+                            if (
+                                faces_by_name.get(gs.entry.name, 0)
+                                < cfg.cluster_min_ref_faces
+                            ):
+                                continue
                             jpgs = self._candidate_ref_jpgs(
                                 refs_per_char.get(gs.entry.name, [])
                             )

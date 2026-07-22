@@ -158,6 +158,11 @@ class Config:
     cluster_agreement: float = 0.6          # fração dos reps votando no top-1
     cluster_review_low: float = 0.62        # acima disso (sem aceitar) → IA por grupo
     cluster_max_reps: int = 8               # representantes diversos por grupo
+    # Auto-nomear um grupo exige que o personagem vencedor tenha referências
+    # DE VERDADE: com menos de N rostos detectados nas refs (retratos sem
+    # rosto não contam), a decisão vira sugestão no batismo — caso real:
+    # cluster de 17 rostos auto-nomeado com protótipos de 2 retratinhos.
+    cluster_min_ref_faces: int = 3
     face_crop_padding: float = 0.25         # around detected face; more context helps CLIP
     # AI hybrid mode crops get WIDER padding so hair/headband is fully
     # visible — that's often the only thing telling apart similar-styled
