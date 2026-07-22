@@ -192,6 +192,11 @@ Se as duas estiverem preenchidas, a NavyAI é usada primeiro e o Gemini assume a
 
 O cache é reaproveitado entre episódios do mesmo anime (e da mesma franquia): o segundo episódio analisa muito mais rápido. E cada episódio guarda as features caras (rostos + embeddings) junto dos metadados — **reanalisar o mesmo episódio leva segundos**. Apagar o cache só força refazer os downloads.
 
+Em **⚙ Configurações → Referências e cache**: abrir a pasta de refs com um
+clique, **🧹 limpar só as fotos baixadas** (galerias online costumam trazer
+lixo — batismos e fotos manuais ficam intactos), **♻️ restaurar os padrões de
+análise** e, como último recurso, **🗑 apagar o cache inteiro**.
+
 ---
 
 ## ⚙️ Como funciona por dentro

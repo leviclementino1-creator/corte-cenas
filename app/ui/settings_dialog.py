@@ -86,6 +86,62 @@ class SettingsDialog(QDialog):
 
         root.addWidget(out_group)
 
+        # --- Pastas, cache e limpeza ---
+        cache_group = QGroupBox("Referências e cache")
+        cache_layout = QVBoxLayout(cache_group)
+
+        open_row = QHBoxLayout()
+        refs_btn = QPushButton("📂  Abrir pasta de referências")
+        refs_btn.setToolTip(
+            "Um anime por pasta, um personagem por subpasta em characters/. "
+            "Pode apagar/adicionar fotos à vontade — a próxima análise usa "
+            "o que estiver lá."
+        )
+        refs_btn.clicked.connect(self._open_refs)
+        open_row.addWidget(refs_btn)
+        cache_btn = QPushButton("📂  Abrir pasta de cache")
+        cache_btn.clicked.connect(self._open_cache)
+        open_row.addWidget(cache_btn)
+        open_row.addStretch(1)
+        cache_layout.addLayout(open_row)
+
+        clean_row = QHBoxLayout()
+        clean_btn = QPushButton("🧹  Limpar fotos baixadas")
+        clean_btn.setToolTip(
+            "Apaga SÓ as imagens que vieram das galerias online (as que têm "
+            "nome de código). Fotos de batismo (auto_disc_*) e as que você "
+            "colocou na mão ficam intactas."
+        )
+        clean_btn.clicked.connect(self._clean_refs)
+        clean_row.addWidget(clean_btn)
+        reset_btn = QPushButton("♻️  Restaurar padrões de análise")
+        reset_btn.setToolTip(
+            "Volta os parâmetros de identificação (rigor, margem, mínimos) "
+            "pros valores padrão do app."
+        )
+        reset_btn.clicked.connect(self._reset_analysis_defaults)
+        clean_row.addWidget(reset_btn)
+        wipe_btn = QPushButton("🗑  Apagar TODO o cache")
+        wipe_btn.setStyleSheet("QPushButton{color:#e08585;}")
+        wipe_btn.clicked.connect(self._wipe_cache)
+        clean_row.addWidget(wipe_btn)
+        clean_row.addStretch(1)
+        cache_layout.addLayout(clean_row)
+
+        cache_info = QLabel(
+            "Foto de personagem errado no meio das referências suja a "
+            "identificação. <b>Limpar fotos baixadas</b> zera só o que veio "
+            "da internet (a próxima análise baixa de novo); pra cirurgia "
+            "fina, abra a pasta e apague o que não presta. O apagão total "
+            "remove <b>tudo</b> — inclusive batismos e a memória de "
+            "curadoria — use só como último recurso."
+        )
+        cache_info.setWordWrap(True)
+        cache_info.setStyleSheet("color:#aaa;font-size:11px;")
+        cache_layout.addWidget(cache_info)
+
+        root.addWidget(cache_group)
+
         # --- Primary AI: NavyAI ---
         ai_group = QGroupBox("AI principal (NavyAI / OpenAI-compatible)")
         ai_form = QFormLayout(ai_group)
@@ -249,6 +305,120 @@ class SettingsDialog(QDialog):
     def _open_logs(self) -> None:
         from ..applog import log_dir
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir())))
+
+    def _open_refs(self) -> None:
+        from ..cache_tools import refs_root
+        p = refs_root(self.config.cache_path)
+        p.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+
+    def _open_cache(self) -> None:
+        p = self.config.cache_path
+        p.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+
+    def _clean_refs(self) -> None:
+        from ..cache_tools import clean_catalog_refs, refs_summary
+        catalog, disc, manual = refs_summary(self.config.cache_path)
+        if catalog == 0:
+            QMessageBox.information(
+                self, "Nada a limpar",
+                "Nenhuma foto baixada de catálogo no cache — só "
+                f"{disc} de batismo e {manual} manuais, que não são tocadas.",
+            )
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Limpar fotos baixadas")
+        box.setText(
+            f"Apagar <b>{catalog}</b> fotos baixadas das galerias online?"
+        )
+        box.setInformativeText(
+            f"Ficam intactas: {disc} fotos de batismo (auto_disc_*) e "
+            f"{manual} adicionadas manualmente.\n\n"
+            "A próxima análise baixa as galerias de novo (e você pode "
+            "limpar o que vier errado pela pasta de referências)."
+        )
+        yes = box.addButton("🧹 Limpar", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is not yes:
+            return
+        removed, animes = clean_catalog_refs(self.config.cache_path)
+        QMessageBox.information(
+            self, "Limpeza concluída",
+            f"{removed} fotos de catálogo apagadas em {animes} anime(s). "
+            "Batismos e fotos manuais preservados.",
+        )
+
+    def _reset_analysis_defaults(self) -> None:
+        defaults = Config()
+        fields = (
+            "default_threshold", "argmax_margin", "min_shots_per_character",
+            "face_crop_padding", "credit_edge_threshold",
+        )
+        current = {f: getattr(self.config, f) for f in fields}
+        changed = {
+            f: (current[f], getattr(defaults, f))
+            for f in fields if current[f] != getattr(defaults, f)
+        }
+        if not changed:
+            QMessageBox.information(
+                self, "Já está no padrão",
+                "Os parâmetros de análise já estão nos valores padrão.",
+            )
+            return
+        detail = "\n".join(
+            f"• {f}: {old} → {new}" for f, (old, new) in changed.items()
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Restaurar padrões de análise")
+        box.setText("Voltar estes parâmetros pro padrão do app?")
+        box.setInformativeText(detail)
+        yes = box.addButton("♻️ Restaurar", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is not yes:
+            return
+        for f in fields:
+            setattr(self.config, f, getattr(defaults, f))
+        self.config.save()
+        QMessageBox.information(
+            self, "Padrões restaurados",
+            "Parâmetros de análise de volta ao padrão — valem já na "
+            "próxima análise.",
+        )
+
+    def _wipe_cache(self) -> None:
+        from ..cache_tools import wipe_cache
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Apagar TODO o cache")
+        box.setText("Apagar o cache INTEIRO? Isso remove:")
+        box.setInformativeText(
+            "• TODAS as referências — inclusive fotos de batismo e as "
+            "adicionadas manualmente\n"
+            "• A memória de curadoria (remover/mover/aprovar lembrados)\n"
+            "• Resultados de análises no banco e elencos cacheados\n\n"
+            "Os clipes na pasta de saída e os modelos baixados ficam. "
+            "Não use durante uma análise em andamento.\n\n"
+            "Isso não tem volta."
+        )
+        yes = box.addButton(
+            "🗑 Apagar tudo", QMessageBox.ButtonRole.DestructiveRole
+        )
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is not yes:
+            return
+        wipe_cache(self.config.cache_path)
+        self.config.ensure_dirs()
+        QMessageBox.information(
+            self, "Cache apagado",
+            "Cache zerado. A próxima análise baixa elencos e fotos do zero "
+            "(os modelos e seus clipes não foram tocados).",
+        )
 
     def _check_updates(self) -> None:
         self.update_btn.setEnabled(False)
