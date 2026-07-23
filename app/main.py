@@ -137,6 +137,34 @@ class _FloatingSplash(QLabel):
         self.close()
 
 
+def _force_foreground(win: QWidget) -> None:
+    """Traz a janela pro primeiro plano DE VERDADE quando o load termina.
+
+    raise_/activateWindow não bastam: o Windows bloqueia troca de
+    foreground vinda de processo que não está em foco — o app só piscava
+    na barra de tarefas enquanto o usuário esperava noutra janela. O
+    destravamento clássico é simular um toque de ALT (o foreground-lock é
+    suspenso com ALT pressionado) e aí pedir SetForegroundWindow. O toque
+    é sintético e imediato — não digita nada em lugar nenhum."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnd = int(win.winId())
+        SW_RESTORE = 9
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, SW_RESTORE)
+        VK_MENU, KEYEVENTF_KEYUP = 0x12, 0x0002
+        user32.keybd_event(VK_MENU, 0, 0, 0)
+        try:
+            user32.SetForegroundWindow(hwnd)
+        finally:
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+    except Exception:
+        pass  # pior caso: continua o comportamento antigo (piscar na barra)
+
+
 def main() -> int:
     setup_logging()  # no-op if run.py already did it
     from .no_console import harden_subprocess
@@ -189,6 +217,7 @@ def main() -> int:
     # Windows nega o primeiro plano e o app nasce atrás de tudo.
     win.raise_()
     win.activateWindow()
+    _force_foreground(win)
 
     # Agora sim os diálogos interativos, por cima da janela visível:
     check_and_offer_update(parent=win, release=release)

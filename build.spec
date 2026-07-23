@@ -20,6 +20,9 @@ from PyInstaller.utils.hooks import (
 # find statically. We collect them explicitly.
 
 hidden = []
+# Preview em loop (aba Resultados): import é lazy no código — explícito
+# aqui garante o Qt Multimedia (e o backend ffmpeg dele) no bundle.
+hidden += ["PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets"]
 hidden += collect_submodules("open_clip")
 hidden += collect_submodules("ultralytics")
 hidden += collect_submodules("torch")

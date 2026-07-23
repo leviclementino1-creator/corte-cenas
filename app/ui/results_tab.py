@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -28,6 +29,74 @@ from . import quiet
 from .character_grid import ShotGrid
 from .quiet import set_quiet_icon
 from .worker import HarvestWorker, ReframeWorker
+
+
+class _ClipPreview(QWidget):
+    """Player pequeno que roda a cena SELECIONADA em loop (mudo).
+
+    O QMediaPlayer só nasce no primeiro clique — quem não usa preview não
+    paga o custo do backend de vídeo no load da aba. Qualquer erro de
+    codec/backend esconde o painel em silêncio: preview é açúcar, não pode
+    quebrar a curadoria."""
+
+    _HEIGHT = 200
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._player = None
+        self._audio = None
+        self._video = None
+        self._failed = False
+        self._lay = QVBoxLayout(self)
+        self._lay.setContentsMargins(0, 4, 0, 0)
+        self.setVisible(False)
+        self.setFixedHeight(0)
+
+    def _ensure_player(self) -> bool:
+        if self._failed:
+            return False
+        if self._player is not None:
+            return True
+        try:
+            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+            from PySide6.QtMultimediaWidgets import QVideoWidget
+            self._video = QVideoWidget()
+            self._video.setFixedHeight(self._HEIGHT)
+            self._audio = QAudioOutput()
+            self._audio.setMuted(True)
+            self._player = QMediaPlayer()
+            self._player.setAudioOutput(self._audio)
+            self._player.setVideoOutput(self._video)
+            self._player.setLoops(QMediaPlayer.Loops.Infinite)
+            self._player.errorOccurred.connect(self._on_error)
+            self._lay.addWidget(self._video)
+            return True
+        except Exception as e:
+            print(f"[CorteCenas] Preview indisponível (QtMultimedia): {e}")
+            self._failed = True
+            return False
+
+    def _on_error(self, *args) -> None:
+        print(f"[CorteCenas] Preview: erro de reprodução {args} — painel oculto.")
+        self.stop()
+        self._failed = True
+
+    def play(self, path: Path) -> None:
+        if not path.exists() or not self._ensure_player():
+            return
+        from PySide6.QtCore import QUrl
+        self.setFixedHeight(self._HEIGHT + 4)
+        self.setVisible(True)
+        self._player.setSource(QUrl.fromLocalFile(str(path)))
+        self._player.play()
+
+    def stop(self) -> None:
+        if self._player is not None:
+            from PySide6.QtCore import QUrl
+            self._player.stop()
+            self._player.setSource(QUrl())
+        self.setVisible(False)
+        self.setFixedHeight(0)
 
 
 class ResultsTab(QWidget):
@@ -73,6 +142,10 @@ class ResultsTab(QWidget):
 
         self.char_list = QListWidget()
         self.char_list.itemSelectionChanged.connect(self._on_character_selected)
+        # Botão direito no personagem: remover ele do episódio INTEIRO
+        # (cenas + pastas reais), com a decisão lembrada.
+        self.char_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.char_list.customContextMenuRequested.connect(self._char_menu)
         left_v.addWidget(self.char_list, 1)
 
         self.btn_refs = QPushButton("Abrir pasta de refs")
@@ -123,14 +196,26 @@ class ResultsTab(QWidget):
         split.addWidget(left)
 
         self.grid: ShotGrid | None = None
+        right = QWidget()
+        right_v = QVBoxLayout(right)
+        right_v.setContentsMargins(0, 0, 0, 0)
+        right_v.setSpacing(0)
         self._grid_container = QWidget()
         self._grid_layout = QVBoxLayout(self._grid_container)
         self._grid_layout.setContentsMargins(0, 0, 0, 0)
-        placeholder = QLabel("Selecione um personagem para ver seus shots.")
+        placeholder = QLabel(
+            "Selecione um personagem para ver seus shots.\n"
+            "Clique numa cena pra vê-la em loop; duplo clique abre no player."
+        )
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         placeholder.setStyleSheet("color:#888;")
         self._grid_layout.addWidget(placeholder)
-        split.addWidget(self._grid_container)
+        right_v.addWidget(self._grid_container, 1)
+        # Preview em loop da cena selecionada — fica FORA do _grid_layout,
+        # que é limpo a cada troca de episódio.
+        self.preview = _ClipPreview()
+        right_v.addWidget(self.preview)
+        split.addWidget(right)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
         split.setSizes([220, 700])
@@ -535,6 +620,7 @@ class ResultsTab(QWidget):
         box.exec()
 
     def _replace_grid(self, new_grid: ShotGrid) -> None:
+        self.preview.stop()
         # clear layout
         while self._grid_layout.count():
             item = self._grid_layout.takeAt(0)
@@ -544,7 +630,73 @@ class ResultsTab(QWidget):
         self.grid = new_grid
         self.grid.shot_activated.connect(self._play_shot)
         self.grid.shot_action.connect(self._handle_shot_action)
+        self.grid.shot_selected.connect(self._preview_shot)
         self._grid_layout.addWidget(self.grid)
+
+    def _preview_shot(self, row: dict) -> None:
+        """Cena selecionada no grid → roda em loop no painel de preview.
+        Seleção vazia (troca de personagem, remoção) para o player."""
+        if not row or not row.get("file") or self._current_result is None:
+            self.preview.stop()
+            return
+        self.preview.play(Path(self._current_result.episode_root) / row["file"])
+
+    def _char_menu(self, pos) -> None:
+        item = self.char_list.itemAt(pos)
+        d = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not d or d.get("pair") or self._current_result is None:
+            return
+        menu = QMenu(self)
+        act_del = menu.addAction(f'🗑  Remover "{d["name"]}" do episódio')
+        chosen = menu.exec(self.char_list.mapToGlobal(pos))
+        if chosen is act_del:
+            self._remove_character_from_episode(d)
+
+    def _remove_character_from_episode(self, char: dict) -> None:
+        """Demite o personagem do episódio inteiro: todas as cenas saem dele
+        no banco E nas pastas reais (a pasta by_character dele esvazia e
+        some), cada remoção vira bloqueio lembrado — a reanálise não devolve.
+        Os clipes em si continuam em shots/ e nos outros personagens."""
+        ep_id = getattr(self._current_result, "episode_id", None)
+        if ep_id is None:
+            return
+        shots = self.db.shots_for_character(char["id"], ep_id)
+        if not shots:
+            quiet.information(
+                self, "Nada a remover",
+                f"{char['name']} não tem cenas neste episódio.",
+            )
+            return
+        resp = quiet.question(
+            self, "Remover personagem do episódio",
+            f"Remover \"{char['name']}\" deste episódio?\n\n"
+            f"• {len(shots)} cenas saem dele — a pasta real some junto\n"
+            "• O app LEMBRA: reanálises não trazem essas cenas de volta\n"
+            "• Os clipes continuam em shots/ e nos outros personagens\n"
+            "• As fotos de referência dele não são tocadas",
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+        for s in shots:
+            self.db.remove_shot_character(int(s["id"]), char["id"])
+            self.db.record_manual(ep_id, int(s["idx"]), char["id"], "block")
+        # Pastas reais na hora, como no remover individual (v0.4.3).
+        try:
+            from ..storage.organizer import refresh_shot_links
+            root = Path(self._current_result.episode_root)
+            by_shot = self.db.assignments_for_episode(ep_id)
+            for s in shots:
+                names_now = [a["name"] for a in by_shot.get(int(s["id"]), [])]
+                refresh_shot_links(root, root / s["file"], names_now)
+        except Exception as e:
+            print(f"[CorteCenas] Sincronização das pastas falhou: {e}")
+        self.preview.stop()
+        self._reload_characters()
+        quiet.information(
+            self, "Personagem removido",
+            f"\"{char['name']}\" saiu do episódio: {len(shots)} cenas "
+            "removidas das pastas. Decisão lembrada pras próximas reanálises.",
+        )
 
     def _handle_shot_action(self, action: str, shots: list) -> None:
         """Context-menu callback from ShotGrid: manual cleanup of the

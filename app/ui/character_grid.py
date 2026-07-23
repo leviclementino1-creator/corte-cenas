@@ -73,6 +73,9 @@ class ShotGrid(QWidget):
     # action_name in {"remove", "move", "approve"}, plus the SELECTED shot
     # rows (1..N — Ctrl/Shift/laço selecionam vários de uma vez).
     shot_action = Signal(str, list)
+    # Seleção mudou: a linha do shot selecionado ({} quando nada) — é o que
+    # alimenta o preview em loop na aba Resultados.
+    shot_selected = Signal(dict)
 
     def __init__(self, episode_root: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -98,9 +101,15 @@ class ShotGrid(QWidget):
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list.setSpacing(6)
         self.list.itemDoubleClicked.connect(self._on_activate)
+        self.list.itemSelectionChanged.connect(self._on_selection)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.list, 1)
+
+    def _on_selection(self) -> None:
+        items = self.list.selectedItems()
+        data = items[0].data(Qt.ItemDataRole.UserRole) if items else None
+        self.shot_selected.emit(data or {})
 
     def load_for_character(self, shots: list[dict], character_name: str) -> None:
         self.list.clear()
