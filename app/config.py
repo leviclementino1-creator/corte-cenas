@@ -151,6 +151,10 @@ class Config:
     second_pass_threshold: float = 0.86
     second_pass_min_sources: int = 2        # shots-fonte mínimos por personagem
     second_pass_max_bank: int = 40          # refs de episódio máximas por personagem
+    # Higiene do banco: semente só entra com FOLGA — atribuição raspando o
+    # threshold (0.80-0.84) que entrava no banco causava bola de neve (caso
+    # Granbell: cenas escuras parecidas viraram 130 "acertos" em cadeia).
+    second_pass_seed_min: float = 0.85
 
     # Resgate por GRUPO (Descoberta embutida no verde): os rostos que
     # sobraram sem dono são agrupados entre si (mesma pessoa a 0.86+ no

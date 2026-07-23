@@ -496,8 +496,10 @@ class SettingsDialog(QDialog):
         else:
             QMessageBox.information(
                 self, "Cache apagado",
-                "Cache zerado por completo. A próxima análise baixa elencos "
-                "e fotos do zero (os modelos e seus clipes não foram tocados).",
+                "Cache zerado. Por segurança, tudo foi MOVIDO pra pasta "
+                "cache_lixeira (ao lado do cache) — se você se arrepender, "
+                "dá pra recuperar de lá; se quiser o espaço, apague-a. "
+                "Modelos e seus clipes não foram tocados.",
             )
 
     def _check_updates(self) -> None:

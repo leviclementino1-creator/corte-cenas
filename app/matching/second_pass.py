@@ -41,6 +41,7 @@ def build_episode_banks(
     *,
     min_sources: int = 2,
     max_bank: int = 40,
+    min_seed: float = 0.0,
 ) -> dict[int, np.ndarray]:
     """Monta o banco de referências do episódio por personagem.
 
@@ -55,7 +56,12 @@ def build_episode_banks(
     for sf in shots:
         if sf.embs is None or sf.embs.size == 0 or not sf.assigned:
             continue
-        chars = [by_id[cid] for cid, _ in sf.assigned if cid in by_id]
+        # Higiene: atribuição raspando o threshold não vira semente — banco
+        # contaminado espalha o erro em cadeia (min_seed exige folga).
+        chars = [
+            by_id[cid] for cid, conf in sf.assigned
+            if cid in by_id and conf >= min_seed
+        ]
         if not chars:
             continue
         # (n_faces, n_chars): melhor sim de cada rosto contra os protótipos

@@ -75,22 +75,23 @@ def clean_catalog_refs(cache_path: Path) -> tuple[int, int]:
 
 
 def wipe_cache(cache_path: Path) -> list[str]:
-    """Apagão: TODO o conteúdo do cache — refs (inclusive batismos e
-    manuais!), banco de resultados/curadoria (index.db) e caches de elenco.
-    Modelos e a pasta Output não são tocados.
+    """Apagão SEGURO: o conteúdo do cache é MOVIDO pra uma lixeira ao lado
+    (cache_lixeira/<data>), não destruído — lição de produção: um clique
+    apagou batismos e curadoria pra sempre (rmtree não passa pela Lixeira
+    do Windows). Quem quiser o espaço de volta apaga a lixeira na mão.
 
-    Retorna o que NÃO conseguiu apagar (arquivo em uso por uma análise,
+    Retorna o que NÃO conseguiu mover (arquivo em uso por uma análise,
     banco aberto...) — engolir falha silenciosamente deixava o usuário
     achando que apagou tudo quando não apagou."""
     root = Path(cache_path)
     if not root.exists():
         return []
+    from datetime import datetime
+    trash = root.parent / "cache_lixeira" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    trash.mkdir(parents=True, exist_ok=True)
     for child in root.iterdir():
         try:
-            if child.is_dir():
-                shutil.rmtree(child, ignore_errors=True)
-            else:
-                child.unlink()
+            shutil.move(str(child), str(trash / child.name))
         except OSError:
             pass
     leftovers: list[str] = []

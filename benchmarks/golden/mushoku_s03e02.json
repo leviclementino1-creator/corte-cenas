@@ -1,0 +1,810 @@
+{
+  "anime": "Mushoku Tensei",
+  "anime_query": "Mushoku Tensei",
+  "season": 3,
+  "episode": 2,
+  "source_file": "C:\\Users\\levic\\Downloads\\[SubsPlease] Mushoku Tensei S3 - 02 (1080p) [C05F84ED].mkv",
+  "characters": [
+    "Farion, Nina",
+    "Greyrat, Eris Boreas",
+    "Greyrat, Paul",
+    "Nanahoshi, Shizuka",
+    "Shirone, Zanoba",
+    "Superdia, Ruijerd"
+  ],
+  "char_counts": {
+    "Farion, Nina": 129,
+    "Greyrat, Eris Boreas": 79,
+    "Greyrat, Paul": 34,
+    "Nanahoshi, Shizuka": 18,
+    "Shirone, Zanoba": 17,
+    "Superdia, Ruijerd": 16
+  },
+  "per_shot": {
+    "1": [
+      "Greyrat, Paul",
+      "Superdia, Ruijerd"
+    ],
+    "3": [
+      "Farion, Nina"
+    ],
+    "4": [
+      "Farion, Nina"
+    ],
+    "5": [
+      "Farion, Nina",
+      "Greyrat, Paul"
+    ],
+    "6": [
+      "Farion, Nina"
+    ],
+    "8": [
+      "Greyrat, Eris Boreas"
+    ],
+    "9": [
+      "Greyrat, Eris Boreas"
+    ],
+    "10": [
+      "Farion, Nina"
+    ],
+    "11": [
+      "Farion, Nina"
+    ],
+    "12": [
+      "Greyrat, Eris Boreas"
+    ],
+    "13": [
+      "Greyrat, Eris Boreas"
+    ],
+    "14": [
+      "Farion, Nina"
+    ],
+    "15": [
+      "Greyrat, Eris Boreas"
+    ],
+    "16": [
+      "Farion, Nina",
+      "Greyrat, Paul"
+    ],
+    "18": [
+      "Farion, Nina"
+    ],
+    "19": [
+      "Greyrat, Eris Boreas"
+    ],
+    "20": [
+      "Farion, Nina"
+    ],
+    "21": [
+      "Farion, Nina"
+    ],
+    "22": [
+      "Greyrat, Eris Boreas"
+    ],
+    "23": [
+      "Farion, Nina"
+    ],
+    "24": [
+      "Greyrat, Eris Boreas"
+    ],
+    "26": [
+      "Greyrat, Eris Boreas"
+    ],
+    "27": [
+      "Greyrat, Eris Boreas"
+    ],
+    "28": [
+      "Farion, Nina"
+    ],
+    "29": [
+      "Farion, Nina"
+    ],
+    "30": [
+      "Farion, Nina"
+    ],
+    "31": [
+      "Greyrat, Paul",
+      "Superdia, Ruijerd"
+    ],
+    "32": [
+      "Greyrat, Paul"
+    ],
+    "33": [
+      "Greyrat, Paul"
+    ],
+    "34": [
+      "Farion, Nina"
+    ],
+    "35": [
+      "Farion, Nina"
+    ],
+    "36": [
+      "Greyrat, Paul",
+      "Nanahoshi, Shizuka"
+    ],
+    "38": [
+      "Farion, Nina"
+    ],
+    "39": [
+      "Farion, Nina",
+      "Nanahoshi, Shizuka"
+    ],
+    "40": [
+      "Farion, Nina"
+    ],
+    "41": [
+      "Superdia, Ruijerd"
+    ],
+    "42": [
+      "Farion, Nina"
+    ],
+    "43": [
+      "Nanahoshi, Shizuka"
+    ],
+    "44": [
+      "Farion, Nina",
+      "Greyrat, Paul"
+    ],
+    "46": [
+      "Farion, Nina"
+    ],
+    "47": [
+      "Farion, Nina"
+    ],
+    "50": [
+      "Greyrat, Paul"
+    ],
+    "51": [
+      "Farion, Nina"
+    ],
+    "52": [
+      "Farion, Nina"
+    ],
+    "55": [
+      "Farion, Nina",
+      "Greyrat, Paul"
+    ],
+    "56": [
+      "Greyrat, Paul",
+      "Nanahoshi, Shizuka"
+    ],
+    "57": [
+      "Farion, Nina",
+      "Greyrat, Paul"
+    ],
+    "58": [
+      "Farion, Nina",
+      "Greyrat, Paul"
+    ],
+    "59": [
+      "Farion, Nina"
+    ],
+    "60": [
+      "Greyrat, Paul"
+    ],
+    "61": [
+      "Greyrat, Paul",
+      "Nanahoshi, Shizuka"
+    ],
+    "62": [
+      "Greyrat, Paul"
+    ],
+    "64": [
+      "Greyrat, Paul"
+    ],
+    "66": [
+      "Greyrat, Paul"
+    ],
+    "67": [
+      "Farion, Nina"
+    ],
+    "68": [
+      "Farion, Nina"
+    ],
+    "69": [
+      "Farion, Nina"
+    ],
+    "70": [
+      "Greyrat, Paul"
+    ],
+    "71": [
+      "Greyrat, Paul"
+    ],
+    "72": [
+      "Farion, Nina"
+    ],
+    "75": [
+      "Greyrat, Paul",
+      "Superdia, Ruijerd"
+    ],
+    "78": [
+      "Greyrat, Paul"
+    ],
+    "79": [
+      "Greyrat, Paul"
+    ],
+    "80": [
+      "Farion, Nina"
+    ],
+    "81": [
+      "Farion, Nina"
+    ],
+    "82": [
+      "Farion, Nina"
+    ],
+    "84": [
+      "Farion, Nina"
+    ],
+    "85": [
+      "Farion, Nina"
+    ],
+    "87": [
+      "Farion, Nina"
+    ],
+    "88": [
+      "Greyrat, Paul",
+      "Superdia, Ruijerd"
+    ],
+    "89": [
+      "Greyrat, Paul"
+    ],
+    "91": [
+      "Farion, Nina",
+      "Greyrat, Paul"
+    ],
+    "92": [
+      "Greyrat, Paul"
+    ],
+    "96": [
+      "Farion, Nina"
+    ],
+    "97": [
+      "Greyrat, Paul",
+      "Nanahoshi, Shizuka"
+    ],
+    "98": [
+      "Greyrat, Paul"
+    ],
+    "105": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "106": [
+      "Farion, Nina"
+    ],
+    "107": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "110": [
+      "Superdia, Ruijerd"
+    ],
+    "112": [
+      "Shirone, Zanoba"
+    ],
+    "113": [
+      "Shirone, Zanoba"
+    ],
+    "115": [
+      "Farion, Nina"
+    ],
+    "116": [
+      "Greyrat, Eris Boreas"
+    ],
+    "118": [
+      "Farion, Nina",
+      "Shirone, Zanoba"
+    ],
+    "120": [
+      "Farion, Nina"
+    ],
+    "121": [
+      "Greyrat, Eris Boreas"
+    ],
+    "125": [
+      "Farion, Nina",
+      "Shirone, Zanoba"
+    ],
+    "126": [
+      "Farion, Nina"
+    ],
+    "127": [
+      "Shirone, Zanoba"
+    ],
+    "128": [
+      "Farion, Nina"
+    ],
+    "129": [
+      "Greyrat, Eris Boreas"
+    ],
+    "130": [
+      "Greyrat, Eris Boreas"
+    ],
+    "131": [
+      "Shirone, Zanoba"
+    ],
+    "132": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "135": [
+      "Superdia, Ruijerd"
+    ],
+    "136": [
+      "Shirone, Zanoba"
+    ],
+    "137": [
+      "Shirone, Zanoba"
+    ],
+    "139": [
+      "Shirone, Zanoba"
+    ],
+    "142": [
+      "Shirone, Zanoba"
+    ],
+    "144": [
+      "Greyrat, Eris Boreas"
+    ],
+    "145": [
+      "Nanahoshi, Shizuka",
+      "Shirone, Zanoba"
+    ],
+    "146": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "147": [
+      "Farion, Nina"
+    ],
+    "148": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "150": [
+      "Farion, Nina"
+    ],
+    "151": [
+      "Farion, Nina"
+    ],
+    "153": [
+      "Farion, Nina",
+      "Shirone, Zanoba"
+    ],
+    "154": [
+      "Farion, Nina",
+      "Superdia, Ruijerd"
+    ],
+    "155": [
+      "Greyrat, Eris Boreas"
+    ],
+    "156": [
+      "Greyrat, Eris Boreas"
+    ],
+    "157": [
+      "Farion, Nina"
+    ],
+    "158": [
+      "Greyrat, Paul",
+      "Superdia, Ruijerd"
+    ],
+    "161": [
+      "Nanahoshi, Shizuka"
+    ],
+    "162": [
+      "Nanahoshi, Shizuka"
+    ],
+    "163": [
+      "Farion, Nina",
+      "Nanahoshi, Shizuka"
+    ],
+    "164": [
+      "Greyrat, Eris Boreas"
+    ],
+    "165": [
+      "Farion, Nina",
+      "Shirone, Zanoba"
+    ],
+    "166": [
+      "Greyrat, Eris Boreas"
+    ],
+    "167": [
+      "Farion, Nina"
+    ],
+    "168": [
+      "Farion, Nina"
+    ],
+    "169": [
+      "Superdia, Ruijerd"
+    ],
+    "170": [
+      "Farion, Nina"
+    ],
+    "171": [
+      "Farion, Nina"
+    ],
+    "172": [
+      "Farion, Nina"
+    ],
+    "173": [
+      "Farion, Nina"
+    ],
+    "175": [
+      "Greyrat, Eris Boreas",
+      "Superdia, Ruijerd"
+    ],
+    "176": [
+      "Farion, Nina"
+    ],
+    "177": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "178": [
+      "Shirone, Zanoba"
+    ],
+    "179": [
+      "Greyrat, Eris Boreas"
+    ],
+    "180": [
+      "Farion, Nina"
+    ],
+    "181": [
+      "Superdia, Ruijerd"
+    ],
+    "182": [
+      "Shirone, Zanoba"
+    ],
+    "184": [
+      "Farion, Nina"
+    ],
+    "186": [
+      "Farion, Nina",
+      "Superdia, Ruijerd"
+    ],
+    "187": [
+      "Farion, Nina"
+    ],
+    "188": [
+      "Greyrat, Eris Boreas"
+    ],
+    "189": [
+      "Greyrat, Eris Boreas"
+    ],
+    "190": [
+      "Farion, Nina",
+      "Nanahoshi, Shizuka"
+    ],
+    "191": [
+      "Farion, Nina"
+    ],
+    "192": [
+      "Greyrat, Eris Boreas"
+    ],
+    "193": [
+      "Farion, Nina"
+    ],
+    "194": [
+      "Farion, Nina"
+    ],
+    "195": [
+      "Farion, Nina"
+    ],
+    "196": [
+      "Greyrat, Eris Boreas"
+    ],
+    "197": [
+      "Greyrat, Eris Boreas"
+    ],
+    "198": [
+      "Farion, Nina"
+    ],
+    "199": [
+      "Greyrat, Paul"
+    ],
+    "200": [
+      "Farion, Nina"
+    ],
+    "202": [
+      "Greyrat, Eris Boreas"
+    ],
+    "203": [
+      "Farion, Nina"
+    ],
+    "204": [
+      "Greyrat, Eris Boreas",
+      "Greyrat, Paul"
+    ],
+    "205": [
+      "Greyrat, Eris Boreas"
+    ],
+    "206": [
+      "Farion, Nina"
+    ],
+    "207": [
+      "Greyrat, Eris Boreas"
+    ],
+    "208": [
+      "Farion, Nina"
+    ],
+    "209": [
+      "Greyrat, Eris Boreas"
+    ],
+    "210": [
+      "Farion, Nina"
+    ],
+    "211": [
+      "Farion, Nina"
+    ],
+    "212": [
+      "Farion, Nina"
+    ],
+    "213": [
+      "Farion, Nina"
+    ],
+    "214": [
+      "Greyrat, Eris Boreas"
+    ],
+    "215": [
+      "Greyrat, Eris Boreas"
+    ],
+    "217": [
+      "Greyrat, Eris Boreas",
+      "Greyrat, Paul"
+    ],
+    "218": [
+      "Greyrat, Eris Boreas"
+    ],
+    "219": [
+      "Farion, Nina"
+    ],
+    "220": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "221": [
+      "Greyrat, Eris Boreas"
+    ],
+    "222": [
+      "Farion, Nina"
+    ],
+    "223": [
+      "Farion, Nina"
+    ],
+    "224": [
+      "Farion, Nina"
+    ],
+    "227": [
+      "Nanahoshi, Shizuka"
+    ],
+    "229": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "230": [
+      "Greyrat, Eris Boreas"
+    ],
+    "232": [
+      "Farion, Nina"
+    ],
+    "233": [
+      "Greyrat, Eris Boreas"
+    ],
+    "234": [
+      "Greyrat, Eris Boreas"
+    ],
+    "235": [
+      "Greyrat, Eris Boreas"
+    ],
+    "236": [
+      "Farion, Nina"
+    ],
+    "237": [
+      "Greyrat, Eris Boreas"
+    ],
+    "238": [
+      "Greyrat, Eris Boreas"
+    ],
+    "239": [
+      "Farion, Nina"
+    ],
+    "241": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "244": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "246": [
+      "Greyrat, Eris Boreas"
+    ],
+    "248": [
+      "Greyrat, Eris Boreas"
+    ],
+    "251": [
+      "Farion, Nina"
+    ],
+    "253": [
+      "Farion, Nina"
+    ],
+    "255": [
+      "Farion, Nina"
+    ],
+    "256": [
+      "Farion, Nina"
+    ],
+    "257": [
+      "Farion, Nina"
+    ],
+    "258": [
+      "Farion, Nina"
+    ],
+    "259": [
+      "Farion, Nina"
+    ],
+    "260": [
+      "Farion, Nina"
+    ],
+    "261": [
+      "Greyrat, Eris Boreas"
+    ],
+    "263": [
+      "Greyrat, Eris Boreas"
+    ],
+    "264": [
+      "Greyrat, Eris Boreas"
+    ],
+    "265": [
+      "Farion, Nina"
+    ],
+    "269": [
+      "Greyrat, Eris Boreas"
+    ],
+    "270": [
+      "Farion, Nina"
+    ],
+    "271": [
+      "Greyrat, Eris Boreas"
+    ],
+    "273": [
+      "Farion, Nina",
+      "Superdia, Ruijerd"
+    ],
+    "274": [
+      "Farion, Nina"
+    ],
+    "275": [
+      "Farion, Nina"
+    ],
+    "276": [
+      "Farion, Nina"
+    ],
+    "277": [
+      "Greyrat, Eris Boreas"
+    ],
+    "278": [
+      "Farion, Nina"
+    ],
+    "279": [
+      "Farion, Nina"
+    ],
+    "280": [
+      "Nanahoshi, Shizuka"
+    ],
+    "281": [
+      "Farion, Nina",
+      "Nanahoshi, Shizuka"
+    ],
+    "282": [
+      "Farion, Nina"
+    ],
+    "283": [
+      "Greyrat, Eris Boreas"
+    ],
+    "284": [
+      "Greyrat, Eris Boreas"
+    ],
+    "285": [
+      "Farion, Nina"
+    ],
+    "286": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "287": [
+      "Farion, Nina"
+    ],
+    "288": [
+      "Greyrat, Eris Boreas"
+    ],
+    "289": [
+      "Greyrat, Eris Boreas"
+    ],
+    "290": [
+      "Nanahoshi, Shizuka"
+    ],
+    "291": [
+      "Greyrat, Eris Boreas"
+    ],
+    "292": [
+      "Greyrat, Eris Boreas"
+    ],
+    "293": [
+      "Greyrat, Eris Boreas"
+    ],
+    "295": [
+      "Greyrat, Paul",
+      "Superdia, Ruijerd"
+    ],
+    "296": [
+      "Greyrat, Eris Boreas"
+    ],
+    "297": [
+      "Farion, Nina"
+    ],
+    "298": [
+      "Farion, Nina"
+    ],
+    "299": [
+      "Nanahoshi, Shizuka"
+    ],
+    "300": [
+      "Greyrat, Eris Boreas"
+    ],
+    "301": [
+      "Farion, Nina"
+    ],
+    "302": [
+      "Nanahoshi, Shizuka"
+    ],
+    "305": [
+      "Farion, Nina"
+    ],
+    "306": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "307": [
+      "Greyrat, Eris Boreas"
+    ],
+    "312": [
+      "Farion, Nina"
+    ],
+    "313": [
+      "Greyrat, Eris Boreas"
+    ],
+    "314": [
+      "Greyrat, Eris Boreas"
+    ],
+    "317": [
+      "Shirone, Zanoba"
+    ],
+    "318": [
+      "Shirone, Zanoba"
+    ],
+    "320": [
+      "Superdia, Ruijerd"
+    ],
+    "322": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "323": [
+      "Greyrat, Eris Boreas"
+    ],
+    "324": [
+      "Farion, Nina",
+      "Greyrat, Eris Boreas"
+    ],
+    "325": [
+      "Farion, Nina"
+    ],
+    "327": [
+      "Greyrat, Eris Boreas"
+    ],
+    "328": [
+      "Greyrat, Eris Boreas",
+      "Nanahoshi, Shizuka"
+    ]
+  }
+}

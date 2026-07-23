@@ -444,6 +444,29 @@ class Pipeline:
                     "reanalisar mais tarde deve recuperar o elenco completo."
                 )
 
+        # Protagonista CEGO: personagem Main sem refs utilizáveis não fica só
+        # de fora — as cenas dele (que são muitas) viram ímã de erro nos
+        # parecidos. Caso real: Rimuru com 2 retratos sem rosto → cenas dele
+        # engolidas pela Luminous. O usuário precisa saber ANTES de curar.
+        blind_mains = [
+            ch.name for ch in bundle.characters
+            if (ch.role or "").lower().startswith("main")
+            and faces_by_name.get(ch.name, 0) < cfg.min_ref_faces_trusted
+        ]
+        if blind_mains and entries:
+            msg = (
+                "⚠ Protagonista(s) sem referências utilizáveis: "
+                + ", ".join(blind_mains[:4])
+                + (" (+…)" if len(blind_mains) > 4 else "")
+                + ". As cenas deles podem contaminar personagens parecidos. "
+                "Recomendo: batize pelo Modo Descoberta ou adicione prints "
+                "na pasta de refs e reanalise (leva segundos)."
+            )
+            print(f"[CorteCenas] {msg}", flush=True)
+            low_refs_warning = (
+                (low_refs_warning + "\n\n" + msg) if low_refs_warning else msg
+            )
+
         matcher = CharacterMatcher(entries)
 
         # 6) Analyze shots — YOLO+CLIP via cache, modelos lazy do passo 5
@@ -759,6 +782,7 @@ class Pipeline:
                 shot_faces,
                 min_sources=cfg.second_pass_min_sources,
                 max_bank=cfg.second_pass_max_bank,
+                min_seed=cfg.second_pass_seed_min,
             )
             rescues = rescue_unassigned(
                 banks, shot_faces, threshold=cfg.second_pass_threshold
