@@ -74,13 +74,17 @@ def clean_catalog_refs(cache_path: Path) -> tuple[int, int]:
     return removed, animes
 
 
-def wipe_cache(cache_path: Path) -> None:
+def wipe_cache(cache_path: Path) -> list[str]:
     """Apagão: TODO o conteúdo do cache — refs (inclusive batismos e
     manuais!), banco de resultados/curadoria (index.db) e caches de elenco.
-    Modelos e a pasta Output não são tocados. As pastas base são recriadas."""
+    Modelos e a pasta Output não são tocados.
+
+    Retorna o que NÃO conseguiu apagar (arquivo em uso por uma análise,
+    banco aberto...) — engolir falha silenciosamente deixava o usuário
+    achando que apagou tudo quando não apagou."""
     root = Path(cache_path)
     if not root.exists():
-        return
+        return []
     for child in root.iterdir():
         try:
             if child.is_dir():
@@ -89,6 +93,14 @@ def wipe_cache(cache_path: Path) -> None:
                 child.unlink()
         except OSError:
             pass
+    leftovers: list[str] = []
+    for child in root.iterdir():
+        if child.is_dir():
+            n = sum(1 for _ in child.rglob("*"))
+            leftovers.append(f"{child.name}/ ({n} itens)")
+        else:
+            leftovers.append(child.name)
+    return leftovers
 
 
 def _image_count(d: Path) -> int:

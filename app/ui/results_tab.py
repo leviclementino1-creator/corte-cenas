@@ -62,6 +62,14 @@ class ResultsTab(QWidget):
         self.btn_open.clicked.connect(self._open_folder)
         self.btn_open.setEnabled(False)
         actions.addWidget(self.btn_open)
+        self.btn_sync = QPushButton("🔄 Sincronizar pastas")
+        self.btn_sync.setToolTip(
+            "Faxinou no Explorer? Clipe apagado da pasta de um personagem "
+            "vira remoção lembrada (mesma coisa que remover pelo app)."
+        )
+        self.btn_sync.clicked.connect(self._sync_clicked)
+        self.btn_sync.setEnabled(False)
+        actions.addWidget(self.btn_sync)
         actions.addStretch(1)
         root.addLayout(actions)
 
@@ -161,12 +169,15 @@ class ResultsTab(QWidget):
             f"Saída: {result.episode_root}"
         )
         self.btn_open.setEnabled(True)
+        self.btn_sync.setEnabled(True)
 
         # Rebuild grid for this episode_root
         self._replace_grid(ShotGrid(result.episode_root))
 
         # Populate character list for this anime
         self._anime_id = self._lookup_anime_id(result)
+        # Explorer → app: faxina feita direto nas pastas vira curadoria.
+        self._sync_from_disk(silent=True)
         self._reload_characters()
         # Enable the episode-level action buttons (harvest, AI review) now
         # that both `_current_result` and `_anime_cache_id` are set.
@@ -561,6 +572,93 @@ class ResultsTab(QWidget):
         self.grid.shot_activated.connect(self._play_shot)
         self.grid.shot_action.connect(self._handle_shot_action)
         self._grid_layout.addWidget(self.grid)
+
+    def _sync_clicked(self) -> None:
+        removed, purged_chars = self._sync_from_disk(silent=False)
+        self._reload_characters()
+        if removed or purged_chars:
+            quiet.information(
+                self, "Pastas sincronizadas",
+                f"{removed} remoção(ões) de cena e {purged_chars} "
+                "personagem(ns) removido(s) a partir da sua faxina no "
+                "Explorer. Tudo lembrado pras próximas reanálises.",
+            )
+        else:
+            quiet.information(
+                self, "Tudo em dia",
+                "As pastas batem com o app — nenhuma diferença encontrada.",
+            )
+
+    def _sync_from_disk(self, silent: bool = True) -> tuple[int, int]:
+        """Explorer → app: clipe apagado da pasta de um personagem vira
+        remoção com memória (mesma semântica do botão remover). Conservador:
+        arquivo sumido só conta quando a PASTA do personagem existe; pasta
+        INTEIRA sumida vira pergunta — nunca remoção silenciosa em massa."""
+        if (
+            self._current_result is None
+            or not self.config.organize_by_character_enabled
+        ):
+            return 0, 0
+        ep_id = getattr(self._current_result, "episode_id", None)
+        root = Path(self._current_result.episode_root)
+        by_char = root / "by_character"
+        if ep_id is None or not by_char.exists():
+            return 0, 0
+        from ..storage.organizer import refresh_shot_links, sanitize
+        by_shot = self.db.assignments_for_episode(ep_id)
+        shots_ep = self.db.shots_for_episode(ep_id)
+        file_by_id = {s["id"]: s["file"] for s in shots_ep}
+        idx_by_id = {s["id"]: s["idx"] for s in shots_ep}
+        removed = 0
+        touched: set[int] = set()
+        gone_chars: dict[str, int] = {}   # nome -> character_id (pasta sumiu)
+        for sid, assigns in by_shot.items():
+            rel = file_by_id.get(sid)
+            if not rel:
+                continue
+            fname = Path(rel).name
+            for a in assigns:
+                d = by_char / sanitize(a["name"])
+                if not d.exists():
+                    gone_chars[a["name"]] = a["id"]
+                    continue
+                if not (d / fname).exists():
+                    self.db.remove_shot_character(sid, a["id"])
+                    self.db.record_manual(
+                        ep_id, int(idx_by_id[sid]), a["id"], "block"
+                    )
+                    removed += 1
+                    touched.add(sid)
+        if touched:
+            by_shot2 = self.db.assignments_for_episode(ep_id)
+            for sid in touched:
+                names_now = [x["name"] for x in by_shot2.get(sid, [])]
+                try:
+                    refresh_shot_links(root, root / file_by_id[sid], names_now)
+                except Exception:
+                    pass
+        purged_chars = 0
+        if gone_chars and any(by_char.iterdir()):
+            # Pasta inteira apagada no Explorer: pergunta uma vez por
+            # personagem — pode ter sido faxina intencional ou acidente.
+            from ..curation import remove_character_from_episode
+            for name, cid in gone_chars.items():
+                resp = quiet.question(
+                    self, "Pasta apagada no Explorer",
+                    f"A pasta do personagem \"{name}\" não existe mais em "
+                    "by_character/. Remover ele deste episódio (com "
+                    "memória, como no botão remover)?",
+                )
+                if resp == QMessageBox.StandardButton.Yes:
+                    remove_character_from_episode(self.db, ep_id, cid, root)
+                    purged_chars += 1
+        if (removed or purged_chars) and silent:
+            print(
+                f"[CorteCenas] Sync do Explorer: {removed} cenas e "
+                f"{purged_chars} personagens removidos a partir da faxina "
+                "manual nas pastas."
+            )
+        return removed, purged_chars
 
     def _char_menu(self, pos) -> None:
         item = self.char_list.itemAt(pos)

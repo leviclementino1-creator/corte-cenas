@@ -108,12 +108,62 @@ class Pipeline:
         ai_mode: AIMode | str = AIMode.FULL,
         ai_review_ambiguous: bool = False,
         merge_previous: bool = False,
+        cut_only: bool = False,
     ) -> PipelineResult:
         timer = StageTimer()
         cb = timer.wrap(on_progress or _noop)
         cfg = self.cfg
 
         episode_root, metadata_dir, cut_results = self._prepare_shots(info, cb)
+
+        # === Modo "só cortar": episódio picado em cenas e mais nada ===
+        # Sem rede, sem refs, sem identificação — pra quem só quer os shots.
+        if cut_only:
+            for stage in ("fetch_characters", "download_refs", "embed_refs",
+                          "analyze_shots", "second_pass", "ai_review"):
+                cb(stage, 1.0, "— (só cortar)")
+            anime_id = self.db.upsert_anime(anilist_id=None, title=info.anime)
+            episode_id = self.db.upsert_episode(
+                anime_id, info.season, info.episode, str(info.source)
+            )
+            self.db.clear_episode_shots(episode_id)
+            cb("organize", -1.0, "Gravando metadados...")
+            shots_payload = []
+            for shot, shot_file, kfs in cut_results:
+                main_kf = kfs[len(kfs) // 2] if kfs else None
+                self.db.insert_shot(
+                    episode_id=episode_id,
+                    idx=shot.idx,
+                    file=str(shot_file.relative_to(episode_root)),
+                    keyframe=str(main_kf.relative_to(episode_root)) if main_kf else None,
+                    start=shot.start,
+                    end=shot.end,
+                )
+                shots_payload.append(build_shot_payload(
+                    {
+                        "idx": shot.idx,
+                        "file": str(shot_file.relative_to(episode_root)).replace("\\", "/"),
+                        "keyframe": str(main_kf.relative_to(episode_root)).replace("\\", "/") if main_kf else None,
+                        "start": shot.start,
+                        "end": shot.end,
+                    },
+                    info.anime, info.season, info.episode, [],
+                ))
+            write_shots_json(metadata_dir / "shots.json", shots_payload)
+            cb("organize", 1.0, "Concluído (só corte)")
+            result = PipelineResult(
+                episode_root=episode_root,
+                total_shots=len(cut_results),
+                total_characters=0,
+                identified_characters=[],
+                pair_counts={},
+                anime_title=info.anime,
+                season=info.season,
+                episode=info.episode,
+                episode_id=episode_id,
+            )
+            self._report_timings(timer, metadata_dir)
+            return result
 
         # 3) Anime / characters
         cb("fetch_characters", -1.0, "Consultando AniList + Jikan...")
@@ -1266,8 +1316,9 @@ class Pipeline:
             shots_payload.append(
                 build_shot_payload(shot_row, bundle.title, info.season, info.episode, assigns)
             )
-            if names:
+            if names and cfg.organize_by_character_enabled:
                 organize_by_character(shot_file, episode_root, names)
+            if names and cfg.organize_by_pair_enabled:
                 organize_by_pair(shot_file, episode_root, names)
 
         write_shots_json(metadata_dir / "shots.json", shots_payload)
@@ -1808,7 +1859,31 @@ class Pipeline:
             reencode=cfg.reencode_shots,
             on_progress=cut_cb,
         )
+        self._write_episode_readme(episode_root)
         return episode_root, metadata_dir, cut_results
+
+    @staticmethod
+    def _write_episode_readme(episode_root: Path) -> None:
+        """As pastas do episódio MENTEM pra quem não sabe o segredo (espelhos
+        via hardlink) — cinco linhas de LEIA-ME evitam meia dúzia de sustos."""
+        p = episode_root / "LEIA-ME.txt"
+        if p.exists():
+            return
+        try:
+            p.write_text(
+                "PASTAS DESTE EPISODIO — Corte Cenas\n"
+                "\n"
+                "shots/         Os clipes DE VERDADE (uma cena por arquivo).\n"
+                "by_character/  Espelhos por personagem (mesmo arquivo, sem ocupar\n"
+                "               espaco extra). Apagar aqui = curadoria: o app entende\n"
+                "               e lembra; o clipe original continua em shots/.\n"
+                "by_pair/       Espelhos das cenas em que dois personagens aparecem juntos.\n"
+                "keyframes/     Miniaturas usadas na analise e nos previews.\n"
+                "metadata/      Dados da analise (shots.json, caches). Nao mexer.\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
 
     def _lazy_models(self, cb: ProgressCb):
         """(get_engine, get_face_det) com carga adiada: os modelos só sobem

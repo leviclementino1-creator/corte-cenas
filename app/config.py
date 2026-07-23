@@ -29,6 +29,8 @@ _PERSISTED_FIELDS = (
     "min_shots_per_character",
     "face_crop_padding",
     "credit_edge_threshold",
+    "organize_by_character_enabled",
+    "organize_by_pair_enabled",
     # skip_credit_shots: intentionally NOT persisted — the heuristic is
     # fragile and we keep it OFF by default.
     "use_danbooru",
@@ -92,6 +94,12 @@ class Config:
 
     # Cutting
     reencode_shots: bool = True
+
+    # O que gerar na saída — tem usuário que só quer o episódio picado em
+    # cenas, sem organização por personagem; e o by_pair pode virar poluição
+    # de pasta em elenco grande. Tudo opcional, padrão = comportamento atual.
+    organize_by_character_enabled: bool = True
+    organize_by_pair_enabled: bool = True
 
     # Keyframes per shot used for recognition
     keyframes_per_shot: int = 3

@@ -84,6 +84,18 @@ class SettingsDialog(QDialog):
         info_out.setStyleSheet("color:#aaa;font-size:11px;")
         out_form.addRow("", info_out)
 
+        from PySide6.QtWidgets import QCheckBox
+        self.chk_by_char = QCheckBox("Criar pastas por personagem (by_character)")
+        self.chk_by_char.setChecked(self.config.organize_by_character_enabled)
+        out_form.addRow("", self.chk_by_char)
+        self.chk_by_pair = QCheckBox("Criar pastas de duplas (by_pair)")
+        self.chk_by_pair.setChecked(self.config.organize_by_pair_enabled)
+        self.chk_by_pair.setToolTip(
+            "Em elenco grande vira dezenas de pastinhas — desligar aqui não "
+            "afeta a seção Duplas da aba Resultados (ela lê do banco)."
+        )
+        out_form.addRow("", self.chk_by_pair)
+
         root.addWidget(out_group)
 
         # --- Pastas, cache e limpeza ---
@@ -470,13 +482,23 @@ class SettingsDialog(QDialog):
         box.exec()
         if box.clickedButton() is not yes:
             return
-        wipe_cache(self.config.cache_path)
+        leftovers = wipe_cache(self.config.cache_path)
         self.config.ensure_dirs()
-        QMessageBox.information(
-            self, "Cache apagado",
-            "Cache zerado. A próxima análise baixa elencos e fotos do zero "
-            "(os modelos e seus clipes não foram tocados).",
-        )
+        if leftovers:
+            QMessageBox.warning(
+                self, "Cache apagado (com sobras)",
+                "Quase tudo foi apagado, mas estes itens estavam EM USO e "
+                "ficaram pra trás:\n\n• " + "\n• ".join(leftovers[:10]) +
+                ("\n…" if len(leftovers) > 10 else "") +
+                "\n\nFeche análises em andamento (ou o app) e aperte o "
+                "botão de novo — ou apague pela pasta de cache.",
+            )
+        else:
+            QMessageBox.information(
+                self, "Cache apagado",
+                "Cache zerado por completo. A próxima análise baixa elencos "
+                "e fotos do zero (os modelos e seus clipes não foram tocados).",
+            )
 
     def _check_updates(self) -> None:
         self.update_btn.setEnabled(False)
@@ -491,6 +513,8 @@ class SettingsDialog(QDialog):
         out_path = self.output_edit.text().strip()
         if out_path:
             self.config.output_dir = out_path
+        self.config.organize_by_character_enabled = self.chk_by_char.isChecked()
+        self.config.organize_by_pair_enabled = self.chk_by_pair.isChecked()
         self.config.navyai_api_key = self.key_edit.text().strip()
         self.config.navyai_model = self.model_edit.text().strip() or "gemini-2.5-flash"
         self.config.navyai_base_url = self.base_edit.text().strip() or "https://api.navy/v1"

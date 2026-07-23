@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QIcon, QImageReader, QPixmap, QPixmapCache
+from PySide6.QtCore import (
+    QEvent,
+    QObject,
+    QRunnable,
+    QSize,
+    Qt,
+    QThreadPool,
+    Signal,
+)
+from PySide6.QtGui import QAction, QIcon, QImage, QImageReader, QPixmap, QPixmapCache
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -61,6 +69,57 @@ def _thumbnail(path: Path) -> QPixmap | None:
     return pix
 
 
+class _StripBridge(QObject):
+    """Ponte thread→GUI: o job roda no pool, o QIcon nasce na thread certa."""
+    ready = Signal(int, list)   # (shot_id, list[QImage])
+
+
+class _StripJob(QRunnable):
+    """Extrai ~8 frames espaçados do CLIPE da cena com cv2 (sem processo
+    ffmpeg, sem backend de vídeo do Qt) pra alimentar o scrub do preview.
+    Clipes de cena são pequenos (1-10s) — isso custa ~100-200ms uma vez e
+    fica cacheado em memória pela grade."""
+
+    N_FRAMES = 8
+
+    def __init__(self, shot_id: int, clip_path: str, bridge: _StripBridge) -> None:
+        super().__init__()
+        self.shot_id = shot_id
+        self.clip_path = clip_path
+        self.bridge = bridge
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        images: list[QImage] = []
+        try:
+            import cv2
+            cap = cv2.VideoCapture(self.clip_path)
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            if total > 0:
+                for k in range(self.N_FRAMES):
+                    pos = int(total * (k + 0.5) / self.N_FRAMES)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+                    ok, frame = cap.read()
+                    if not ok or frame is None:
+                        continue
+                    h, w = frame.shape[:2]
+                    scale = _THUMB.width() / max(w, 1)
+                    if scale < 1.0:
+                        frame = cv2.resize(
+                            frame, (int(w * scale), int(h * scale))
+                        )
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    hh, ww = rgb.shape[:2]
+                    img = QImage(
+                        rgb.data, ww, hh, 3 * ww, QImage.Format.Format_RGB888
+                    ).copy()   # .copy(): o buffer numpy morre com o job
+                    images.append(img)
+            cap.release()
+        except Exception:
+            images = []
+        self.bridge.ready.emit(self.shot_id, images)
+
+
 class ShotGrid(QWidget):
     """Thumbnail grid of shots for one character.
 
@@ -102,63 +161,102 @@ class ShotGrid(QWidget):
         self.list.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.list, 1)
 
-        # Preview no HOVER: passar o mouse numa cena cicla os 3 keyframes
-        # dela (JPEGs que já estão no disco e no QPixmapCache) — sensação
-        # de loop tipo YouTube SEM decodificar vídeo nenhum. Player de
-        # verdade só no duplo clique. (A 1ª versão usava QMediaPlayer e o
-        # backend de codec travou o app em produção — zero vídeo aqui.)
+        # Preview SCRUB estilo YouTube: a POSIÇÃO do mouse dentro da
+        # miniatura escolhe o momento da cena (esquerda = começo, direita =
+        # fim). Nos primeiros ms usa os 3 keyframes do disco; uma tira de
+        # frames extra é extraída do clipe em background (cv2, sem processo
+        # ffmpeg) e refina o scrub quando fica pronta. Zero backend de
+        # vídeo do Qt — a 1ª versão usava QMediaPlayer e travou o app.
         self.list.setMouseTracking(True)
-        self.list.itemEntered.connect(self._hover_start)
         self.list.viewport().installEventFilter(self)
-        self._hover_timer = QTimer(self)
-        self._hover_timer.setInterval(450)
-        self._hover_timer.timeout.connect(self._hover_tick)
         self._hover_item: QListWidgetItem | None = None
         self._hover_frames: list[QIcon] = []
-        self._hover_idx = 0
         self._hover_icon0: QIcon | None = None
+        self._hover_idx = -1
+        self._strips: dict[int, list[QIcon]] = {}   # shot_id -> tira pronta
+        self._strip_pending: set[int] = set()
+        self._strip_bridge = _StripBridge()
+        self._strip_bridge.ready.connect(self._on_strip_ready)
+        self._pool = QThreadPool.globalInstance()
 
     def eventFilter(self, obj, event) -> bool:
-        if obj is self.list.viewport() and event.type() == QEvent.Type.Leave:
-            self._hover_stop()
+        if obj is self.list.viewport():
+            if event.type() == QEvent.Type.Leave:
+                self._hover_stop()
+            elif event.type() == QEvent.Type.MouseMove:
+                self._hover_move(event.position().toPoint())
         return super().eventFilter(obj, event)
 
-    def _hover_start(self, item: QListWidgetItem) -> None:
-        if item is self._hover_item:
+    def _hover_move(self, pos) -> None:
+        item = self.list.itemAt(pos)
+        if item is not self._hover_item:
+            self._hover_start(item)
+        if self._hover_item is None or not self._hover_frames:
             return
+        rect = self.list.visualItemRect(self._hover_item)
+        if rect.width() <= 0:
+            return
+        frac = max(0.0, min(0.999, (pos.x() - rect.x()) / rect.width()))
+        idx = int(frac * len(self._hover_frames))
+        if idx != self._hover_idx:
+            self._hover_idx = idx
+            self._hover_item.setIcon(self._hover_frames[idx])
+
+    def _hover_start(self, item: QListWidgetItem | None) -> None:
         self._hover_stop()
+        if item is None:
+            return
         row = item.data(Qt.ItemDataRole.UserRole)
-        kf = (row or {}).get("keyframe")
-        if not kf:
+        if not row:
             return
-        # keyframes/NNNN_K.jpg → irmãos NNNN_*.jpg = os frames do "loop"
-        kf_path = self.episode_root / kf
-        stem = kf_path.stem.rsplit("_", 1)[0]
-        frames = sorted(kf_path.parent.glob(f"{stem}_*.jpg"))
-        if len(frames) < 2:
-            return
-        icons = []
-        for f in frames:
-            pm = _thumbnail(str(f))
-            if pm is not None:
-                icons.append(QIcon(pm))
-        if len(icons) < 2:
-            return
+        shot_id = int(row.get("id") or 0)
+        frames = self._strips.get(shot_id)
+        if frames is None:
+            # keyframes do disco seguram o scrub enquanto a tira não chega
+            kf = row.get("keyframe")
+            if not kf:
+                return
+            kf_path = self.episode_root / kf
+            stem = kf_path.stem.rsplit("_", 1)[0]
+            frames = []
+            for f in sorted(kf_path.parent.glob(f"{stem}_*.jpg")):
+                pm = _thumbnail(str(f))
+                if pm is not None:
+                    frames.append(QIcon(pm))
+            if not frames:
+                return
+            self._request_strip(shot_id, row)
         self._hover_item = item
         self._hover_icon0 = item.icon()
-        self._hover_frames = icons
-        self._hover_idx = 0
-        self._hover_timer.start()
+        self._hover_frames = frames
+        self._hover_idx = -1
 
-    def _hover_tick(self) -> None:
-        if self._hover_item is None or not self._hover_frames:
-            self._hover_stop()
+    def _request_strip(self, shot_id: int, row: dict) -> None:
+        if shot_id in self._strip_pending or shot_id in self._strips:
             return
-        self._hover_idx = (self._hover_idx + 1) % len(self._hover_frames)
-        self._hover_item.setIcon(self._hover_frames[self._hover_idx])
+        file_rel = row.get("file")
+        if not file_rel:
+            return
+        clip = self.episode_root / file_rel
+        if not clip.exists():
+            return
+        self._strip_pending.add(shot_id)
+        self._pool.start(_StripJob(shot_id, str(clip), self._strip_bridge))
+
+    def _on_strip_ready(self, shot_id: int, images: list) -> None:
+        self._strip_pending.discard(shot_id)
+        if not images:
+            return
+        icons = [QIcon(QPixmap.fromImage(img)) for img in images]
+        self._strips[shot_id] = icons
+        # se o mouse ainda está na mesma cena, refina o scrub na hora
+        if self._hover_item is not None:
+            row = self._hover_item.data(Qt.ItemDataRole.UserRole)
+            if row and int(row.get("id") or 0) == shot_id:
+                self._hover_frames = icons
+                self._hover_idx = -1
 
     def _hover_stop(self) -> None:
-        self._hover_timer.stop()
         if self._hover_item is not None and self._hover_icon0 is not None:
             try:
                 self._hover_item.setIcon(self._hover_icon0)
@@ -167,6 +265,7 @@ class ShotGrid(QWidget):
         self._hover_item = None
         self._hover_frames = []
         self._hover_icon0 = None
+        self._hover_idx = -1
 
     def load_for_character(self, shots: list[dict], character_name: str) -> None:
         self.list.clear()

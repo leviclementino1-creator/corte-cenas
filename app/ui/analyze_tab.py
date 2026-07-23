@@ -291,6 +291,14 @@ class AnalyzeTab(QWidget):
         )
         adv_form.addRow("", self.danbooru_cb)
 
+        self.cut_only_cb = QCheckBox("✂️  Só cortar as cenas (sem identificar personagens)")
+        self.cut_only_cb.setToolTip(
+            "Pica o episódio inteiro em cenas na pasta shots/ e para aí — "
+            "sem internet, sem referências, sem pastas por personagem. "
+            "Pra quando você só quer os cortes."
+        )
+        adv_form.addRow("", self.cut_only_cb)
+
         layout.addWidget(adv)
 
         # Hook preset clicks and select initial preset based on current config
@@ -543,8 +551,11 @@ class AnalyzeTab(QWidget):
         # ruins da análise anterior somem) ou SOMA por cima (nada que já foi
         # identificado se perde; erros antigos ficam até serem removidos na
         # mão). A curadoria manual sobrevive nas duas opções.
+        cut_only = (
+            not use_ai and not discovery and self.cut_only_cb.isChecked()
+        )
         merge_previous = False
-        if not discovery:
+        if not discovery and not cut_only:
             try:
                 from ..storage.db import Database
                 _db = Database(self.config.cache_path / "index.db")
@@ -612,7 +623,7 @@ class AnalyzeTab(QWidget):
         self._worker = PipelineWorker(
             self.config, info, use_ai_recognition=use_ai, ai_mode=ai_mode,
             ai_review_ambiguous=ai_review, discovery=discovery,
-            merge_previous=merge_previous,
+            merge_previous=merge_previous, cut_only=cut_only,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
