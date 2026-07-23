@@ -175,14 +175,17 @@ class ResultsTab(QWidget):
     def _lookup_anime_id(self, result: PipelineResult) -> int | None:
         with self.db.connect() as c:
             row = c.execute(
-                """SELECT e.anime_id, a.anilist_id, a.mal_id FROM episode e
+                """SELECT e.anime_id, e.cache_id, a.anilist_id, a.mal_id
+                   FROM episode e
                    JOIN anime a ON a.id = e.anime_id WHERE e.id = ?""",
                 (result.episode_id,),
             ).fetchone()
             if not row:
                 self._anime_cache_id = None
                 return None
-            self._anime_cache_id = self._resolve_franchise_cache_id(
+            # A análise grava a pasta que USOU — fonte da verdade. O scan de
+            # metadata é só fallback pra episódios de versões antigas.
+            self._anime_cache_id = row["cache_id"] or self._resolve_franchise_cache_id(
                 row["anilist_id"], row["mal_id"]
             )
             # Move any orphaned auto_ files from sibling season folders

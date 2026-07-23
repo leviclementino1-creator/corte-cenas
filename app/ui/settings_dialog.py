@@ -37,8 +37,8 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Configurações")
         # Fits comfortably on a 1366×768 laptop with room for the taskbar;
         # anything smaller gets scrolled via the scroll area.
-        self.setMinimumSize(540, 420)
-        self.resize(580, 640)
+        self.setMinimumSize(560, 420)
+        self.resize(640, 680)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -105,6 +105,9 @@ class SettingsDialog(QDialog):
         open_row.addStretch(1)
         cache_layout.addLayout(open_row)
 
+        # Duas fileiras de 2 botões: quatro numa linha forçavam largura
+        # mínima maior que a janela e o diálogo abria decepado na horizontal
+        # (a barra de rolagem horizontal é desligada de propósito).
         clean_row = QHBoxLayout()
         merge_btn = QPushButton("🧩  Fundir duplicados")
         merge_btn.setToolTip(
@@ -122,19 +125,23 @@ class SettingsDialog(QDialog):
         )
         clean_btn.clicked.connect(self._clean_refs)
         clean_row.addWidget(clean_btn)
+        clean_row.addStretch(1)
+        cache_layout.addLayout(clean_row)
+
+        danger_row = QHBoxLayout()
         reset_btn = QPushButton("♻️  Restaurar padrões de análise")
         reset_btn.setToolTip(
             "Volta os parâmetros de identificação (rigor, margem, mínimos) "
             "pros valores padrão do app."
         )
         reset_btn.clicked.connect(self._reset_analysis_defaults)
-        clean_row.addWidget(reset_btn)
+        danger_row.addWidget(reset_btn)
         wipe_btn = QPushButton("🗑  Apagar TODO o cache")
         wipe_btn.setStyleSheet("QPushButton{color:#e08585;}")
         wipe_btn.clicked.connect(self._wipe_cache)
-        clean_row.addWidget(wipe_btn)
-        clean_row.addStretch(1)
-        cache_layout.addLayout(clean_row)
+        danger_row.addWidget(wipe_btn)
+        danger_row.addStretch(1)
+        cache_layout.addLayout(danger_row)
 
         cache_info = QLabel(
             "Foto de personagem errado no meio das referências suja a "

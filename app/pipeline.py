@@ -200,6 +200,9 @@ class Pipeline:
             cache_id = f"al{bundle.anilist_id}"
         else:
             cache_id = f"mal{bundle.mal_id}"
+        # A pasta de refs REALMENTE usada fica gravada no episódio — o botão
+        # "Abrir pasta de refs" abre ela direto, sem re-adivinhar franquia.
+        self.db.set_episode_cache_id(episode_id, cache_id)
 
         # Pastas locais de personagem que NÃO batem com o elenco online
         # também são personagens (Modo Descoberta com nome digitado, pastas
@@ -428,7 +431,13 @@ class Pipeline:
 
             def _img(p: Path) -> np.ndarray | None:
                 if p not in imgs_loaded:
-                    imgs_loaded[p] = cv2.imread(str(p))
+                    try:
+                        imgs_loaded[p] = cv2.imread(str(p))
+                    except Exception:
+                        # o imread do ultralytics LEVANTA em arquivo sumido
+                        # (np.fromfile) em vez de devolver None — keyframe
+                        # apagado nao pode derrubar a analise inteira
+                        imgs_loaded[p] = None
                 return imgs_loaded[p]
 
             # Credit / OP / ED detection — skip shots dominated by text overlay.
@@ -1390,6 +1399,7 @@ class Pipeline:
         episode_id = self.db.upsert_episode(
             anime_id, info.season, info.episode, str(info.source)
         )
+        self.db.set_episode_cache_id(episode_id, disc_cache_id)
         self.db.clear_episode_shots(episode_id)
 
         observations: list[FaceObservation] = []
@@ -1417,7 +1427,13 @@ class Pipeline:
 
             def _img(p: Path) -> np.ndarray | None:
                 if p not in imgs_loaded:
-                    imgs_loaded[p] = cv2.imread(str(p))
+                    try:
+                        imgs_loaded[p] = cv2.imread(str(p))
+                    except Exception:
+                        # o imread do ultralytics LEVANTA em arquivo sumido
+                        # (np.fromfile) em vez de devolver None — keyframe
+                        # apagado nao pode derrubar a analise inteira
+                        imgs_loaded[p] = None
                 return imgs_loaded[p]
 
             # Mesmo esquema da análise normal: cache de boxes+embeddings por
@@ -1943,7 +1959,10 @@ class Pipeline:
                 boxes = kf_cache.get(Path(kf_path), "boxes")
                 crops: list = []
                 if boxes is not None and len(boxes):
-                    img = cv2.imread(key)
+                    try:
+                        img = cv2.imread(key)
+                    except Exception:
+                        img = None
                     if img is not None:
                         crops = crops_from_boxes(img, boxes, pad)[0]
                 crops_memo[key] = crops

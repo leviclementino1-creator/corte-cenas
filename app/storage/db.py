@@ -85,6 +85,14 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as c:
             c.executescript(SCHEMA)
+            # Migração: cache_id da pasta de refs USADA na análise fica no
+            # episódio — o botão "Abrir pasta de refs" abre a pasta certa em
+            # vez de re-adivinhar a franquia (que falhava com metadata legado
+            # e abria pasta vazia).
+            try:
+                c.execute("ALTER TABLE episode ADD COLUMN cache_id TEXT")
+            except sqlite3.OperationalError:
+                pass  # coluna já existe
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -142,6 +150,13 @@ class Database:
                 (anime_id, season, episode, source),
             )
             return cur.lastrowid
+
+    def set_episode_cache_id(self, episode_id: int, cache_id: str) -> None:
+        """Grava qual pasta de refs esta análise realmente usou."""
+        with self.connect() as c:
+            c.execute(
+                "UPDATE episode SET cache_id=? WHERE id=?", (cache_id, episode_id)
+            )
 
     def clear_episode_shots(self, episode_id: int) -> None:
         with self.connect() as c:
