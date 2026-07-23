@@ -603,6 +603,23 @@ class ResultsTab(QWidget):
         else:
             return
 
+        # Aplica na PASTA REAL na hora: sincroniza os hardlinks do clipe com
+        # a nova lista de personagens do shot. Antes só a reanálise refazia
+        # as pastas — o clipe "removido" continuava no Explorer.
+        if action in ("remove", "move") and ep_id is not None:
+            try:
+                from ..storage.organizer import refresh_shot_links
+                root = Path(self._current_result.episode_root)
+                by_shot = self.db.assignments_for_episode(ep_id)
+                for sid, shot in pairs:
+                    rel = shot.get("file")
+                    if not rel:
+                        continue
+                    names_now = [a["name"] for a in by_shot.get(sid, [])]
+                    refresh_shot_links(root, root / rel, names_now)
+            except Exception as e:
+                print(f"[CorteCenas] Sincronização das pastas falhou: {e}")
+
         # Rebuild the grid for the character that's still selected
         self._reload_characters()
         # Try to re-select the same character we were viewing
