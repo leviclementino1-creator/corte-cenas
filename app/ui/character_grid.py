@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QImageReader, QPixmap, QPixmapCache
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -73,9 +73,6 @@ class ShotGrid(QWidget):
     # action_name in {"remove", "move", "approve"}, plus the SELECTED shot
     # rows (1..N — Ctrl/Shift/laço selecionam vários de uma vez).
     shot_action = Signal(str, list)
-    # Seleção mudou: a linha do shot selecionado ({} quando nada) — é o que
-    # alimenta o preview em loop na aba Resultados.
-    shot_selected = Signal(dict)
 
     def __init__(self, episode_root: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -101,15 +98,75 @@ class ShotGrid(QWidget):
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list.setSpacing(6)
         self.list.itemDoubleClicked.connect(self._on_activate)
-        self.list.itemSelectionChanged.connect(self._on_selection)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.list, 1)
 
-    def _on_selection(self) -> None:
-        items = self.list.selectedItems()
-        data = items[0].data(Qt.ItemDataRole.UserRole) if items else None
-        self.shot_selected.emit(data or {})
+        # Preview no HOVER: passar o mouse numa cena cicla os 3 keyframes
+        # dela (JPEGs que já estão no disco e no QPixmapCache) — sensação
+        # de loop tipo YouTube SEM decodificar vídeo nenhum. Player de
+        # verdade só no duplo clique. (A 1ª versão usava QMediaPlayer e o
+        # backend de codec travou o app em produção — zero vídeo aqui.)
+        self.list.setMouseTracking(True)
+        self.list.itemEntered.connect(self._hover_start)
+        self.list.viewport().installEventFilter(self)
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setInterval(450)
+        self._hover_timer.timeout.connect(self._hover_tick)
+        self._hover_item: QListWidgetItem | None = None
+        self._hover_frames: list[QIcon] = []
+        self._hover_idx = 0
+        self._hover_icon0: QIcon | None = None
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.list.viewport() and event.type() == QEvent.Type.Leave:
+            self._hover_stop()
+        return super().eventFilter(obj, event)
+
+    def _hover_start(self, item: QListWidgetItem) -> None:
+        if item is self._hover_item:
+            return
+        self._hover_stop()
+        row = item.data(Qt.ItemDataRole.UserRole)
+        kf = (row or {}).get("keyframe")
+        if not kf:
+            return
+        # keyframes/NNNN_K.jpg → irmãos NNNN_*.jpg = os frames do "loop"
+        kf_path = self.episode_root / kf
+        stem = kf_path.stem.rsplit("_", 1)[0]
+        frames = sorted(kf_path.parent.glob(f"{stem}_*.jpg"))
+        if len(frames) < 2:
+            return
+        icons = []
+        for f in frames:
+            pm = _thumbnail(str(f))
+            if pm is not None:
+                icons.append(QIcon(pm))
+        if len(icons) < 2:
+            return
+        self._hover_item = item
+        self._hover_icon0 = item.icon()
+        self._hover_frames = icons
+        self._hover_idx = 0
+        self._hover_timer.start()
+
+    def _hover_tick(self) -> None:
+        if self._hover_item is None or not self._hover_frames:
+            self._hover_stop()
+            return
+        self._hover_idx = (self._hover_idx + 1) % len(self._hover_frames)
+        self._hover_item.setIcon(self._hover_frames[self._hover_idx])
+
+    def _hover_stop(self) -> None:
+        self._hover_timer.stop()
+        if self._hover_item is not None and self._hover_icon0 is not None:
+            try:
+                self._hover_item.setIcon(self._hover_icon0)
+            except RuntimeError:
+                pass  # item já foi destruído junto com a lista
+        self._hover_item = None
+        self._hover_frames = []
+        self._hover_icon0 = None
 
     def load_for_character(self, shots: list[dict], character_name: str) -> None:
         self.list.clear()

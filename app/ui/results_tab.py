@@ -31,74 +31,6 @@ from .quiet import set_quiet_icon
 from .worker import HarvestWorker, ReframeWorker
 
 
-class _ClipPreview(QWidget):
-    """Player pequeno que roda a cena SELECIONADA em loop (mudo).
-
-    O QMediaPlayer só nasce no primeiro clique — quem não usa preview não
-    paga o custo do backend de vídeo no load da aba. Qualquer erro de
-    codec/backend esconde o painel em silêncio: preview é açúcar, não pode
-    quebrar a curadoria."""
-
-    _HEIGHT = 200
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._player = None
-        self._audio = None
-        self._video = None
-        self._failed = False
-        self._lay = QVBoxLayout(self)
-        self._lay.setContentsMargins(0, 4, 0, 0)
-        self.setVisible(False)
-        self.setFixedHeight(0)
-
-    def _ensure_player(self) -> bool:
-        if self._failed:
-            return False
-        if self._player is not None:
-            return True
-        try:
-            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-            from PySide6.QtMultimediaWidgets import QVideoWidget
-            self._video = QVideoWidget()
-            self._video.setFixedHeight(self._HEIGHT)
-            self._audio = QAudioOutput()
-            self._audio.setMuted(True)
-            self._player = QMediaPlayer()
-            self._player.setAudioOutput(self._audio)
-            self._player.setVideoOutput(self._video)
-            self._player.setLoops(QMediaPlayer.Loops.Infinite)
-            self._player.errorOccurred.connect(self._on_error)
-            self._lay.addWidget(self._video)
-            return True
-        except Exception as e:
-            print(f"[CorteCenas] Preview indisponível (QtMultimedia): {e}")
-            self._failed = True
-            return False
-
-    def _on_error(self, *args) -> None:
-        print(f"[CorteCenas] Preview: erro de reprodução {args} — painel oculto.")
-        self.stop()
-        self._failed = True
-
-    def play(self, path: Path) -> None:
-        if not path.exists() or not self._ensure_player():
-            return
-        from PySide6.QtCore import QUrl
-        self.setFixedHeight(self._HEIGHT + 4)
-        self.setVisible(True)
-        self._player.setSource(QUrl.fromLocalFile(str(path)))
-        self._player.play()
-
-    def stop(self) -> None:
-        if self._player is not None:
-            from PySide6.QtCore import QUrl
-            self._player.stop()
-            self._player.setSource(QUrl())
-        self.setVisible(False)
-        self.setFixedHeight(0)
-
-
 class ResultsTab(QWidget):
     def __init__(self, config: Config, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -205,16 +137,12 @@ class ResultsTab(QWidget):
         self._grid_layout.setContentsMargins(0, 0, 0, 0)
         placeholder = QLabel(
             "Selecione um personagem para ver seus shots.\n"
-            "Clique numa cena pra vê-la em loop; duplo clique abre no player."
+            "Passe o mouse numa cena pra vê-la em movimento; duplo clique abre no player."
         )
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         placeholder.setStyleSheet("color:#888;")
         self._grid_layout.addWidget(placeholder)
         right_v.addWidget(self._grid_container, 1)
-        # Preview em loop da cena selecionada — fica FORA do _grid_layout,
-        # que é limpo a cada troca de episódio.
-        self.preview = _ClipPreview()
-        right_v.addWidget(self.preview)
         split.addWidget(right)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -620,7 +548,6 @@ class ResultsTab(QWidget):
         box.exec()
 
     def _replace_grid(self, new_grid: ShotGrid) -> None:
-        self.preview.stop()
         # clear layout
         while self._grid_layout.count():
             item = self._grid_layout.takeAt(0)
@@ -630,16 +557,7 @@ class ResultsTab(QWidget):
         self.grid = new_grid
         self.grid.shot_activated.connect(self._play_shot)
         self.grid.shot_action.connect(self._handle_shot_action)
-        self.grid.shot_selected.connect(self._preview_shot)
         self._grid_layout.addWidget(self.grid)
-
-    def _preview_shot(self, row: dict) -> None:
-        """Cena selecionada no grid → roda em loop no painel de preview.
-        Seleção vazia (troca de personagem, remoção) para o player."""
-        if not row or not row.get("file") or self._current_result is None:
-            self.preview.stop()
-            return
-        self.preview.play(Path(self._current_result.episode_root) / row["file"])
 
     def _char_menu(self, pos) -> None:
         item = self.char_list.itemAt(pos)
@@ -677,20 +595,10 @@ class ResultsTab(QWidget):
         )
         if resp != QMessageBox.StandardButton.Yes:
             return
-        for s in shots:
-            self.db.remove_shot_character(int(s["id"]), char["id"])
-            self.db.record_manual(ep_id, int(s["idx"]), char["id"], "block")
-        # Pastas reais na hora, como no remover individual (v0.4.3).
-        try:
-            from ..storage.organizer import refresh_shot_links
-            root = Path(self._current_result.episode_root)
-            by_shot = self.db.assignments_for_episode(ep_id)
-            for s in shots:
-                names_now = [a["name"] for a in by_shot.get(int(s["id"]), [])]
-                refresh_shot_links(root, root / s["file"], names_now)
-        except Exception as e:
-            print(f"[CorteCenas] Sincronização das pastas falhou: {e}")
-        self.preview.stop()
+        from ..curation import remove_character_from_episode
+        remove_character_from_episode(
+            self.db, ep_id, char["id"], Path(self._current_result.episode_root)
+        )
         self._reload_characters()
         quiet.information(
             self, "Personagem removido",

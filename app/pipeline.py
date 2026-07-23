@@ -292,16 +292,35 @@ class Pipeline:
             self.db.set_character_embedding(
                 db_row["id"], to_bytes(centroid), reference_count=len(paths)
             )
+            # Régua adaptativa: 0.80 contra um banco de rostos de verdade é
+            # evidência; contra 2 retratinhos é coincidência — personagem de
+            # refs fracas paga régua mais alta pra receber cena.
+            thr = cfg.default_threshold
+            if faces_found < cfg.min_ref_faces_trusted:
+                thr += cfg.weak_refs_bump
             entries.append(
                 CharacterEntry(
                     id=db_row["id"],
                     name=ch.name,
                     centroid=centroid,
-                    threshold=cfg.default_threshold,
+                    threshold=thr,
                     prototypes=protos,
                 )
             )
         ref_cache.save()
+        # Rostos DETECTADOS nas refs de cada personagem — a régua de quão
+        # confiáveis são os protótipos dele (usada na régua adaptativa, na
+        # âncora de presença e nas decisões por grupo).
+        faces_by_name = {n: fc for n, _rc, fc in ref_stats}
+        weak_entries = [
+            e.name for e in entries
+            if faces_by_name.get(e.name, 0) < cfg.min_ref_faces_trusted
+        ]
+        if weak_entries:
+            print(
+                f"[CorteCenas] Refs fracas (régua +{cfg.weak_refs_bump:.02f} "
+                f"e âncora exigida): {', '.join(weak_entries)}"
+            )
         print(
             "[CorteCenas] Refs por personagem (refs/rostos):",
             ", ".join(f"{n}={rc}/{fc}" for n, rc, fc in ref_stats),
@@ -389,6 +408,7 @@ class Pipeline:
         # per_shot_names). Só rostos — o fallback de keyframe inteiro fica de
         # fora do banco (distribuição diferente contaminaria as comparações).
         shot_faces: list[ShotFaces] = []
+        char_max_conf: dict[int, float] = {}   # melhor sim da 1ª passada por personagem
         kf_hits = kf_total = 0
         for i, (shot, shot_file, kfs) in enumerate(cut_results, 1):
             cb("analyze_shots", i / max(total, 1), f"Shot {i}/{total}")
@@ -561,6 +581,7 @@ class Pipeline:
                 names: list[str] = []
                 for char_id, conf in assigns:
                     self.db.assign_character(shot_id, char_id, conf)
+                    char_max_conf[char_id] = max(char_max_conf.get(char_id, 0.0), conf)
                     for e in entries:
                         if e.id == char_id:
                             names.append(e.name)
@@ -624,6 +645,47 @@ class Pipeline:
             )
         if cfg.skip_credit_shots:
             print(f"[CorteCenas] Shots ignorados por créditos/texto: {credit_shots}/{total}")
+
+        # === Âncora de presença: personagem não entra no episódio por
+        # decreto ===  Personagem de refs FRACAS que não cravou nenhuma
+        # cena-âncora (similaridade "sem discussão") não existe neste
+        # episódio: todas as cenas dele voltam pro pool de sem-dono e saem
+        # pelo resgate por grupo/batismo — com o nome dele como sugestão,
+        # nunca como decisão. Mata o caso Luminous→Rimuru/Gale na causa:
+        # o "mais parecido disponível" deixa de ser suficiente.
+        purged: set[int] = set()
+        if cfg.presence_anchor and entries and shot_faces:
+            manual_adds = {
+                int(ov["character_id"])
+                for ov in self.db.manual_overrides(episode_id)
+                if ov["action"] == "add"
+            }
+            for e in entries:
+                if faces_by_name.get(e.name, 0) >= cfg.min_ref_faces_trusted:
+                    continue  # refs de verdade: confiança normal
+                if e.id in manual_adds:
+                    continue  # o usuário já confirmou este personagem
+                best = char_max_conf.get(e.id, 0.0)
+                if best <= 0.0 or best >= cfg.presence_anchor_sim:
+                    continue
+                n_purged = 0
+                for sf in shot_faces:
+                    if not any(cid == e.id for cid, _ in sf.assigned):
+                        continue
+                    sf.assigned = [(c, v) for c, v in sf.assigned if c != e.id]
+                    if e.name in per_shot_names[sf.pos]:
+                        per_shot_names[sf.pos].remove(e.name)
+                    self.db.remove_shot_character(shot_db_ids[sf.pos], e.id)
+                    n_purged += 1
+                if n_purged:
+                    purged.add(e.id)
+                    print(
+                        f"[presença] {e.name}: refs fracas e nenhuma "
+                        f"cena-âncora (melhor {best:.2f} < "
+                        f"{cfg.presence_anchor_sim:.2f}) — {n_purged} cenas "
+                        "voltam pro pool (batismo pode sugerir ele).",
+                        flush=True,
+                    )
 
         # === Segunda passada: resgate por semelhança no próprio episódio ===
         # As cenas identificadas viram refs temporárias (mesmo traço/ângulo);
@@ -696,9 +758,6 @@ class Pipeline:
         leftover_clusters: list[dict] = []
         pool_embs: list[np.ndarray] = []
         pool_meta: list[tuple[int, tuple | None]] = []  # (pos, (kf, box_idx))
-        # Rostos DETECTADOS nas refs de cada personagem — a régua de quão
-        # confiáveis são os protótipos dele pra decisões em bloco.
-        faces_by_name = {n: fc for n, _rc, fc in ref_stats}
         if cfg.cluster_rescue and entries:
             for sf in shot_faces:
                 if sf.embs is None or sf.embs.size == 0 or per_shot_names[sf.pos]:
@@ -1001,6 +1060,9 @@ class Pipeline:
                             vcid = name_to_id_review[vname]
                             if vcid in blocked_pairs.get(item["shot"].idx, set()):
                                 continue  # usuário já disse que não é
+                            if vcid in purged:
+                                continue  # sem âncora de presença — a IA
+                                # não ressuscita fantasma com 2 retratos
                             self.db.assign_character(item["shot_id"], vcid, vconf)
                             names_in_shot.append(vname)
                         if names_in_shot:
@@ -1046,6 +1108,38 @@ class Pipeline:
             merge_snapshot=merge_snapshot,
         )
         result.leftover_groups = leftover_result
+        # Conferência do elenco: o estado FINAL (pós-drop/curadoria) por
+        # personagem, com o sinal de suspeita — a UI vira uma pergunta de
+        # 5 segundos ("esses estão mesmo no episódio?").
+        by_shot_final = self.db.assignments_for_episode(episode_id)
+        conf_by_char: dict[int, list[float]] = {}
+        name_by_id = {e.id: e.name for e in entries}
+        for assigns_f in by_shot_final.values():
+            for a in assigns_f:
+                conf_by_char.setdefault(a["id"], []).append(
+                    float(a.get("confidence") or 0.0)
+                )
+        cast = []
+        for cid, confs in sorted(
+            conf_by_char.items(), key=lambda kv: -len(kv[1])
+        ):
+            cname = name_by_id.get(cid) or next(
+                (a["name"] for assigns_f in by_shot_final.values()
+                 for a in assigns_f if a["id"] == cid), None
+            )
+            if not cname:
+                continue
+            weak = faces_by_name.get(cname, 0) < cfg.min_ref_faces_trusted
+            mean_conf = sum(confs) / len(confs)
+            cast.append({
+                "character_id": cid,
+                "name": cname,
+                "n_shots": len(confs),
+                "mean_conf": round(mean_conf, 3),
+                "weak_refs": weak,
+                "suspicious": weak or (len(confs) <= 5 and mean_conf < 0.85),
+            })
+        result.cast_review = cast
         self._report_timings(timer, metadata_dir)
         return result
 

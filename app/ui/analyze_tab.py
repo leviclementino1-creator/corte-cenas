@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -63,6 +65,55 @@ from ..video_ingest import EpisodeInfo, format_mmss, parse_filename, parse_mmss
 from .discovery_dialog import DiscoveryNamingDialog
 from .quiet import set_quiet_icon
 from .worker import DiscoveryCommitWorker, PipelineWorker, RefsPreviewWorker
+
+
+class CastReviewDialog(QDialog):
+    """Conferência do elenco — a pergunta de 5 segundos que mata a classe
+    inteira de fantasmas: "esses personagens estão MESMO no episódio?".
+    Todos vêm marcados (desmarcar é decisão, não acidente); os suspeitos
+    (refs fracas, poucas cenas com confiança morna) chegam com ⚠ na cara.
+    Desmarcado = removido do episódio com pastas e memória (curation)."""
+
+    def __init__(self, cast: list[dict], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Conferência do elenco")
+        self.setMinimumWidth(460)
+        self._boxes: list[tuple[QCheckBox, dict]] = []
+        lay = QVBoxLayout(self)
+        header = QLabel(
+            "<b>Esses personagens estão mesmo no episódio?</b><br>"
+            "Desmarque quem não está — as cenas dele saem das pastas na "
+            "hora e o app lembra. Os marcados com ⚠ têm evidência fraca "
+            "(poucas fotos de referência ou confiança morna)."
+        )
+        header.setWordWrap(True)
+        lay.addWidget(header)
+        for c in cast:
+            warn = "⚠  " if c["suspicious"] else ""
+            reason = ""
+            if c["weak_refs"]:
+                reason = " · refs fracas"
+            cb = QCheckBox(
+                f"{warn}{c['name']} — {c['n_shots']} cenas · "
+                f"confiança média {c['mean_conf']:.2f}{reason}"
+            )
+            cb.setChecked(True)
+            if c["suspicious"]:
+                cb.setStyleSheet("color:#DDB077;")
+            lay.addWidget(cb)
+            self._boxes.append((cb, c))
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("Confirmar elenco")
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("Deixar como está")
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+
+    def removed(self) -> list[dict]:
+        return [c for cb, c in self._boxes if not cb.isChecked()]
 
 
 class AnalyzeTab(QWidget):
@@ -724,6 +775,33 @@ class AnalyzeTab(QWidget):
         self.run_ai_btn.setEnabled(True)
         self.discovery_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
+
+        # Conferência do elenco: só pergunta quando há SUSPEITOS — elenco
+        # limpo não gera diálogo nenhum.
+        if result.cast_review and any(c["suspicious"] for c in result.cast_review):
+            dlg = CastReviewDialog(result.cast_review, self)
+            if dlg.exec():
+                to_remove = dlg.removed()
+                if to_remove:
+                    from ..curation import remove_character_from_episode
+                    from ..storage.db import Database
+                    db = Database(self.config.cache_path / "index.db")
+                    n_scenes = 0
+                    for c in to_remove:
+                        n_scenes += remove_character_from_episode(
+                            db, result.episode_id, c["character_id"],
+                            Path(result.episode_root),
+                        )
+                    gone = {c["name"] for c in to_remove}
+                    result.identified_characters = [
+                        n for n in result.identified_characters if n not in gone
+                    ]
+                    result.total_characters = len(result.identified_characters)
+                    self.status_label.setText(
+                        f"Elenco conferido: {len(to_remove)} personagem(ns) "
+                        f"removido(s) ({n_scenes} cenas). Decisão lembrada."
+                    )
+
         self.pipeline_finished.emit(result)
         # Skeleton-crew run (1-2 characters usable, rest skipped for lack of
         # refs): worth a heads-up + the way to fix it. 3+ = no nagging.

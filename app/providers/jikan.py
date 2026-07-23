@@ -44,6 +44,14 @@ class JikanClient:
         # antes/depois pra saber se o MyAnimeList estava fora do ar (e avisar
         # o usuário em vez de entregar um "0 personagens" mudo).
         self.failures = 0
+        # DISJUNTOR: com o Jikan em crise (dias inteiros de 504), insistir
+        # em 80 galerias × 3 retries × timeout = minutos de espera pra
+        # nada, TODA análise. Depois de N falhas seguidas o cliente se
+        # declara morto pra ESTA execução: as chamadas seguintes voltam
+        # None na hora e as reservas (AniList/Kitsu) assumem imediatamente.
+        # Um sucesso zera a contagem — instabilidade pontual não desarma.
+        self._consecutive_failures = 0
+        self.dead = False
 
     def close(self) -> None:
         self.client.close()
@@ -54,7 +62,12 @@ class JikanClient:
             time.sleep(self.min_interval - delta)
         self._last = time.monotonic()
 
+    _BREAKER_TRIP = 3   # falhas SEGUIDAS que desarmam o disjuntor
+
     def _get(self, path: str) -> dict | None:
+        if self.dead:
+            self.failures += 1
+            return None
         last_status: int | str = "?"
         for attempt in range(3):
             self._throttle()
@@ -65,6 +78,7 @@ class JikanClient:
                 time.sleep(1.0 + attempt)
                 continue
             if r.status_code == 200:
+                self._consecutive_failures = 0
                 return r.json()
             last_status = r.status_code
             # Jikan runs on shared infra and throws transient 429/5xx under
@@ -76,6 +90,15 @@ class JikanClient:
             break
         print(f"[Jikan] {path} falhou apos retries (HTTP {last_status})", flush=True)
         self.failures += 1
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self._BREAKER_TRIP and not self.dead:
+            self.dead = True
+            print(
+                f"[Jikan] {self._consecutive_failures} falhas seguidas — "
+                "desistindo do MyAnimeList NESTA análise (as reservas "
+                "AniList/Kitsu assumem na hora, sem esperar 80 timeouts).",
+                flush=True,
+            )
         return None
 
     def search_anime(self, name: str) -> JikanAnime | None:

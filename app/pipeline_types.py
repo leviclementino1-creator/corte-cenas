@@ -192,3 +192,8 @@ class PipelineResult:
     # conseguiu nomear, empacotados como DiscoveryResult — a UI oferece a
     # tela de batismo no fim da análise. None = nada sobrou.
     leftover_groups: "DiscoveryResult | None" = None
+    # Conferência do elenco: estado final por personagem com sinal de
+    # suspeita ({name, character_id, n_shots, mean_conf, weak_refs,
+    # suspicious}) — a UI pergunta "esses estão mesmo no episódio?" quando
+    # há suspeitos. None = análise sem essa etapa (modo IA, descoberta).
+    cast_review: "list[dict] | None" = None

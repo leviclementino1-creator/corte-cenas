@@ -163,6 +163,21 @@ class Config:
     # rosto não contam), a decisão vira sugestão no batismo — caso real:
     # cluster de 17 rostos auto-nomeado com protótipos de 2 retratinhos.
     cluster_min_ref_faces: int = 3
+
+    # === Anti-fantasma: personagem não pode ser "forçado" no episódio ===
+    # O matching é de escolha forçada — quando o personagem verdadeiro não
+    # tem refs (Luminous), a cena vira o sósia mais próximo QUE TEM (Rimuru).
+    # Duas defesas na causa:
+    # 1) Personagem de refs FRACAS (< min_ref_faces_trusted rostos
+    #    detectados) paga régua mais alta (weak_refs_bump) — 0.80 contra
+    #    2 retratinhos não é evidência;
+    # 2) e só EXISTE no episódio se cravar uma cena-âncora
+    #    (>= presence_anchor_sim) — sem âncora, todas as cenas dele voltam
+    #    pro pool e saem via grupo/batismo com sugestão, não por decreto.
+    presence_anchor: bool = True
+    presence_anchor_sim: float = 0.88
+    min_ref_faces_trusted: int = 3
+    weak_refs_bump: float = 0.06
     face_crop_padding: float = 0.25         # around detected face; more context helps CLIP
     # AI hybrid mode crops get WIDER padding so hair/headband is fully
     # visible — that's often the only thing telling apart similar-styled
