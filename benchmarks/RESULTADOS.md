@@ -1,6 +1,34 @@
 # Resultados de benchmark — memória institucional
 
-## Baseline v0.4.7 — Mushoku S03E02 (23/07/2026)
+## Baseline v0.4.8 — Mushoku S03E02 CORRIGIDO (24/07/2026)
+
+O caso Ruijerd foi resolvido na CAUSA (era dado, não código): o "Ruijerd"
+do episódio é o **Farion, Gull (Deus Espada)** — ele veio no elenco com 1
+foto só, o filtro `min_references` o descartou em silêncio e as cenas dele
+foram pro sósia mais próximo com refs. A correção: 2 crops contaminados
+movidos da pasta do Ruijerd pra do Gull, reanálise, curadoria do dono (7
+cenas Gull×Nina removidas+bloqueadas) e gabarito recongelado.
+
+| Personagem | cenas |
+|---|---|
+| Farion, Nina | 125 |
+| Greyrat, Eris Boreas | 89 |
+| Greyrat, Paul | 32 |
+| Nanahoshi, Shizuka | 20 |
+| Shirone, Zanoba | 17 |
+| Farion, Gull | 16 |
+| **MACRO F1** | **1.00** |
+
+⚠️ Leitura correta do 1.00: o gabarito foi congelado do estado ATUAL
+validado, então ele é um **tripwire de regressão** (baseline = teto), não
+prova de perfeição. Qualquer mudança de matching que pontuar < 1.00 aqui
+está trocando decisões validadas — investigar antes de aceitar. O Ruijerd
+saiu do gabarito (0 cenas: ele não está no episódio).
+
+Lição de produto pro backlog: personagem descartado por ter 1 foto não
+pode ser invisível silencioso — foi isso que fabricou o caso inteiro.
+
+## Baseline v0.4.7 — Mushoku S03E02 (23/07/2026, gabarito ANTIGO — histórico)
 
 Pipeline completo vs gabarito (293 atribuições validadas):
 
