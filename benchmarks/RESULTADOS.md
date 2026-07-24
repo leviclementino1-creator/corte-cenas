@@ -40,6 +40,37 @@ presença, decisões por grupo — onde folga importa mais que velocidade, e
 sem gastar API de IA. Requer empacotar onnxruntime + modelo CCIP (~200MB)
 no instalador.
 
+## v0.4.8 — Híbrido CLIP+CCIP no pipeline (23/07/2026)
+
+Knobs calibrados nos 104 rostos rotulados (crop pad 0.55, extractor
+vendorizado idêntico ao imgutils, cos=1.000000):
+
+- sim personagem-certo: mediana 0.89 (p25 0.85) × impostor: mediana 0.53
+  (p95 0.81) → gap>=0.15 = zero erros de resgate nos 104;
+- top-1 CCIP no pad 0.55: 0.952 (melhor que 0.942 no pad 0.25).
+
+Juiz A/B (mesmo processo, flag on/off): **tabela IDÊNTICA, MACRO F1 0.82 =
+0.82** — o híbrido não regrediu NADA e custou +6s frio / +0s quente.
+Lição de projeto: a 1ª versão do veto (só ranking) derrubou um Paul
+verdadeiro decidindo na zona de sims baixas — veto agora exige
+reconhecimento POSITIVO do outro (sim >= 0.80), não só "ranquear melhor".
+
+Slime S04E15 (cenário anti-fantasma): todos os testes passaram; o grupo
+fantasma de 17 rostos "Gale" foi RECUSADO pelo CCIP (vai pro batismo), e
+5/27 cenas duvidosas foram resolvidas localmente sem IA (Diablo 0.90,
+Rimuru 0.86...) em 9s de CPU.
+
+**Achado de auditoria (o CCIP pagou a entrada): o gabarito do Mushoku está
+SUBROTULADO no "Ruijerd".** Os keyframes #0132/#0153 mostram o homem de
+cabelo azul (que o próprio gabarito valida como Ruijerd nas cenas solo)
+presente em cenas onde o gabarito só lista Nina/Eris/Zanoba — ou seja,
+parte dos 13 "FP" do Ruijerd são acertos não listados; o teto real dele é
+maior que 0.55 e NÃO é alcançável por código. Bônus: pelo contexto visual
+(dojo do Deus Espada, Nina Farion ao lado), esse personagem provavelmente
+é o **Gall Falion (Deus Espada)**, ausente do elenco baixado — as refs
+`auto_disc` do Ruijerd são desse homem. Corrigir é curadoria (re-rotular e
+regenerar o gabarito), decisão do dono do app.
+
 ## Como reproduzir
 
 ```

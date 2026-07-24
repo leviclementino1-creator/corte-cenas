@@ -26,6 +26,9 @@ hidden += collect_submodules("torch")
 hidden += collect_submodules("torchvision")
 hidden += collect_submodules("cv2")
 hidden += collect_submodules("PIL")
+# CCIP (segunda opinião local) roda em ONNX na CPU; o hook contrib do
+# PyInstaller cuida das DLLs, o collect garante os submódulos.
+hidden += collect_submodules("onnxruntime")
 
 # Extra imports for model registries / tokenizer files these libs pull lazily.
 hidden += [
@@ -69,6 +72,7 @@ datas += copy_metadata("torch")
 datas += copy_metadata("open_clip_torch")
 datas += copy_metadata("ultralytics")
 datas += copy_metadata("huggingface_hub")
+datas += copy_metadata("onnxruntime")
 
 
 a = Analysis(

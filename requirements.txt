@@ -30,3 +30,8 @@ huggingface_hub>=0.20
 # Acelera o download dos modelos do HF Hub (CLIP ~890 MB na primeira análise).
 # Sem ele o hub cai em HTTP puro e loga um warning em toda instalação.
 hf_xet>=1.0
+
+# CCIP — segunda opinião local especializada em personagem de anime
+# (deepghs/ccip_onnx, ~190 MB baixados no primeiro uso). Roda em CPU.
+# ATENÇÃO: instalar SOZINHO pode puxar numpy 2.x — manter numpy==1.26.x.
+onnxruntime>=1.17

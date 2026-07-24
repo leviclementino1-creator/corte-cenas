@@ -16,6 +16,7 @@ import sys
 OPTIONAL_DEPS: dict[str, str] = {
     "ultralytics": "Detector de rosto YOLOv8 anime-face (3x melhor que lbpcascade)",
     "huggingface_hub": "Download do modelo YOLO (deepghs/anime_face_detection)",
+    "onnxruntime": "CCIP — segunda opinião local nos personagens duvidosos",
 }
 
 

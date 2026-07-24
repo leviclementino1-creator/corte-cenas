@@ -95,6 +95,15 @@ class SettingsDialog(QDialog):
             "afeta a seção Duplas da aba Resultados (ela lê do banco)."
         )
         out_form.addRow("", self.chk_by_pair)
+        self.chk_ccip = QCheckBox("Segunda opinião local (CCIP) nos duvidosos")
+        self.chk_ccip.setChecked(self.config.ccip_enabled)
+        self.chk_ccip.setToolTip(
+            "Modelo especializado em personagem de anime (deepghs), rodando "
+            "na CPU: confere decisões apertadas, resolve cenas duvidosas sem "
+            "gastar IA e lê retratos que o detector de rosto não lê.\n"
+            "Baixa ~190 MB uma única vez no primeiro uso."
+        )
+        out_form.addRow("", self.chk_ccip)
 
         root.addWidget(out_group)
 
@@ -517,6 +526,7 @@ class SettingsDialog(QDialog):
             self.config.output_dir = out_path
         self.config.organize_by_character_enabled = self.chk_by_char.isChecked()
         self.config.organize_by_pair_enabled = self.chk_by_pair.isChecked()
+        self.config.ccip_enabled = self.chk_ccip.isChecked()
         self.config.navyai_api_key = self.key_edit.text().strip()
         self.config.navyai_model = self.model_edit.text().strip() or "gemini-2.5-flash"
         self.config.navyai_base_url = self.base_edit.text().strip() or "https://api.navy/v1"

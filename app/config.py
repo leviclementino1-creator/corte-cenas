@@ -31,6 +31,7 @@ _PERSISTED_FIELDS = (
     "credit_edge_threshold",
     "organize_by_character_enabled",
     "organize_by_pair_enabled",
+    "ccip_enabled",
     # skip_credit_shots: intentionally NOT persisted — the heuristic is
     # fragile and we keep it OFF by default.
     "use_danbooru",
@@ -190,6 +191,29 @@ class Config:
     presence_anchor_sim: float = 0.88
     min_ref_faces_trusted: int = 3
     weak_refs_bump: float = 0.06
+
+    # === CCIP: segunda opinião local (híbrido v0.4.8) ===
+    # O CLIP decide raspando (margem média 0.077 no gabarito); o CCIP
+    # (deepghs, especializado em "mesmo personagem de anime?") empata no
+    # acerto mas decide com 4.3x mais folga — então ele NÃO substitui, só
+    # confere os pontos frágeis: veto de decisão apertada, resgate de
+    # duvidosos, âncora de presença e decisão por grupo. Knobs calibrados
+    # nos 104 rostos rotulados do gabarito (crop pad 0.55): personagem
+    # certo mediana 0.89 vs impostor 0.53; gap>=0.15 = zero erros.
+    ccip_enabled: bool = True
+    ccip_check_margin: float = 0.06    # margem CLIP abaixo disso → conferir
+    ccip_check_conf: float = 0.92      # ...ou confiança abaixo disso
+    # Veto exige reconhecimento POSITIVO do outro: na zona de sims baixas
+    # (<0.80) o ranking do CCIP é ruído — "ranquear melhor" não basta.
+    ccip_veto_min_sim: float = 0.80
+    ccip_veto_gap: float = 0.20        # CCIP aponta OUTRO com essa folga → veto
+    ccip_rescue_min_sim: float = 0.75
+    ccip_rescue_gap: float = 0.15
+    ccip_anchor_min_sim: float = 0.80
+    ccip_anchor_gap: float = 0.10
+    ccip_group_min_sim: float = 0.75
+    ccip_group_gap: float = 0.15
+    ccip_max_check_faces: int = 6      # rostos máx. por decisão (âncora)
     face_crop_padding: float = 0.25         # around detected face; more context helps CLIP
     # AI hybrid mode crops get WIDER padding so hair/headband is fully
     # visible — that's often the only thing telling apart similar-styled

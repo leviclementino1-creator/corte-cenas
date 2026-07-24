@@ -121,6 +121,11 @@ class CharacterMatcher:
         sims = query_embeddings @ self.matrix.T          # (Q, R)
         return np.maximum.reduceat(sims, self._starts, axis=1)
 
+    def char_sims_matrix(self, query_embeddings: np.ndarray) -> np.ndarray:
+        """Versão pública de _char_sims — o veto CCIP precisa da matriz
+        completa pra medir a margem de cada atribuição já feita."""
+        return self._char_sims(query_embeddings)
+
     def score(self, query_embeddings: np.ndarray) -> dict[int, float]:
         """Given N query vectors (e.g. keyframes + face crops for one shot),
         return best cosine per character id.

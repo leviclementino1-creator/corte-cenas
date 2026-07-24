@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from .matching.face_detector import (
     ensure_cascade,
     smart_portrait_crop,
 )
+from .matching import ccip
 from .matching.feature_cache import FeatureCache
 # Lightweight types re-exported here so callers can keep `from .pipeline
 # import AIMode, PipelineResult, STAGES` without dragging in torch just to
@@ -480,6 +482,14 @@ class Pipeline:
         # similaridade chegou perto do threshold — a zona cinzenta que vale
         # uma segunda opinião da IA. Guardamos os crops já extraídos.
         ambiguous: list[dict] = []
+        # Segunda opinião LOCAL (CCIP): mesmos duvidosos, sem gastar API.
+        ccip_on = cfg.ccip_enabled and ccip.runtime_available()[0]
+        if cfg.ccip_enabled and not ccip_on:
+            print(
+                "[CCIP] Segunda opinião local desligada: "
+                + ccip.runtime_available()[1]
+            )
+        ccip_near: list[int] = []   # posições sem dono com best_sim na zona cinzenta
         # Segunda passada: embeddings de rosto por shot (posição casa com
         # per_shot_names). Só rostos — o fallback de keyframe inteiro fica de
         # fora do banco (distribuição diferente contaminaria as comparações).
@@ -609,7 +619,7 @@ class Pipeline:
                     face_refs_kf.extend((kf_path, bi) for bi in range(len(embs)))
                 d = dict(matcher.assign_best_per_query(embs, margin=cfg.argmax_margin))
                 per_kf_assigns.append(d)
-                if ai_review_ambiguous:
+                if ai_review_ambiguous or ccip_on:
                     best = matcher.best_overall(embs)
                     if best is not None:
                         shot_best_sim = max(shot_best_sim, best[1])
@@ -671,9 +681,14 @@ class Pipeline:
                 per_shot_names.append(names)
             else:
                 per_shot_names.append([])
-                # Ficou sem dono mas chegou perto? Candidato à revisão da IA.
-                # Os crops são rematerializados AQUI, a partir dos boxes —
-                # só os duvidosos pagam a releitura da imagem.
+                # Ficou sem dono mas chegou perto? O CCIP confere de graça
+                # antes da IA (inclui o caso "passou do threshold mas perdeu
+                # na margem" — exatamente onde o CLIP decide raspando).
+                if ccip_on and shot_best_sim >= cfg.ai_review_low and face_embs_kf:
+                    ccip_near.append(len(per_shot_names) - 1)
+                # Candidato à revisão da IA. Os crops são rematerializados
+                # AQUI, a partir dos boxes — só os duvidosos pagam a
+                # releitura da imagem.
                 if (
                     ai_review_ambiguous
                     and shot_boxes_ai
@@ -728,6 +743,144 @@ class Pipeline:
         if cfg.skip_credit_shots:
             print(f"[CorteCenas] Shots ignorados por créditos/texto: {credit_shots}/{total}")
 
+        # === CCIP: contexto preguiçoso da segunda opinião local ===
+        # Motor + banco de refs só sobem se algum dos quatro pontos (veto,
+        # âncora, grupo, resgate) realmente precisar. O banco usa a imagem
+        # INTEIRA de cada ref — retrato sem rosto detectável também vira
+        # vetor, que é o que o CLIP-de-rosto não consegue.
+        _ccip_holder: dict[str, object] = {"pair": None, "failed": False}
+
+        def get_ccip():
+            if _ccip_holder["failed"] or not ccip_on:
+                return None
+            if _ccip_holder["pair"] is None:
+                try:
+                    if not ccip.model_cached():
+                        cb(
+                            "analyze_shots", -1.0,
+                            "Baixando modelo CCIP (~190 MB) — só na primeira "
+                            "vez, depois fica cacheado.",
+                        )
+                        print("[CCIP] Baixando modelo (~190 MB, primeira vez)...")
+                    engine = ccip.CcipEngine()
+                    bank = ccip.CcipBank()
+                    t0_c = time.time()
+                    bank.build(
+                        engine,
+                        {e.id: refs_per_char.get(e.name, []) for e in entries},
+                        ref_cache,
+                    )
+                    ref_cache.save()
+                    if bank.empty:
+                        raise RuntimeError("nenhuma ref rendeu vetor CCIP")
+                    print(
+                        f"[CCIP] Banco de refs pronto em {time.time() - t0_c:.0f}s "
+                        f"({bank.n_refs} vetores)."
+                    )
+                    _ccip_holder["pair"] = (engine, bank)
+                except Exception as e:
+                    print(f"[CCIP] Indisponível nesta análise: {e}")
+                    _ccip_holder["failed"] = True
+                    return None
+            return _ccip_holder["pair"]
+
+        ccip_cols = {e.id: i for i, e in enumerate(matcher.entries)}
+
+        # === Veto CCIP: decisão apertada da 1ª passada ganha 2ª opinião ===
+        # A margem média do CLIP é 0.077 — atribuição que venceu por menos de
+        # ccip_check_margin é estatisticamente cara-ou-coroa. O CCIP (4.3x
+        # mais folga) confere; se apontar OUTRO personagem com folga em TODOS
+        # os rostos que sustentavam a atribuição, ela cai — antes da 2ª
+        # passada, pra atribuição raspada não virar semente de banco.
+        if ccip_on and len(matcher.entries) >= 2 and shot_faces:
+            checks: list[tuple] = []      # (sf, char_id, linhas dele no shot)
+            need_refs: list = []
+            for sf in shot_faces:
+                if (
+                    not sf.assigned or sf.embs is None or sf.embs.size == 0
+                    or not sf.face_refs
+                ):
+                    continue
+                sims_v = matcher.char_sims_matrix(sf.embs)   # (Q, C)
+                owner = np.argmax(sims_v, axis=1)
+                for cid, conf_a in sf.assigned:
+                    ci = ccip_cols.get(cid)
+                    if ci is None:
+                        continue
+                    rows = [q for q in range(sims_v.shape[0]) if owner[q] == ci]
+                    if not rows:
+                        continue
+                    margins = [
+                        float(sims_v[q, ci] - np.max(np.delete(sims_v[q], ci)))
+                        for q in rows
+                    ]
+                    # Decisão folgada E confiante — o CLIP sozinho dá conta.
+                    # Abaixo de check_conf a "vitória" pode ser só o sósia
+                    # mais próximo disponível (caso Ruijerd/Gall).
+                    if (
+                        max(margins) >= cfg.ccip_check_margin
+                        and conf_a >= cfg.ccip_check_conf
+                    ):
+                        continue
+                    checks.append((sf, cid, rows))
+                    need_refs.extend(sf.face_refs[q] for q in rows)
+            vetoed = 0
+            if checks and (pair := get_ccip()) is not None:
+                engine_v, bank_v = pair
+                cb(
+                    "analyze_shots", -1.0,
+                    f"CCIP conferindo {len(checks)} decisões apertadas...",
+                )
+                vec_map = ccip.face_vectors(
+                    engine_v, kf_cache, need_refs, cfg.face_crop_padding_ai
+                )
+                id_to_name_v = {e.id: e.name for e in matcher.entries}
+                for sf, cid, rows in checks:
+                    if cid not in bank_v.char_ids:
+                        continue
+                    me = bank_v.char_ids.index(cid)
+                    diffs: list[float] = []
+                    disagree: list[bool] = []
+                    for q in rows:
+                        fr = sf.face_refs[q] if q < len(sf.face_refs) else None
+                        v = vec_map.get((str(fr[0]), int(fr[1]))) if fr else None
+                        if v is None:
+                            continue
+                        srow = bank_v.char_sims(v[None, :])[0]
+                        others = [s for j, s in enumerate(srow) if j != me]
+                        if not others:
+                            continue
+                        best_o = float(max(others))
+                        diffs.append(best_o - float(srow[me]))
+                        # Discordância de verdade = o CCIP RECONHECEU outro
+                        # (sim alta), não só ranqueou melhor na zona de ruído.
+                        disagree.append(
+                            best_o - float(srow[me]) >= cfg.ccip_veto_gap
+                            and best_o >= cfg.ccip_veto_min_sim
+                        )
+                    # Veto exige unanimidade: todo rosto com vetor tem OUTRO
+                    # personagem RECONHECIDO ganhando do atribuído com folga.
+                    if disagree and all(disagree):
+                        name_v = id_to_name_v.get(cid, str(cid))
+                        self.db.remove_shot_character(shot_db_ids[sf.pos], cid)
+                        sf.assigned = [(c, s) for c, s in sf.assigned if c != cid]
+                        if name_v in per_shot_names[sf.pos]:
+                            per_shot_names[sf.pos].remove(name_v)
+                        vetoed += 1
+                        print(
+                            f"[CCIP veto] Shot #{cut_results[sf.pos][0].idx:04d} "
+                            f"perdeu {name_v} (CLIP raspando, CCIP aponta outro "
+                            f"com folga {max(diffs):.2f})."
+                        )
+                if vetoed:
+                    # A melhor sim por personagem mudou — a âncora de
+                    # presença decide em cima do que SOBROU.
+                    char_max_conf = {}
+                    for sf in shot_faces:
+                        for c2, s2 in sf.assigned:
+                            char_max_conf[c2] = max(char_max_conf.get(c2, 0.0), s2)
+                    print(f"[CCIP veto] {vetoed} atribuições apertadas removidas.")
+
         # === Âncora de presença: personagem não entra no episódio por
         # decreto ===  Personagem de refs FRACAS que não cravou nenhuma
         # cena-âncora (similaridade "sem discussão") não existe neste
@@ -750,6 +903,60 @@ class Pipeline:
                 best = char_max_conf.get(e.id, 0.0)
                 if best <= 0.0 or best >= cfg.presence_anchor_sim:
                     continue
+                # Segunda chance CCIP: o CLIP não cravou âncora, mas o CCIP
+                # lê refs que o YOLO não lê (retrato sem rosto detectável —
+                # o caso Rimuru). Compara os melhores rostos DESTE personagem
+                # no episódio com as refs dele; reconhecimento com folga
+                # sobre todo o resto do elenco = ele existe no episódio.
+                if (pair := get_ccip()) is not None and e.id in pair[1].char_ids:
+                    engine_a, bank_a = pair
+                    me_a = bank_a.char_ids.index(e.id)
+                    cand: list[tuple[float, tuple]] = []
+                    for sf in shot_faces:
+                        if (
+                            sf.embs is None or not sf.face_refs
+                            or not any(c2 == e.id for c2, _ in sf.assigned)
+                        ):
+                            continue
+                        ci = ccip_cols.get(e.id)
+                        if ci is None:
+                            continue
+                        sims_a = matcher.char_sims_matrix(sf.embs)
+                        owner_a = np.argmax(sims_a, axis=1)
+                        for q in range(sims_a.shape[0]):
+                            if owner_a[q] == ci and q < len(sf.face_refs) and sf.face_refs[q]:
+                                cand.append((float(sims_a[q, ci]), sf.face_refs[q]))
+                    cand.sort(key=lambda t: -t[0])
+                    cand = cand[: cfg.ccip_max_check_faces]
+                    vec_map_a = ccip.face_vectors(
+                        engine_a, kf_cache, [fr for _, fr in cand],
+                        cfg.face_crop_padding_ai,
+                    )
+                    n_pass = n_got = 0
+                    best_ccip = 0.0
+                    for _s, fr in cand:
+                        v = vec_map_a.get((str(fr[0]), int(fr[1])))
+                        if v is None:
+                            continue
+                        n_got += 1
+                        srow = bank_a.char_sims(v[None, :])[0]
+                        others = [s for j, s in enumerate(srow) if j != me_a]
+                        gap_a = float(srow[me_a] - max(others)) if others else 1.0
+                        best_ccip = max(best_ccip, float(srow[me_a]))
+                        if (
+                            srow[me_a] >= cfg.ccip_anchor_min_sim
+                            and gap_a >= cfg.ccip_anchor_gap
+                        ):
+                            n_pass += 1
+                    if n_got and n_pass >= min(2, n_got):
+                        print(
+                            f"[presença] {e.name}: sem âncora CLIP, mas o CCIP "
+                            f"reconheceu {n_pass} rosto(s) nas refs dele com "
+                            f"folga (melhor {best_ccip:.2f}) — mantido no "
+                            "episódio.",
+                            flush=True,
+                        )
+                        continue
                 n_purged = 0
                 for sf in shot_faces:
                     if not any(cid == e.id for cid, _ in sf.assigned):
@@ -888,20 +1095,70 @@ class Pipeline:
                     margin=cfg.cluster_margin,
                     min_agreement=cfg.cluster_agreement,
                 )
-                if (
+                weak_winner = (
                     winner is not None
                     and faces_by_name.get(winner.name, 0) < cfg.cluster_min_ref_faces
-                ):
+                )
+                ccip_note = ""
+                ccip_judged = False
+                if (winner is None or weak_winner) and ranking:
+                    # O CLIP não fechou sozinho (ou fechou em cima de refs
+                    # fracas). O CCIP julga o topo do ranking: dois motores
+                    # independentes concordando com folga vale decisão —
+                    # inclusive quando as refs são retratos que o YOLO não
+                    # lê (o caso Rimuru: 2 retratos, 0 rostos detectados).
+                    cand_e = ranking[0].entry
+                    if (
+                        cand_e.id not in purged
+                        and (pair := get_ccip()) is not None
+                        and cand_e.id in pair[1].char_ids
+                    ):
+                        engine_g, bank_g = pair
+                        me_g = bank_g.char_ids.index(cand_e.id)
+                        vec_map_g = ccip.face_vectors(
+                            engine_g, kf_cache,
+                            [fr for fr in ginfo["rep_refs"] if fr],
+                            cfg.face_crop_padding_ai,
+                        )
+                        sims_me: list[float] = []
+                        votes = 0
+                        for fr in ginfo["rep_refs"]:
+                            v = (
+                                vec_map_g.get((str(fr[0]), int(fr[1])))
+                                if fr else None
+                            )
+                            if v is None:
+                                continue
+                            srow = bank_g.char_sims(v[None, :])[0]
+                            others = [s for j, s in enumerate(srow) if j != me_g]
+                            gap_g = float(srow[me_g] - max(others)) if others else 1.0
+                            sims_me.append(float(srow[me_g]))
+                            if gap_g >= cfg.ccip_group_gap:
+                                votes += 1
+                        ccip_judged = len(sims_me) >= 2
+                        if (
+                            ccip_judged
+                            and float(np.median(sims_me)) >= cfg.ccip_group_min_sim
+                            and votes / len(sims_me) >= cfg.cluster_agreement
+                        ):
+                            ccip_note = (
+                                " [CCIP confirmou apesar das refs fracas]"
+                                if weak_winner else " [com aval do CCIP]"
+                            )
+                            winner = cand_e
+                            weak_winner = False
+                if weak_winner:
                     # Refs fracas (retratos sem rosto detectável) não
                     # sustentam nomear dezenas de cenas sozinho — caso real:
                     # grupo de 17 rostos batizado em cima de 2 retratinhos.
-                    # Vira sugestão no batismo; o usuário confirma.
+                    # Sem o aval do CCIP, vira sugestão no batismo.
                     print(
                         f"[grupo] {len(cl.members)} rostos parecem "
                         f"{winner.name} (mediana {ranking[0].median:.2f}), mas "
                         f"ele só tem {faces_by_name.get(winner.name, 0)} "
-                        "rosto(s) de referência — vai pro batismo como "
-                        "sugestão, não como decisão."
+                        "rosto(s) de referência"
+                        + (" e o CCIP não bancou" if ccip_judged else "")
+                        + " — vai pro batismo como sugestão, não como decisão."
                     )
                     winner = None
                 if winner is not None:
@@ -915,6 +1172,7 @@ class Pipeline:
                         f"[grupo] {len(cl.members)} rostos/{len(positions)} cenas "
                         f"-> {winner.name} (mediana {ranking[0].median:.2f}, "
                         f"{int(ranking[0].agreement * 100)}% dos reps)"
+                        + ccip_note
                     )
                 elif (
                     ai_review_ambiguous
@@ -1022,6 +1280,97 @@ class Pipeline:
                     f"[grupo] {before_g - len(ambiguous)} duvidosos resolvidos "
                     "em bloco sem gastar IA por cena."
                 )
+
+        # === Resgate CCIP: duvidosos resolvidos DE GRAÇA, sem IA ===
+        # As cenas que o CLIP deixou na zona cinzenta (2ª passada e grupos já
+        # tentaram) ganham a segunda opinião local. Ponto de operação
+        # calibrado no gabarito: gap>=0.15 = zero erros em 104 rostos.
+        # Grupos que vão pro batismo ficam de fora — decisão do usuário.
+        if ccip_on and ccip_near and entries:
+            leftover_pos = {
+                p for gi2 in leftover_clusters for p in gi2["positions"]
+            }
+            todo = [
+                p for p in ccip_near
+                if not per_shot_names[p] and p not in leftover_pos
+            ]
+            if todo and (pair := get_ccip()) is not None:
+                engine_r, bank_r = pair
+                sf_by_pos = {sf.pos: sf for sf in shot_faces}
+                need_r: list = []
+                for p in todo:
+                    sf = sf_by_pos.get(p)
+                    if sf and sf.face_refs:
+                        need_r.extend(fr for fr in sf.face_refs if fr)
+                cb(
+                    "second_pass", -1.0,
+                    f"CCIP dando segunda opinião em {len(todo)} cenas duvidosas...",
+                )
+                t0_r = time.time()
+                vec_map_r = ccip.face_vectors(
+                    engine_r, kf_cache, need_r, cfg.face_crop_padding_ai
+                )
+                id_to_entry_r = {e.id: e for e in entries}
+                n_rescued = 0
+                for p in todo:
+                    sf = sf_by_pos.get(p)
+                    if sf is None or not sf.face_refs:
+                        continue
+                    hits: dict[int, float] = {}
+                    for fr in sf.face_refs:
+                        v = vec_map_r.get((str(fr[0]), int(fr[1]))) if fr else None
+                        if v is None:
+                            continue
+                        order_r = bank_r.verdict(v)
+                        if len(order_r) < 2:
+                            continue
+                        (cid_t, s_t), (_c2, s_2) = order_r[0], order_r[1]
+                        if (
+                            s_t < cfg.ccip_rescue_min_sim
+                            or s_t - s_2 < cfg.ccip_rescue_gap
+                            or cid_t in purged   # expurgado só volta pelo batismo
+                        ):
+                            continue
+                        hits[cid_t] = max(hits.get(cid_t, 0.0), s_t)
+                    if not hits:
+                        continue
+                    idx_r = cut_results[p][0].idx
+                    names_r2: list[str] = []
+                    for cid_t, s_t in sorted(hits.items(), key=lambda kv: -kv[1]):
+                        if cid_t in blocked_pairs.get(idx_r, set()):
+                            continue
+                        ent = id_to_entry_r.get(cid_t)
+                        if ent is None:
+                            continue
+                        self.db.assign_character(shot_db_ids[p], cid_t, float(s_t))
+                        if ent.name not in per_shot_names[p]:
+                            per_shot_names[p].append(ent.name)
+                        names_r2.append(f"{ent.name} (ccip {s_t:.2f})")
+                    if names_r2:
+                        n_rescued += 1
+                        print(f"[CCIP] Shot #{idx_r:04d} -> {'; '.join(names_r2)}")
+                print(
+                    f"[CCIP] {n_rescued}/{len(todo)} cenas duvidosas resolvidas "
+                    f"localmente em {time.time() - t0_r:.0f}s, sem gastar IA."
+                )
+                cb(
+                    "second_pass", 1.0,
+                    f"CCIP resolveu {n_rescued} cenas duvidosas"
+                    if n_rescued else "CCIP: nenhuma cena extra",
+                )
+                if n_rescued and ambiguous:
+                    before_c = len(ambiguous)
+                    ambiguous = [
+                        a for a in ambiguous if not per_shot_names[a["pos"]]
+                    ]
+                    if before_c != len(ambiguous):
+                        print(
+                            f"[CCIP] {before_c - len(ambiguous)} duvidosos a "
+                            "menos na fila da IA."
+                        )
+        # Vetores CCIP novos (rostos conferidos) persistem pro cache quente.
+        if ccip_on and _ccip_holder["pair"] is not None:
+            kf_cache.save()
 
         # Grupos que sobraram → ponte pro batismo no fim da análise.
         if leftover_clusters:
