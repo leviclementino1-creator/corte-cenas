@@ -634,7 +634,11 @@ class ResultsTab(QWidget):
             for sid in touched:
                 names_now = [x["name"] for x in by_shot2.get(sid, [])]
                 try:
-                    refresh_shot_links(root, root / file_by_id[sid], names_now)
+                    refresh_shot_links(
+                        root, root / file_by_id[sid], names_now,
+                        by_character=self.config.organize_by_character_enabled,
+                        by_pair=self.config.organize_by_pair_enabled,
+                    )
                 except Exception:
                     pass
         purged_chars = 0
@@ -650,7 +654,11 @@ class ResultsTab(QWidget):
                     "memória, como no botão remover)?",
                 )
                 if resp == QMessageBox.StandardButton.Yes:
-                    remove_character_from_episode(self.db, ep_id, cid, root)
+                    remove_character_from_episode(
+                        self.db, ep_id, cid, root,
+                        by_character=self.config.organize_by_character_enabled,
+                        by_pair=self.config.organize_by_pair_enabled,
+                    )
                     purged_chars += 1
         if (removed or purged_chars) and silent:
             print(
@@ -698,7 +706,9 @@ class ResultsTab(QWidget):
             return
         from ..curation import remove_character_from_episode
         remove_character_from_episode(
-            self.db, ep_id, char["id"], Path(self._current_result.episode_root)
+            self.db, ep_id, char["id"], Path(self._current_result.episode_root),
+            by_character=self.config.organize_by_character_enabled,
+            by_pair=self.config.organize_by_pair_enabled,
         )
         self._reload_characters()
         quiet.information(
@@ -777,7 +787,11 @@ class ResultsTab(QWidget):
                     if not rel:
                         continue
                     names_now = [a["name"] for a in by_shot.get(sid, [])]
-                    refresh_shot_links(root, root / rel, names_now)
+                    refresh_shot_links(
+                        root, root / rel, names_now,
+                        by_character=self.config.organize_by_character_enabled,
+                        by_pair=self.config.organize_by_pair_enabled,
+                    )
             except Exception as e:
                 print(f"[CorteCenas] Sincronização das pastas falhou: {e}")
 

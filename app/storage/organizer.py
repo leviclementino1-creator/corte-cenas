@@ -71,21 +71,30 @@ def refresh_shot_links(
     episode_root: Path,
     shot_file: Path,
     current_names: list[str],
+    *,
+    by_character: bool = True,
+    by_pair: bool = True,
 ) -> None:
     """Sincroniza os hardlinks de UM shot com a lista atual de personagens
     dele: tira o clipe das pastas by_character/by_pair onde ele não pertence
     mais e cria os links que faltam. É o que faz o remover/mover da
     curadoria valer na pasta REAL na hora — antes, só a reanálise
     reconstruía as pastas e o clipe "removido" continuava lá no Explorer.
+
+    As flags espelham as opções da config: organização DESLIGADA não só
+    deixa de criar links — os deste shot são podados (a pasta esvazia e
+    some). Sem elas, a curadoria recriava o by_pair que o usuário tinha
+    desligado nas Configurações.
     """
     stem = shot_file.name
-    valid_chars = {sanitize(n) for n in current_names}
-    ordered = sorted(valid_chars)
+    chars_now = {sanitize(n) for n in current_names}
+    valid_chars = chars_now if by_character else set()
+    ordered = sorted(chars_now)
     valid_pairs = {
         f"{ordered[i]}+{ordered[j]}"
         for i in range(len(ordered))
         for j in range(i + 1, len(ordered))
-    }
+    } if by_pair else set()
 
     def _prune(root_dir: Path, keep: set[str]) -> None:
         if not root_dir.exists():
@@ -114,5 +123,7 @@ def refresh_shot_links(
     _prune(episode_root / "by_pair", valid_pairs)
 
     if current_names and shot_file.exists():
-        organize_by_character(shot_file, episode_root, list(current_names))
-        organize_by_pair(shot_file, episode_root, list(current_names))
+        if by_character:
+            organize_by_character(shot_file, episode_root, list(current_names))
+        if by_pair:
+            organize_by_pair(shot_file, episode_root, list(current_names))

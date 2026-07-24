@@ -13,6 +13,9 @@ def remove_character_from_episode(
     episode_id: int,
     character_id: int,
     episode_root: Path,
+    *,
+    by_character: bool = True,
+    by_pair: bool = True,
 ) -> int:
     """Remove o personagem do episódio INTEIRO: cada cena sai no banco,
     vira bloqueio lembrado (reanálise não devolve) e os hardlinks reais
@@ -29,7 +32,10 @@ def remove_character_from_episode(
         by_shot = db.assignments_for_episode(episode_id)
         for s in shots:
             names_now = [a["name"] for a in by_shot.get(int(s["id"]), [])]
-            refresh_shot_links(root, root / s["file"], names_now)
+            refresh_shot_links(
+                root, root / s["file"], names_now,
+                by_character=by_character, by_pair=by_pair,
+            )
     except Exception as e:
         print(f"[CorteCenas] Sincronização das pastas falhou: {e}")
     return len(shots)

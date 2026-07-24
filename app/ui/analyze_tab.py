@@ -802,6 +802,8 @@ class AnalyzeTab(QWidget):
                         n_scenes += remove_character_from_episode(
                             db, result.episode_id, c["character_id"],
                             Path(result.episode_root),
+                            by_character=self.config.organize_by_character_enabled,
+                            by_pair=self.config.organize_by_pair_enabled,
                         )
                     gone = {c["name"] for c in to_remove}
                     result.identified_characters = [
