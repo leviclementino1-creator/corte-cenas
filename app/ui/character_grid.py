@@ -270,20 +270,29 @@ class ShotGrid(QWidget):
     def load_for_character(self, shots: list[dict], character_name: str) -> None:
         self.list.clear()
         self.character_name = character_name
-        self.info_label.setText(
-            f"{character_name}: {len(shots)} shots · "
-            f"confiança média {self._mean([s['confidence'] for s in shots]):.2f}"
-        )
+        # A vista "Episódio inteiro" traz shots SEM personagem — linha sem
+        # a chave confidence. O grid mostra o que existe, sem inventar 0.00.
+        confs = [s["confidence"] for s in shots if s.get("confidence") is not None]
+        info = f"{character_name}: {len(shots)} shots"
+        if confs:
+            info += f" · confiança média {self._mean(confs):.2f}"
+        self.info_label.setText(info)
         for row in shots:
             icon = self._icon_for(row.get("keyframe"))
-            text = f"#{row['idx']:04d}  ({row['confidence']:.2f})"
+            conf = row.get("confidence")
+            text = (
+                f"#{row['idx']:04d}  ({conf:.2f})" if conf is not None
+                else f"#{row['idx']:04d}"
+            )
             it = QListWidgetItem(icon, text)
             it.setData(Qt.ItemDataRole.UserRole, row)
-            it.setToolTip(
+            tip = (
                 f"Shot {row['idx']:04d}\n"
-                f"{row['start']:.2f}s → {row['end']:.2f}s  ({row['duration']:.2f}s)\n"
-                f"confiança: {row['confidence']:.3f}"
+                f"{row['start']:.2f}s → {row['end']:.2f}s  ({row['duration']:.2f}s)"
             )
+            if conf is not None:
+                tip += f"\nconfiança: {conf:.3f}"
+            it.setToolTip(tip)
             self.list.addItem(it)
 
     def _icon_for(self, rel: str | None) -> QIcon:

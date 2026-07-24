@@ -292,6 +292,18 @@ class ResultsTab(QWidget):
         if self._anime_id is None:
             return
         ep_id = self._current_result.episode_id if self._current_result else None
+        # 📼 Episódio inteiro: TODOS os shots, com e sem personagem. É onde
+        # os sem-dono moram e a ÚNICA vista que existe no modo "só cortar"
+        # — antes dela, a aba ficava simplesmente vazia nesse modo.
+        if ep_id is not None:
+            n_all = len(self.db.shots_for_episode(ep_id))
+            if n_all:
+                it_all = QListWidgetItem(f"📼 Episódio inteiro  ({n_all})")
+                it_all.setData(
+                    Qt.ItemDataRole.UserRole,
+                    {"all": True, "name": "Episódio inteiro"},
+                )
+                self.char_list.addItem(it_all)
         for c in self.db.get_characters_for_anime(self._anime_id):
             shots = self.db.shots_for_character(c["id"], episode_id=ep_id)
             if not shots:
@@ -344,6 +356,14 @@ class ResultsTab(QWidget):
         if not c:
             return  # separador "Duplas"
         ep_id = self._current_result.episode_id if self._current_result else None
+        if c.get("all"):
+            # Episódio inteiro: só ver, scrub e play — curadoria é por
+            # personagem (não há de quem remover um shot sem dono).
+            shots = self.db.shots_for_episode(ep_id) if ep_id is not None else []
+            self.grid.load_for_character(shots, "Episódio inteiro")
+            self.btn_refs.setEnabled(False)
+            self.btn_vertical.setEnabled(False)
+            return
         if c.get("pair"):
             # Dupla: interseção dos shots dos dois personagens.
             id_a, id_b = c["ids"]
@@ -727,7 +747,7 @@ class ResultsTab(QWidget):
         if not items or self._current_result is None or not shots:
             return
         current_char = items[0].data(Qt.ItemDataRole.UserRole)
-        if not current_char or current_char.get("pair"):
+        if not current_char or current_char.get("pair") or current_char.get("all"):
             quiet.information(
                 self, "Curadoria é por personagem",
                 "Pra remover/mover/aprovar uma cena, selecione o personagem "
