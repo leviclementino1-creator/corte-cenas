@@ -756,12 +756,90 @@ class ResultsTab(QWidget):
             "removidas das pastas. Decisão lembrada pras próximas reanálises.",
         )
 
+    def _handle_merge(self, action: str, shots: list) -> None:
+        """Juntar/desfazer cenas. Vale pra qualquer vista (personagem, dupla
+        ou episódio inteiro): mexe nas CENAS, não na classificação delas."""
+        if self._current_result is None or not shots:
+            return
+        ep_id = getattr(self._current_result, "episode_id", None)
+        if ep_id is None:
+            return
+        root = Path(self._current_result.episode_root)
+
+        if action == "unmerge":
+            meio = (float(shots[0]["start"]) + float(shots[0]["end"])) / 2.0
+            if self.db.remove_shot_merge(ep_id, meio):
+                quiet.information(
+                    self, "Junção desfeita",
+                    "Essa junção não vale mais. As cenas voltam separadas na "
+                    "próxima análise deste episódio (o clipe atual continua "
+                    "juntado até lá).",
+                )
+            else:
+                quiet.information(
+                    self, "Nada a desfazer", "Essa cena não veio de uma junção."
+                )
+            return
+
+        alvo = sorted(shots, key=lambda r: float(r["start"]))
+        if action == "merge_next":
+            todas = sorted(
+                self.db.shots_for_episode(ep_id), key=lambda r: float(r["start"])
+            )
+            pos = next(
+                (i for i, r in enumerate(todas) if int(r["id"]) == int(alvo[0]["id"])),
+                None,
+            )
+            if pos is None or pos + 1 >= len(todas):
+                quiet.information(
+                    self, "Sem próxima cena", "Essa é a última cena do episódio."
+                )
+                return
+            alvo = [todas[pos], todas[pos + 1]]
+
+        dur = sum(float(r["end"]) - float(r["start"]) for r in alvo)
+        resp = quiet.question(
+            self, "Juntar cenas",
+            f"Juntar {len(alvo)} cenas num clipe só de {dur:.1f}s?\n\n"
+            f"• Cenas #{int(alvo[0]['idx']):04d} a #{int(alvo[-1]['idx']):04d}\n"
+            "• Vira um arquivo só, sem recodificar (rápido e sem perda)\n"
+            "• O app LEMBRA: as próximas análises já saem juntadas\n"
+            "• As outras cenas não mudam de número",
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        from ..curation import merge_shots
+        novo = merge_shots(
+            self.db, ep_id, alvo, root,
+            keyframes_per_shot=self.config.keyframes_per_shot,
+            by_character=self.config.organize_by_character_enabled,
+            by_pair=self.config.organize_by_pair_enabled,
+        )
+        if novo is None:
+            quiet.information(
+                self, "Não deu pra juntar",
+                "As cenas precisam ser VIZINHAS (uma logo depois da outra) e "
+                "os clipes precisam existir na pasta shots/.",
+            )
+            return
+        self._reload_characters()
+        self._on_character_selected()
+        quiet.information(
+            self, "Cenas juntadas",
+            f"{novo['n']} cenas viraram a cena #{novo['idx']:04d}, agora com "
+            f"{novo['end'] - novo['start']:.1f}s.",
+        )
+
     def _handle_shot_action(self, action: str, shots: list) -> None:
         """Context-menu callback from ShotGrid: manual cleanup of the
         currently-viewed character folder. `shots` carries every selected
         row (Ctrl/Shift/laço) — the action applies to all of them; "move"
         asks the target character once.
         """
+        if action in ("merge", "merge_next", "unmerge"):
+            self._handle_merge(action, shots)
+            return
         items = self.char_list.selectedItems()
         if not items or self._current_result is None or not shots:
             return

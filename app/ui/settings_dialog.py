@@ -104,6 +104,17 @@ class SettingsDialog(QDialog):
             "Baixa ~190 MB uma única vez no primeiro uso."
         )
         out_form.addRow("", self.chk_ccip)
+        self.chk_fast_detect = QCheckBox("Detecção de cenas rápida (experimental)")
+        self.chk_fast_detect.setChecked(self.config.fast_scene_detect)
+        self.chk_fast_detect.setToolTip(
+            "Corta o tempo de detecção em ~4x (98s → 22s num episódio de 24 min).\n"
+            "Mesmo detector, só muda quem entrega os quadros pra ele.\n\n"
+            "Desligada por padrão porque, medindo, 13 dos 332 cortes caem em\n"
+            "frames um pouco diferentes — a quantidade de cenas bate, mas\n"
+            "algumas fronteiras andam. Não é pior, é diferente.\n"
+            "Só afeta análises NOVAS: episódio já analisado guarda os cortes."
+        )
+        out_form.addRow("", self.chk_fast_detect)
 
         root.addWidget(out_group)
 
@@ -527,6 +538,7 @@ class SettingsDialog(QDialog):
         self.config.organize_by_character_enabled = self.chk_by_char.isChecked()
         self.config.organize_by_pair_enabled = self.chk_by_pair.isChecked()
         self.config.ccip_enabled = self.chk_ccip.isChecked()
+        self.config.fast_scene_detect = self.chk_fast_detect.isChecked()
         self.config.navyai_api_key = self.key_edit.text().strip()
         self.config.navyai_model = self.model_edit.text().strip() or "gemini-2.5-flash"
         self.config.navyai_base_url = self.base_edit.text().strip() or "https://api.navy/v1"

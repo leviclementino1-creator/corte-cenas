@@ -32,6 +32,7 @@ _PERSISTED_FIELDS = (
     "organize_by_character_enabled",
     "organize_by_pair_enabled",
     "ccip_enabled",
+    "fast_scene_detect",
     # skip_credit_shots: intentionally NOT persisted — the heuristic is
     # fragile and we keep it OFF by default.
     "use_danbooru",
@@ -92,6 +93,17 @@ class Config:
     # Shot detection
     scene_threshold: float = 27.0
     min_shot_seconds: float = 0.6
+    # Detecção rápida: o mesmo detector, mas com o ffmpeg entregando os
+    # frames já reduzidos por um pipe em vez do OpenCV decodificar tudo em
+    # 1080p. Medido: 98s -> 21.7s (4,5x) no episódio de 24 min.
+    # DESLIGADA POR PADRÃO por decisão do fiscal de fronteira
+    # (benchmarks/run_boundary.py): mesmo com a interpolação igualada à do
+    # PySceneDetect (bicúbica), 13 dos 332 cortes caem em frames diferentes
+    # — a CONTAGEM bate, mas 4% das fronteiras andam. Não é "pior", é
+    # diferente; só que mudar corte por padrão mexe em curadoria alheia.
+    # Como a detecção é cacheada por episódio, ligar isto só afeta análises
+    # NOVAS — nenhum episódio já curado é retocado.
+    fast_scene_detect: bool = False
 
     # Cutting
     reencode_shots: bool = True

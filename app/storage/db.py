@@ -77,6 +77,19 @@ CREATE TABLE IF NOT EXISTS manual_override (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (episode_id, shot_idx, character_id)
 );
+
+-- Cenas que o usuário mandou juntar num clipe só (o detector às vezes parte
+-- uma cena em duas por causa de um flash, um corte de câmera ou um fade).
+-- Guardado em SEGUNDOS, não em número de cena: número anda quando a detecção
+-- muda, tempo não. Assim a junção sobrevive a reanálise — que é a mesma
+-- regra da memória de curadoria.
+CREATE TABLE IF NOT EXISTS shot_merge (
+    episode_id INTEGER NOT NULL REFERENCES episode(id) ON DELETE CASCADE,
+    start REAL NOT NULL,
+    end REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (episode_id, start)
+);
 """
 
 
@@ -448,6 +461,76 @@ class Database:
             rows = c.execute(
                 "SELECT shot_idx, character_id, action, confidence "
                 "FROM manual_override WHERE episode_id = ?",
+                (episode_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # --- junção de cenas (guardada por tempo, ver o schema) ---
+
+    def add_shot_merge(self, episode_id: int, start: float, end: float) -> None:
+        """Registra "daqui até aqui é uma cena só". Janelas que encostam ou
+        se sobrepõem são fundidas numa só — juntar A+B e depois B+C tem que
+        dar A+B+C, não duas regras brigando pelo mesmo pedaço."""
+        merges = [m for m in self.shot_merges(episode_id)]
+        lo, hi = float(min(start, end)), float(max(start, end))
+        keep = []
+        for m in merges:
+            if m["end"] >= lo - 1e-6 and m["start"] <= hi + 1e-6:
+                lo, hi = min(lo, m["start"]), max(hi, m["end"])
+            else:
+                keep.append(m)
+        with self.connect() as c:
+            c.execute("DELETE FROM shot_merge WHERE episode_id = ?", (episode_id,))
+            for m in keep:
+                c.execute(
+                    "INSERT INTO shot_merge(episode_id, start, end) VALUES(?,?,?)",
+                    (episode_id, m["start"], m["end"]),
+                )
+            c.execute(
+                "INSERT INTO shot_merge(episode_id, start, end) VALUES(?,?,?)",
+                (episode_id, lo, hi),
+            )
+
+    def remove_shot_merge(self, episode_id: int, at_seconds: float) -> bool:
+        """Desfaz a junção que contém este instante. True se achou alguma."""
+        for m in self.shot_merges(episode_id):
+            if m["start"] - 1e-6 <= at_seconds <= m["end"] + 1e-6:
+                with self.connect() as c:
+                    c.execute(
+                        "DELETE FROM shot_merge WHERE episode_id=? AND start=?",
+                        (episode_id, m["start"]),
+                    )
+                return True
+        return False
+
+    def delete_shot(self, shot_id: int) -> None:
+        """Some com a cena e com as atribuições dela (usado ao juntar)."""
+        with self.connect() as c:
+            c.execute("DELETE FROM shot_character WHERE shot_id = ?", (shot_id,))
+            c.execute("DELETE FROM shot WHERE id = ?", (shot_id,))
+
+    def set_shot_bounds(self, shot_id: int, start: float, end: float) -> None:
+        with self.connect() as c:
+            c.execute(
+                "UPDATE shot SET start=?, end=?, duration=? WHERE id=?",
+                (start, end, max(0.0, end - start), shot_id),
+            )
+
+    def find_episode(self, season: int, episode: int, source_file: str) -> int | None:
+        """Acha o episódio SEM criar. O corte acontece antes de o episódio
+        existir no banco, mas as junções já precisam ser aplicadas ali."""
+        with self.connect() as c:
+            row = c.execute(
+                "SELECT id FROM episode WHERE season=? AND episode=? AND source_file=? "
+                "ORDER BY id DESC LIMIT 1",
+                (season, episode, source_file),
+            ).fetchone()
+            return int(row["id"]) if row else None
+
+    def shot_merges(self, episode_id: int) -> list[dict]:
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT start, end FROM shot_merge WHERE episode_id = ? ORDER BY start",
                 (episode_id,),
             ).fetchall()
             return [dict(r) for r in rows]

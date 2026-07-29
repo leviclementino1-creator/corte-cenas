@@ -59,7 +59,7 @@ from .providers.anime_provider import (
     local_cache_id,
 )
 from .references.reference_store import ReferenceStore
-from .shot_detection import ShotBounds, detect_shots
+from .shot_detection import ShotBounds, apply_merges, detect_shots
 from .storage.db import Database
 from .storage.metadata_writer import build_shot_payload, write_characters_json, write_shots_json
 from .storage.organizer import clear_grouping, organize_by_character, organize_by_pair, sanitize
@@ -2189,6 +2189,7 @@ class Pipeline:
                 on_progress=lambda f: cb(
                     "detect_shots", f, f"Analisando mudanças de cena... {int(f * 100)}%"
                 ),
+                fast=cfg.fast_scene_detect,
             )
             bounds_cache.write_text(
                 json.dumps(
@@ -2205,6 +2206,23 @@ class Pipeline:
                 encoding="utf-8",
             )
             cb("detect_shots", 1.0, f"{len(shots)} shots detectados")
+
+        # Junções pedidas pelo usuário: cenas que o detector partiu em duas
+        # (flash, tremida, fade) e ele mandou virar um clipe só. Vêm em
+        # SEGUNDOS, então continuam valendo mesmo se a detecção mudar.
+        _ep_prev = self.db.find_episode(info.season, info.episode, str(info.source))
+        if shots and _ep_prev is not None:
+            _merges = self.db.shot_merges(_ep_prev)
+            if _merges:
+                _antes = len(shots)
+                shots = apply_merges(shots, _merges)
+                if _antes != len(shots):
+                    msg = (
+                        f"{_antes - len(shots)} cena(s) juntada(s) por você "
+                        f"→ {len(shots)} no total"
+                    )
+                    print(f"[CorteCenas] {msg}", flush=True)
+                    cb("detect_shots", 1.0, msg)
 
         if shots and (info.skip_head_seconds > 0 or info.skip_tail_seconds > 0):
             total_duration = max(s.end for s in shots)

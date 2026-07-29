@@ -91,7 +91,11 @@ def _detect_via_ffmpeg(
     cmd = [
         str(ffmpeg_binary()), "-hide_banner", "-loglevel", "error",
         "-i", str(video_path), "-an", "-sn",
-        "-vf", f"scale={w}:{h}", "-sws_flags", "fast_bilinear",
+        # BICÚBICA de propósito: é a interpolação que o SceneManager usa pra
+        # reduzir (Interpolation.CUBIC é o padrão dele). Com bilinear rápida
+        # o fiscal de fronteira reprovou — mesmo detector e mesmo threshold,
+        # mas 7% dos cortes mudavam de lugar só por causa do filtro.
+        "-vf", f"scale={w}:{h}", "-sws_flags", "bicubic",
         "-pix_fmt", "bgr24", "-f", "rawvideo", "-",
     ]
     proc = subprocess.Popen(
@@ -141,12 +145,15 @@ def detect_shots(
     threshold: float = 27.0,
     min_seconds: float = 0.6,
     on_progress: Callable[[float], None] | None = None,
+    fast: bool = False,
 ) -> list[ShotBounds]:
-    fast = _detect_via_ffmpeg(video_path, threshold, on_progress)
-    if fast is not None:
-        return _to_shots(
-            fast, min_seconds, on_progress, fallback_duration=fast[-1][1]
-        )
+    if fast:
+        quick = _detect_via_ffmpeg(video_path, threshold, on_progress)
+        if quick is not None:
+            return _to_shots(
+                quick, min_seconds, on_progress, fallback_duration=quick[-1][1]
+            )
+        print("[CorteCenas] Detecção rápida não deu certo — usando a normal.")
 
     video = open_video(str(video_path))
     sm = SceneManager()
@@ -167,6 +174,57 @@ def detect_shots(
         scenes, min_seconds, on_progress,
         fallback_duration=video.duration.get_seconds(),
     )
+
+
+def apply_merges(
+    shots: list[ShotBounds], merges: list[dict]
+) -> list[ShotBounds]:
+    """Colapsa em UMA cena cada grupo de shots que cai dentro de uma janela
+    de junção pedida pelo usuário.
+
+    O detector às vezes parte uma cena em duas (um flash, um corte de
+    câmera, um fade). As janelas vêm em SEGUNDOS justamente pra sobreviver
+    a uma redetecção: se um corte andar dois frames, a janela continua
+    pegando os mesmos pedaços. Um shot entra na janela quando o CENTRO dele
+    está dentro — assim uma fronteira que se moveu um pouco não escapa.
+
+    A cena juntada HERDA o número da primeira do grupo, e ninguém é
+    renumerado: a numeração fica com buracos, e é de propósito. Renumerar do
+    zero deslocaria todas as cenas seguintes — e curadoria, bloqueios e
+    gabarito são guardados POR NÚMERO. Juntar duas cenas não pode reescrever
+    a identidade das outras trezentas.
+    """
+    if not merges or not shots:
+        return shots
+    janelas = sorted(
+        ((float(m["start"]), float(m["end"])) for m in merges), key=lambda t: t[0]
+    )
+    out: list[ShotBounds] = []
+    grupo: dict[int, list[ShotBounds]] = {}
+    for s in shots:
+        centro = (s.start + s.end) / 2.0
+        alvo = None
+        for i, (a, b) in enumerate(janelas):
+            if a - 1e-6 <= centro <= b + 1e-6:
+                alvo = i
+                break
+        if alvo is None:
+            out.append(s)
+        else:
+            grupo.setdefault(alvo, []).append(s)
+    for membros in grupo.values():
+        if not membros:
+            continue
+        primeira = min(membros, key=lambda m: m.start)
+        out.append(
+            ShotBounds(
+                idx=primeira.idx,      # herda o número — sem renumerar ninguém
+                start=primeira.start,
+                end=max(m.end for m in membros),
+            )
+        )
+    out.sort(key=lambda s: s.start)
+    return out
 
 
 def _to_shots(

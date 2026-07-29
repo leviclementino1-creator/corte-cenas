@@ -354,4 +354,43 @@ class ShotGrid(QWidget):
         menu.addSeparator()
         menu.addAction(act_remove)
         menu.addAction(act_move)
+
+        # --- juntar cenas ---
+        # Dois caminhos de propósito: o atalho de um clique resolve o caso
+        # comum (uma cena partida em duas por um flash) sem obrigar a
+        # selecionar nada; a seleção múltipla cobre o resto.
+        menu.addSeparator()
+        ordenadas = sorted(rows, key=lambda r: float(r.get("start") or 0))
+        if n >= 2 and self._sao_vizinhas(ordenadas):
+            act_merge = QAction(f"⛓  Juntar as {n} cenas num clipe só", self)
+            act_merge.triggered.connect(
+                lambda: self.shot_action.emit("merge", ordenadas)
+            )
+            menu.addAction(act_merge)
+        elif n >= 2:
+            aviso = QAction("⛓  Juntar (só funciona em cenas vizinhas)", self)
+            aviso.setEnabled(False)
+            menu.addAction(aviso)
+        elif n == 1:
+            act_next = QAction("⛓  Juntar com a próxima cena", self)
+            act_next.triggered.connect(
+                lambda: self.shot_action.emit("merge_next", rows)
+            )
+            menu.addAction(act_next)
+        if n == 1:
+            act_unmerge = QAction("↩  Desfazer junção desta cena", self)
+            act_unmerge.triggered.connect(
+                lambda: self.shot_action.emit("unmerge", rows)
+            )
+            menu.addAction(act_unmerge)
+
         menu.exec(self.list.mapToGlobal(pos))
+
+    @staticmethod
+    def _sao_vizinhas(rows: list[dict]) -> bool:
+        """Cenas encostadas no tempo (folga de meio segundo cobre a margem de
+        meio frame que o corte usa)."""
+        for a, b in zip(rows, rows[1:]):
+            if float(b.get("start") or 0) - float(a.get("end") or 0) > 0.5:
+                return False
+        return True

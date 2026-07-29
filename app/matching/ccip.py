@@ -220,8 +220,16 @@ def face_vectors(
         boxes = kf_cache.get(p, "boxes")
         if boxes is None or not len(boxes):
             continue
+        # Cache PARCIAL por box: as linhas não calculadas ficam NaN. Antes o
+        # cache só valia inteiro, então perguntar por UM rosto de um keyframe
+        # com cinco fazia o ONNX rodar nos cinco — 30% do trabalho mais caro
+        # do pipeline (medido) indo pro lixo. O caso quente continua de graça:
+        # a análise pede sempre o mesmo conjunto, então o cache parcial acerta.
         rows = kf_cache.get(p, CCIP_KIND)
-        if rows is None or len(rows) != len(boxes):
+        if rows is None or len(rows) != len(boxes) or rows.shape[1] != 768:
+            rows = np.full((len(boxes), 768), np.nan, dtype=np.float32)
+        faltam = [b for b in sorted(indices) if b < len(boxes) and not np.isfinite(rows[b, 0])]
+        if faltam:
             try:
                 img = cv2.imread(key)
             except Exception:
@@ -231,9 +239,12 @@ def face_vectors(
             crops, _kept = crops_from_boxes(img, boxes, pad)
             if len(crops) != len(boxes):
                 continue
-            rows = engine.extract_bgr(crops)
-            kf_cache.put(p, CCIP_KIND, rows)
+            novos = engine.extract_bgr([crops[b] for b in faltam])
+            if len(novos) == len(faltam):
+                for b, v in zip(faltam, novos):
+                    rows[b] = v
+                kf_cache.put(p, CCIP_KIND, rows)
         for bi in indices:
-            if bi < len(rows):
+            if bi < len(rows) and np.isfinite(rows[bi, 0]):
                 out[(key, bi)] = rows[bi]
     return out
