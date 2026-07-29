@@ -1536,7 +1536,9 @@ class Pipeline:
                 for e in entries
             ],
             refs_dir=refs_dir_str,
-            low_refs_warning=low_refs_warning,
+            low_refs_warning=self._aviso_descartados(
+                low_refs_warning, skipped_few_refs, per_shot_names
+            ),
             merge_snapshot=merge_snapshot,
         )
         result.leftover_groups = leftover_result
@@ -2313,6 +2315,47 @@ class Pipeline:
             return holder["face_det"]
 
         return get_engine, get_face_det
+
+    @staticmethod
+    def _aviso_descartados(
+        aviso: str | None,
+        descartados: list[str],
+        per_shot_names: list[list[str]],
+    ) -> str | None:
+        """Grita quando personagem foi deixado de fora por falta de fotos E
+        sobrou cena sem dono.
+
+        Esta é a lição mais cara do projeto. Personagem com 1 foto era
+        descartado em SILÊNCIO (só uma linha no log que ninguém lê), e como
+        o reconhecimento é de escolha forçada, as cenas dele iam pro sósia
+        mais parecido que TINHA fotos. Aconteceu quatro vezes no mesmo
+        episódio de Mushoku: o Deus Espada virou "Ruijerd", o Rudeus virou
+        "Paul" (o pai dele), a Reida virou "Zanoba" e a Isolte virou "Nina".
+        E como as refs depois foram reconstruídas a partir dessas cenas, o
+        erro virou referência e se auto-alimentou.
+
+        O sinal que dispara o aviso: sobrou cena sem dono E tem gente de
+        fora por falta de foto. Não afirma quem é quem — só junta as duas
+        informações que, separadas, ninguém cruzava.
+        """
+        sem_dono = sum(1 for n in per_shot_names if not n)
+        total = max(len(per_shot_names), 1)
+        if not descartados or sem_dono < max(10, total * 0.1):
+            return aviso
+        nomes = [d.split("(")[0].strip() for d in descartados][:6]
+        msg = (
+            f"⚠ {sem_dono} cenas ficaram sem personagem, e "
+            f"{len(descartados)} personagens do elenco ficaram DE FORA da "
+            "análise por terem poucas fotos de referência: "
+            + ", ".join(nomes)
+            + (" (+…)" if len(descartados) > 6 else "")
+            + ".\n\nSe alguma dessas cenas for de um deles, o app não tinha "
+            "como saber — e o risco é ele ter dado a cena pro personagem "
+            "mais parecido que TINHA fotos. Vale conferir: adicione 2-3 "
+            "prints de quem está faltando na pasta de referências, ou use o "
+            "Modo Descoberta, e reanalise (leva segundos)."
+        )
+        return (aviso + "\n\n" + msg) if aviso else msg
 
     def _feature_meta(self) -> dict:
         """Tudo que, mudando, invalida boxes/embeddings cacheados."""

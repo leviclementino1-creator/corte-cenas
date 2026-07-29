@@ -17,6 +17,7 @@ from ..deps_check import cuda_available, cuda_known, gpu_name
 from ..pipeline_types import PipelineResult
 from . import quiet
 from .analyze_tab import AnalyzeTab
+from .library_tab import LibraryTab
 from .results_tab import ResultsTab
 from .settings_dialog import SettingsDialog
 
@@ -107,6 +108,12 @@ class MainWindow(QMainWindow):
 
         self.tabs.addTab(self.analyze, "Analisar")
         self.tabs.addTab(self.results, "Resultados")
+        # A Biblioteca é construída na primeira vez que o usuário abre a aba:
+        # ela varre o banco e monta a árvore, e isso não pode entrar no custo
+        # de abrir o app (que a v0.4.10 acabou de enxugar).
+        self._library: LibraryTab | None = None
+        self._lib_index = self.tabs.addTab(QWidget(), "Biblioteca")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         # Top bar: GPU/CPU indicator on the left of the settings button so
         # the user always knows which mode they're in without opening Settings.
@@ -151,6 +158,19 @@ class MainWindow(QMainWindow):
         self.analyze.pipeline_finished.connect(self._on_pipeline_finished)
 
         self.setCentralWidget(central)
+
+    def _on_tab_changed(self, idx: int) -> None:
+        if idx != self._lib_index:
+            return
+        if self._library is None:
+            self._library = LibraryTab(self.config, self)
+            placeholder = self.tabs.widget(self._lib_index)
+            self.tabs.removeTab(self._lib_index)
+            self.tabs.insertTab(self._lib_index, self._library, "Biblioteca")
+            self.tabs.setCurrentIndex(self._lib_index)
+            placeholder.deleteLater()
+        else:
+            self._library.reload()   # pode ter analisado algo desde a última vez
 
     def _refresh_device_badge(self) -> None:
         """Troca o '⏳ detectando…' pelo selo real assim que a detecção de
