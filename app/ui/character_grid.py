@@ -47,8 +47,19 @@ from . import theme
 _MONO_FAMILY = "Cascadia Mono"
 _SANS_FAMILY = "Segoe UI Variable Text"
 
-_THUMB = QSize(192, 108)
+# A miniatura é gravada um pouco MAIOR que o maior cartão possível: assim o
+# cartão elástico nunca estica um 192px pra 230 e embaça a cena.
+_THUMB = QSize(232, 132)
 _CACHE_SIZED = False
+
+# Cartões ELÁSTICOS: a largura da célula é dividida pela largura disponível
+# em vez de ser um número fixo. Com célula fixa em 214px, uma coluna de
+# 630px cabia dois cartões e deixava ~200px de FAIXA MORTA à direita — o
+# espaço estava lá, só não era usado por ninguém. Os limites existem porque
+# cartão pequeno demais não deixa reconhecer a cena, e grande demais estica
+# a miniatura (que é gravada em 192px) até embaçar.
+_CELULA_MIN = 176
+_CELULA_MAX = 250
 
 # Uma fonte só pra ordem das cenas: a grade usa, e a Biblioteca (que mostra o
 # seletor no seu próprio cabeçalho) usa a mesma lista em vez de repetir os
@@ -74,14 +85,15 @@ def fill_sort_box(combo: QComboBox) -> None:
 
 
 def _ensure_cache_size() -> None:
-    """Miniaturas de keyframe cabem folgado em 64 MB (~80 KB cada depois de
-    reduzidas). O padrão do Qt (10 MB) expulsava as antigas no meio de uma
-    pasta grande, refazendo o trabalho a cada recarga da grade. Chamado no
-    primeiro ShotGrid (com o QApplication já vivo, não no import)."""
+    """Um episódio inteiro de miniaturas (~330 cenas a ~120 KB cada depois
+    de reduzidas) cabe em 96 MB. O padrão do Qt (10 MB) expulsava as antigas
+    no meio de uma pasta grande, refazendo o trabalho a cada recarga da
+    grade. Chamado no primeiro ShotGrid (com o QApplication já vivo, não no
+    import)."""
     global _CACHE_SIZED
     if not _CACHE_SIZED:
         _CACHE_SIZED = True
-        QPixmapCache.setCacheLimit(64 * 1024)  # em KB
+        QPixmapCache.setCacheLimit(96 * 1024)  # em KB
 
 
 def _thumbnail(path: Path) -> QPixmap | None:
@@ -293,8 +305,8 @@ class ShotGrid(QWidget):
 
         self.list = QListWidget()
         self.list.setViewMode(QListWidget.ViewMode.IconMode)
-        self.list.setIconSize(QSize(192, 108))
-        self.list.setGridSize(QSize(214, 162))
+        self.list.setIconSize(_THUMB)
+        self.list.setGridSize(QSize(_CELULA_MIN, 162))
         self.list.setItemDelegate(_CardDelegate(self.list))
         self.list.setUniformItemSizes(True)
         self.list.setResizeMode(QListWidget.ResizeMode.Adjust)
@@ -325,6 +337,29 @@ class ShotGrid(QWidget):
         self._strip_bridge = _StripBridge()
         self._strip_bridge.ready.connect(self._on_strip_ready)
         self._pool = QThreadPool.globalInstance()
+
+    def _ajustar_celulas(self) -> None:
+        """Reparte a largura disponível em colunas inteiras — sem sobra."""
+        larg = self.list.viewport().width()
+        if larg <= 0:
+            return
+        # O espaçamento entra POR FORA da célula: cada item ocupa
+        # gridSize + 2*spacing. Ignorar isso foi o que deixou a faixa morta —
+        # a conta dava duas colunas, o Qt cabia uma.
+        folga = 2 * self.list.spacing()
+        colunas = max(1, larg // (_CELULA_MIN + folga))
+        celula = int(min(_CELULA_MAX, larg // colunas - folga))
+        if celula == self.list.gridSize().width():
+            return   # nada mudou (e assim a barra de rolagem não faz vaivém)
+        pad = _CardDelegate.PAD
+        img_w = max(60, celula - 2 * pad - 8)
+        img_h = int(img_w * 9 / 16)
+        self.list.setIconSize(QSize(img_w, img_h))
+        self.list.setGridSize(QSize(celula, img_h + _CardDelegate.BAR + 2 * pad + 10))
+
+    def resizeEvent(self, event) -> None:   # noqa: N802 (API Qt)
+        super().resizeEvent(event)
+        self._ajustar_celulas()
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.list.viewport():
@@ -486,6 +521,7 @@ class ShotGrid(QWidget):
                 tip += f"\nconfiança: {conf:.3f}"
             it.setToolTip(tip)
             self.list.addItem(it)
+        self._ajustar_celulas()
 
     def _icon_for(self, rel: str | None) -> QIcon:
         if not rel:
