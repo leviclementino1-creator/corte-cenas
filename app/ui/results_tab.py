@@ -26,7 +26,7 @@ from ..config import Config
 from ..pipeline_types import PipelineResult
 from ..references.reference_store import ReferenceStore
 from ..storage.db import Database
-from . import quiet
+from . import quiet, theme
 from .character_grid import ShotGrid
 from .quiet import set_quiet_icon
 from .worker import HarvestWorker, ReframeWorker
@@ -51,11 +51,11 @@ class ResultsTab(QWidget):
         root.setSpacing(10)
 
         self.header = QLabel("Nenhum episódio processado nesta sessão.")
-        self.header.setStyleSheet("font-size:14px;font-weight:bold;")
+        self.header.setStyleSheet(theme.label("title"))
         root.addWidget(self.header)
 
         self.summary = QLabel("")
-        self.summary.setStyleSheet("color:#bbb;")
+        self.summary.setStyleSheet(theme.label("dim"))
         root.addWidget(self.summary)
 
         actions = QHBoxLayout()
@@ -149,7 +149,7 @@ class ResultsTab(QWidget):
             "Passe o mouse numa cena pra vê-la em movimento; duplo clique abre no player."
         )
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder.setStyleSheet("color:#888;")
+        placeholder.setStyleSheet(theme.label("faint"))
         self._grid_layout.addWidget(placeholder)
         right_v.addWidget(self._grid_container, 1)
         split.addWidget(right)

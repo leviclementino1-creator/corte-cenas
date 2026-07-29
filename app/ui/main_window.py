@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from ..config import Config
 from ..deps_check import cuda_available, cuda_known, gpu_name
 from ..pipeline_types import PipelineResult
-from . import quiet
+from . import quiet, theme
 from .analyze_tab import AnalyzeTab
 from .library_tab import LibraryTab
 from .results_tab import ResultsTab
@@ -38,55 +38,16 @@ def _device_badge_text() -> str:
 
 
 def _device_badge_style() -> str:
+    # Verde só quando a GPU está REALMENTE ativa: cor de estado não se gasta
+    # com enfeite, senão para de significar alguma coisa.
     if not cuda_known():
-        color = "#9aa0a6"
-    else:
-        color = "#7FCC7F" if cuda_available() else "#DDB077"
-    return (
-        f"QLabel{{color:{color};background:#2b2d31;border:1px solid #3a3d43;"
-        f"border-radius:4px;padding:5px 10px;font-size:12px;font-weight:600;}}"
-    )
+        return theme.chip("neutral")
+    return theme.chip("ok" if cuda_available() else "time")
 
 
-_DARK_QSS = """
-QMainWindow, QWidget { background: #1e1f22; color: #e6e6e6; }
-QGroupBox { border: 1px solid #2e3036; border-radius: 6px; margin-top: 10px; padding: 10px; }
-QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: #aaa; }
-QLineEdit, QSpinBox, QListWidget { background: #2b2d31; border: 1px solid #3a3d43; border-radius: 4px; padding: 4px; }
-QPushButton { background: #3a3d43; color: #eee; border: 1px solid #4b4f57; padding: 6px 10px; border-radius: 4px; }
-QPushButton:hover { background: #4b4f57; }
-/* Disabled buttons looked identical to enabled ones — users hovered them,
-   nothing reacted, and it read as "broken" instead of "not available yet". */
-QPushButton:disabled { background: #26282c; color: #5f646c; border-color: #33363b; }
-QProgressBar { background: #2b2d31; border: 1px solid #3a3d43; border-radius: 4px; text-align: center; }
-QProgressBar::chunk { background: #4CAF50; border-radius: 4px; }
-QTabBar::tab { background: #2b2d31; color: #ccc; padding: 8px 16px; border-top-left-radius: 4px; border-top-right-radius: 4px; }
-QTabBar::tab:selected { background: #1e1f22; color: #fff; border-bottom: 2px solid #4CAF50; }
-QListWidget::item:selected { background: #3a5a3f; }
-
-/* Radio/checkbox indicators: the native ones are nearly invisible on the
-   dark theme — the user couldn't tell which preset was selected. Checked
-   state is green (app accent), unchecked a visible gray ring/box. */
-QRadioButton { spacing: 7px; }
-QRadioButton::indicator {
-    width: 15px; height: 15px; border-radius: 9px;
-    border: 2px solid #6a6f78; background: #2b2d31;
-}
-QRadioButton::indicator:hover { border-color: #9aa0aa; }
-QRadioButton::indicator:checked {
-    border-color: #4CAF50;
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-        stop:0 #4CAF50, stop:0.55 #4CAF50, stop:0.7 #2b2d31, stop:1 #2b2d31);
-}
-QRadioButton:checked { color: #ffffff; font-weight: 600; }
-QCheckBox { spacing: 7px; }
-QCheckBox::indicator {
-    width: 14px; height: 14px; border-radius: 3px;
-    border: 2px solid #6a6f78; background: #2b2d31;
-}
-QCheckBox::indicator:hover { border-color: #9aa0aa; }
-QCheckBox::indicator:checked { border-color: #4CAF50; background: #4CAF50; }
-"""
+# A folha de estilo inteira vem de app/ui/theme.py — as decisões de cor,
+# fonte e espaçamento moram lá, com o porquê de cada uma.
+_DARK_QSS = theme.QSS
 
 
 _VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".avi", ".webm", ".ts", ".m2ts")
@@ -138,13 +99,7 @@ class MainWindow(QMainWindow):
 
         self.settings_btn = QPushButton("⚙  Configurações")
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.settings_btn.setStyleSheet(
-            "QPushButton{"
-            "background:#2b2d31;color:#ddd;border:1px solid #3a3d43;"
-            "border-radius:4px;padding:5px 12px;font-size:12px;"
-            "}"
-            "QPushButton:hover{background:#3a3d43;color:#fff;}"
-        )
+        self.settings_btn.setStyleSheet(theme.button())
         self.settings_btn.clicked.connect(self._open_settings)
         top_bar.addWidget(self.settings_btn)
 

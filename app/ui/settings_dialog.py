@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from . import theme
 from ..config import Config
 from ..deps_check import cuda_available, gpu_name
 from ..updater import check_and_offer_update
@@ -81,7 +82,7 @@ class SettingsDialog(QDialog):
             "Ex: <code>&lt;saída&gt;/Dr. Stone/S04E25/shots/</code>."
         )
         info_out.setWordWrap(True)
-        info_out.setStyleSheet("color:#aaa;font-size:11px;")
+        info_out.setStyleSheet(theme.label("faint"))
         out_form.addRow("", info_out)
 
         from PySide6.QtWidgets import QCheckBox
@@ -169,7 +170,7 @@ class SettingsDialog(QDialog):
         reset_btn.clicked.connect(self._reset_analysis_defaults)
         danger_row.addWidget(reset_btn)
         wipe_btn = QPushButton("🗑  Apagar TODO o cache")
-        wipe_btn.setStyleSheet("QPushButton{color:#e08585;}")
+        wipe_btn.setStyleSheet(theme.button("danger"))
         wipe_btn.clicked.connect(self._wipe_cache)
         danger_row.addWidget(wipe_btn)
         danger_row.addStretch(1)
@@ -184,7 +185,7 @@ class SettingsDialog(QDialog):
             "curadoria — use só como último recurso."
         )
         cache_info.setWordWrap(True)
-        cache_info.setStyleSheet("color:#aaa;font-size:11px;")
+        cache_info.setStyleSheet(theme.label("faint"))
         cache_layout.addWidget(cache_info)
 
         root.addWidget(cache_group)
@@ -223,7 +224,7 @@ class SettingsDialog(QDialog):
             "Se falhar (rate-limit, quota, 5xx), cai automaticamente no Gemini abaixo."
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color:#aaa;font-size:11px;")
+        info.setStyleSheet(theme.label("faint"))
         ai_form.addRow("", info)
 
         root.addWidget(ai_group)
@@ -263,7 +264,7 @@ class SettingsDialog(QDialog):
         )
         gem_info.setOpenExternalLinks(True)
         gem_info.setWordWrap(True)
-        gem_info.setStyleSheet("color:#aaa;font-size:11px;")
+        gem_info.setStyleSheet(theme.label("faint"))
         gem_form.addRow("", gem_info)
 
         root.addWidget(gem_group)
@@ -289,7 +290,7 @@ class SettingsDialog(QDialog):
         else:
             gpu_html = "GPU: <span style='color:#DDB077'>não detectada — rodando em CPU (~20x mais lento)</span>"
         gpu_label = QLabel(gpu_html)
-        gpu_label.setStyleSheet("font-size:11px;")
+        gpu_label.setStyleSheet(theme.label("faint"))
         app_layout.addWidget(gpu_label)
 
         update_row = QHBoxLayout()
@@ -308,7 +309,7 @@ class SettingsDialog(QDialog):
             "te passou o app — ele registra tudo que aconteceu na última execução."
         )
         upd_info.setWordWrap(True)
-        upd_info.setStyleSheet("color:#aaa;font-size:11px;")
+        upd_info.setStyleSheet(theme.label("faint"))
         app_layout.addWidget(upd_info)
 
         root.addWidget(app_group)

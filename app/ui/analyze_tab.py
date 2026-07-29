@@ -59,6 +59,7 @@ PRESETS = {
 }
 
 from ..config import Config
+from . import theme
 from ..pipeline_types import AIMode, PipelineResult, STAGES
 from ..storage.skip_ranges import SkipRangesStore
 from ..video_ingest import EpisodeInfo, format_mmss, parse_filename, parse_mmss
@@ -99,7 +100,7 @@ class CastReviewDialog(QDialog):
             )
             cb.setChecked(True)
             if c["suspicious"]:
-                cb.setStyleSheet("color:#DDB077;")
+                cb.setStyleSheet(theme.label("warn"))
             lay.addWidget(cb)
             self._boxes.append((cb, c))
         btns = QDialogButtonBox(
@@ -222,7 +223,7 @@ class AnalyzeTab(QWidget):
         self.show_adv_btn = QPushButton("Mostrar valores manuais ⌄")
         self.show_adv_btn.setCheckable(True)
         self.show_adv_btn.setFlat(True)
-        self.show_adv_btn.setStyleSheet("text-align:left; color:#aaa; padding:2px;")
+        self.show_adv_btn.setStyleSheet(theme.button("ghost"))
         mode_v.addWidget(self.show_adv_btn)
 
         layout.addWidget(mode_box)
@@ -411,7 +412,7 @@ class AnalyzeTab(QWidget):
 
         self.status_label = QLabel("Aguardando...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.status_label.setStyleSheet("color:#bbb;")
+        self.status_label.setStyleSheet(theme.label("dim"))
         pv.addWidget(self.status_label)
 
         self.stage_list = QListWidget()
@@ -650,7 +651,7 @@ class AnalyzeTab(QWidget):
         self.discovery_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
         self.status_label.setText("Anime não encontrado nas bases online.")
-        self.status_label.setStyleSheet("color:#DDB077;font-weight:bold;")
+        self.status_label.setStyleSheet(theme.label("warn"))
 
         box = QMessageBox(self)
         set_quiet_icon(box, QMessageBox.Icon.Question)
@@ -878,7 +879,7 @@ class AnalyzeTab(QWidget):
         first_line = message.splitlines()[0] if message else "refs insuficientes"
         self._notify("Corte Cenas — Análise parou", first_line)
         self.status_label.setText(f"Erro: {first_line}")
-        self.status_label.setStyleSheet("color:#ff6b6b;font-weight:bold;")
+        self.status_label.setStyleSheet(theme.label("danger"))
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
         self.discovery_btn.setEnabled(True)
@@ -913,7 +914,7 @@ class AnalyzeTab(QWidget):
         first_line = message.splitlines()[0] if message else "falhou"
         self._notify("Corte Cenas — Análise falhou", first_line)
         self.status_label.setText(f"Erro: {first_line}")
-        self.status_label.setStyleSheet("color:#ff6b6b;font-weight:bold;")
+        self.status_label.setStyleSheet(theme.label("danger"))
         self.run_btn.setEnabled(True)
         self.run_ai_btn.setEnabled(True)
         self.discovery_btn.setEnabled(True)
@@ -932,7 +933,7 @@ class AnalyzeTab(QWidget):
         box.exec()
 
     def _reset_status_style(self) -> None:
-        self.status_label.setStyleSheet("color:#bbb;")
+        self.status_label.setStyleSheet(theme.label("dim"))
 
     # --- cronômetro + notificação ---
 

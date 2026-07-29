@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 
 from ..config import Config
 from ..storage.db import Database
-from . import quiet
+from . import quiet, theme
 from .character_grid import ShotGrid
 
 _PREVIEW_W = 384          # largura do player lateral
@@ -135,7 +135,7 @@ class LibraryTab(QWidget):
         mv = QVBoxLayout(mid)
         mv.setContentsMargins(4, 8, 4, 8)
         self.header = QLabel("Escolha um episódio na lista")
-        self.header.setStyleSheet("font-size:14px;font-weight:600;color:#e6e6e6;")
+        self.header.setStyleSheet(theme.label("title"))
         mv.addWidget(self.header)
         self.chars = QListWidget()
         self.chars.setFlow(QListWidget.Flow.LeftToRight)
@@ -156,7 +156,7 @@ class LibraryTab(QWidget):
         rv = QVBoxLayout(right)
         rv.setContentsMargins(4, 8, 8, 8)
         cap = QLabel("A CENA")
-        cap.setStyleSheet("color:#8b95a3;font-size:11px;letter-spacing:1px;")
+        cap.setStyleSheet(theme.label("eyebrow"))
         rv.addWidget(cap)
         self.player = QLabel("Clique numa cena\npra ela tocar aqui, em loop")
         self.player.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -167,7 +167,7 @@ class LibraryTab(QWidget):
         )
         rv.addWidget(self.player, 1)
         self.player_info = QLabel("")
-        self.player_info.setStyleSheet("color:#97a2b2;font-size:12px;")
+        self.player_info.setStyleSheet(theme.label("mono"))
         self.player_info.setWordWrap(True)
         rv.addWidget(self.player_info)
         split.addWidget(right)

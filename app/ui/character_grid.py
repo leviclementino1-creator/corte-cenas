@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..storage.db import Database
+from . import theme
 
 _THUMB = QSize(192, 108)
 _CACHE_SIZED = False
@@ -150,7 +151,7 @@ class ShotGrid(QWidget):
         head = QHBoxLayout()
         head.setContentsMargins(2, 0, 2, 2)
         self.info_label = QLabel("")
-        self.info_label.setStyleSheet("color:#bbb;")
+        self.info_label.setStyleSheet(theme.label("dim"))
         head.addWidget(self.info_label, 1)
         head.addWidget(QLabel("ordem:"))
         self.sort_box = QComboBox()

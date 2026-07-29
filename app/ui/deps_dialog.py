@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..deps_check import OPTIONAL_DEPS, install_with_pip
+from . import theme
 
 
 class _InstallWorker(QObject):
@@ -80,7 +81,7 @@ class MissingDepsDialog(QDialog):
         self.output.setReadOnly(True)
         self.output.setVisible(False)
         self.output.setMaximumBlockCount(500)
-        self.output.setStyleSheet("font-family:Consolas,monospace;font-size:10px;")
+        self.output.setStyleSheet(theme.label("mono"))
         root.addWidget(self.output)
 
         buttons = QDialogButtonBox()

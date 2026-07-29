@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..pipeline_types import DiscoveryResult
-from . import quiet
+from . import quiet, theme
 
 
 _THUMB = 84
@@ -108,7 +108,7 @@ class DiscoveryNamingDialog(QDialog):
             "anime já saem no modo automático."
         )
         header.setWordWrap(True)
-        header.setStyleSheet("color:#ccc;")
+        header.setStyleSheet(theme.label("dim"))
         root.addWidget(header)
 
         for n, g in enumerate(self.result.groups, 1):
@@ -139,7 +139,7 @@ class DiscoveryNamingDialog(QDialog):
             if g.suggested_name:
                 info_txt += f" · parece {int(g.suggested_sim * 100)}% com o sugerido"
             info = QLabel(info_txt)
-            info.setStyleSheet("color:#999;font-size:11px;border:none;background:transparent;")
+            info.setStyleSheet(theme.button("ghost"))
             # Editável + dropdown: com anime conhecido, o elenco oficial vem
             # como lista — escolher em vez de digitar. Sem anime, texto livre.
             edit = QComboBox()
