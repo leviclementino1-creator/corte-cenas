@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
@@ -201,7 +202,56 @@ class AnimeProvider:
         except Exception:
             return None
 
-    def save_cache(self, cache_id: str, bundle: AnimeBundle) -> None:
+    # ---------- índice título+temporada -> pasta de cache ----------
+    # Sem ele, "reusar o banco cacheado" custava 8 requisições de rede antes
+    # de descobrir que já tinha tudo em disco (a primeira tentativa procura
+    # na pasta da TEMPORADA e o banco vive na pasta da FRANQUIA, então
+    # errava por construção). Com o índice, o caso quente não abre socket.
+
+    @staticmethod
+    def _index_key(anime_name: str, season: int) -> str:
+        """Chave tolerante a pontuação/espaço: 'Mushoku Tensei!' e
+        'mushoku  tensei' caem na mesma entrada."""
+        slug = re.sub(r"[^a-z0-9]+", " ", (anime_name or "").lower()).strip()
+        return slug + "|s" + str(season)
+
+    def _index_path(self) -> Path:
+        return self.cache_root / "index.json"
+
+    def _index_lookup(self, anime_name: str, season: int) -> str | None:
+        p = self._index_path()
+        if not p.exists():
+            return None
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        cid = data.get(self._index_key(anime_name, season))
+        return cid if isinstance(cid, str) else None
+
+    def _index_write(self, anime_name: str, season: int, cache_id: str) -> None:
+        p = self._index_path()
+        data = {}
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data[self._index_key(anime_name, season)] = cache_id
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            tmp = p.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(p)
+        except OSError:
+            pass
+
+    def save_cache(
+        self,
+        cache_id: str,
+        bundle: AnimeBundle,
+        degraded_sources: list[str] | None = None,
+    ) -> None:
         # Prefer the '<title> [al<id>]' folder name so users can browse
         # cache/anime_db/ and actually tell which anime is which.
         p = self._meta_path(cache_id)
@@ -218,9 +268,16 @@ class AnimeProvider:
             "title_english": bundle.title_english,
             "franchise_ids": bundle.franchise_ids,
             "franchise_root_id": bundle.franchise_root_id,
+            # O que ficou faltando quando este banco foi montado (hoje só
+            # "jikan_pictures"): permite re-enriquecer mais tarde sem
+            # invalidar o cache inteiro.
+            "degraded_sources": degraded_sources or [],
+            "fetched_at": int(time.time()),
             "characters": [asdict(c) for c in bundle.characters],
         }
-        p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(p)
 
     def resolve(
         self,
@@ -234,6 +291,22 @@ class AnimeProvider:
         def status(msg: str) -> None:
             if on_status:
                 on_status(msg)
+
+        # Atalho do caso quente: se este título+temporada já foi resolvido
+        # antes e o banco está no disco, devolve na hora — sem abrir socket
+        # nenhum. Era o maior custo do dia a dia (27s de rede pra confirmar
+        # um elenco que já estava aqui do lado).
+        indexed = self._index_lookup(anime_name, season)
+        if indexed:
+            cached = self.load_cached(indexed)
+            if cached is not None and cached.characters:
+                status(
+                    f"Banco em cache ({len(cached.characters)} personagens) — "
+                    "sem consultar a internet."
+                )
+                if indexed.startswith("local-"):
+                    cached.cache_id_override = indexed
+                return cached
 
         # For season > 1 we have to disambiguate on AniList, because the
         # plain search picks the most popular entry (usually S1). AniList
@@ -549,14 +622,34 @@ class AnimeProvider:
             franchise_ids=franchise_anilist_ids,
             franchise_root_id=root_id,
         )
-        # Banco montado com fonte fora do ar é DEGRADADO — cachear ele
-        # congelaria o estrago (o "reusando banco cacheado" pularia o MAL
-        # pra sempre). Sem cache, a próxima análise tenta completo de novo.
-        if self.jikan.failures == fails_start:
-            self.save_cache(cache_id, bundle)
+        # Cachear ou não? A regra antiga era "qualquer falha do Jikan = não
+        # cacheia", e ela travou o cache PERMANENTEMENTE: o endpoint de
+        # galeria do MAL (/characters/<id>/pictures) responde 504 no mundo
+        # todo desde jul/2026, enquanto o de elenco responde normal — ou
+        # seja, toda análise pagava a rede inteira de novo (27s medidos)
+        # pra reconstruir um banco idêntico.
+        #
+        # A distinção que importa: ELENCO incompleto é grave (congelaria um
+        # banco sem personagens); GALERIA incompleta é cosmético (cada
+        # personagem ainda tem os 3 retratos oficiais garantidos). Então
+        # cacheia quando o elenco veio íntegro e anota o que ficou faltando,
+        # pra poder re-enriquecer depois sem bloquear ninguém.
+        degraded = []
+        if pic_fails:
+            degraded.append("jikan_pictures")
+        if cast_fails:
+            degraded.append("jikan_characters")
+        if merged and not cast_fails:
+            self.save_cache(cache_id, bundle, degraded_sources=degraded)
+            self._index_write(anime_name, season, cache_id)
+            if degraded:
+                status(
+                    "Banco salvo (as galerias de fotos do MyAnimeList estão "
+                    "fora do ar — os retratos oficiais entraram no lugar)."
+                )
         else:
             status(
-                "Banco NÃO salvo no cache (fonte instável) — a próxima "
-                "análise busca tudo de novo."
+                "Banco NÃO salvo no cache (o ELENCO veio incompleto) — a "
+                "próxima análise busca tudo de novo."
             )
         return bundle

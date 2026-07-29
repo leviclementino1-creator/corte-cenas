@@ -95,6 +95,18 @@ class AniListClient:
             return None
         if r.status_code >= 500:
             raise RuntimeError(f"AniList indisponível (HTTP {r.status_code}).")
+        # 429 = excesso de requisições. Cair no `return None` de baixo
+        # transformava "me segura um minuto" em "esse anime não existe" — e
+        # aí o app seguia pra reserva e podia gravar as refs numa PASTA
+        # DIFERENTE, em silêncio. Erro de disponibilidade tem que subir.
+        if r.status_code == 429:
+            wait = r.headers.get("Retry-After") or r.headers.get("X-RateLimit-Reset")
+            raise RuntimeError(
+                "AniList pediu pra esperar (limite de requisições"
+                + (f", ~{wait}s" if wait else "")
+                + "). Tente de novo em instantes — o anime não foi 'não "
+                "encontrado', a fonte só está ocupada."
+            )
         try:
             data = r.json()
         except Exception as e:

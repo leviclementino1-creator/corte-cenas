@@ -40,12 +40,27 @@ def detect_shots(
     sm.detect_scenes(video, show_progress=False, callback=callback)
     scenes = sm.get_scene_list()
 
+    # Cena curta demais é FUNDIDA na anterior, não jogada fora: descartar
+    # abria um buraco no episódio — aquele pedaço de vídeo não existia em
+    # clipe nenhum da saída. (Na prática quase nunca dispara: o
+    # ContentDetector já respeita um mínimo de ~15 frames antes de nos
+    # entregar a lista; medido, 0 ocorrências em Mushoku e Slime. Mas
+    # quando disparava, sumia vídeo em silêncio.)
     shots: list[ShotBounds] = []
     idx = 0
     for s, e in scenes:
         start = s.get_seconds()
         end = e.get_seconds()
         if end - start < min_seconds:
+            if shots:
+                shots[-1].end = end          # cola no shot anterior
+            elif scenes:
+                pending_start = start        # guarda pro primeiro shot válido
+                shots.append(ShotBounds(idx=idx, start=pending_start, end=end))
+                idx += 1
+            continue
+        if shots and shots[-1].end == start and shots[-1].duration < min_seconds:
+            shots[-1].end = end              # o "pendente" do começo absorve
             continue
         shots.append(ShotBounds(idx=idx, start=start, end=end))
         idx += 1

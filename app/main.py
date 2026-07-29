@@ -196,20 +196,24 @@ def main() -> int:
         cfg.output_dir, cfg.cache_path, cfg.models_path,
     )
 
-    # Trabalho lento e SILENCIOSO debaixo do splash (nenhum diálogo aqui,
-    # senão o splash stay-on-top cobriria ele):
+    # A janela não espera mais NADA que possa ser feito em paralelo. Antes,
+    # a abertura era: rede do GitHub (0.5-5s) + import do torch (~5s) + UI —
+    # tudo em fila, com o splash congelado. Agora rede e GPU vão pra uma
+    # thread e a janela abre assim que estiver pronta; o resultado dos dois
+    # só é preciso DEPOIS, na hora dos diálogos.
+    from concurrent.futures import ThreadPoolExecutor
+
+    bg = ThreadPoolExecutor(max_workers=2)
     status("Verificando atualizações…")
-    release = fetch_release()               # rede, ~0.5-5s
+    f_release = bg.submit(fetch_release)     # rede, ~0.5-5s
+    f_cuda = bg.submit(cuda_available)       # importa torch: ~5s no 1º uso
 
     status("Verificando dependências…")
-    missing = missing_optional_deps()
+    missing = missing_optional_deps()        # agora só olha o disco (µs)
     ffmpeg_ok = ffmpeg_available()
 
-    status("Detectando GPU…")
-    has_cuda = cuda_available()             # importa torch: ~5s no cold start
-
     status("Abrindo…")
-    win = MainWindow(cfg)                   # rápido: torch já está em memória
+    win = MainWindow(cfg)
     win.show()
     if splash is not None:
         splash.finish(win)
@@ -219,7 +223,18 @@ def main() -> int:
     win.activateWindow()
     _force_foreground(win)
 
-    # Agora sim os diálogos interativos, por cima da janela visível:
+    # Agora sim os diálogos interativos, por cima da janela visível — e é
+    # aqui que o trabalho de fundo é colhido (já terminou enquanto a UI
+    # montava, na maioria das vezes).
+    try:
+        release = f_release.result(timeout=8)
+    except Exception:
+        release = None
+    try:
+        has_cuda = f_cuda.result(timeout=30)
+    except Exception:
+        has_cuda = False
+    bg.shutdown(wait=False)
     check_and_offer_update(parent=win, release=release)
 
     if missing:

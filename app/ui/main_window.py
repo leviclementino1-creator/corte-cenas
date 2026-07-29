@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import Config
-from ..deps_check import cuda_available, gpu_name
+from ..deps_check import cuda_available, cuda_known, gpu_name
 from ..pipeline_types import PipelineResult
 from . import quiet
 from .analyze_tab import AnalyzeTab
@@ -22,6 +22,10 @@ from .settings_dialog import SettingsDialog
 
 
 def _device_badge_text() -> str:
+    # Enquanto a detecção (que carrega o torch) não terminou lá no fundo, o
+    # selo mostra "detectando" em vez de segurar a janela fechada.
+    if not cuda_known():
+        return "⏳  detectando…"
     if cuda_available():
         # Shorten "NVIDIA GeForce RTX 5080" -> "RTX 5080" so the badge stays
         # narrow. Fallback to "GPU" if the name doesn't fit the pattern.
@@ -33,7 +37,10 @@ def _device_badge_text() -> str:
 
 
 def _device_badge_style() -> str:
-    color = "#7FCC7F" if cuda_available() else "#DDB077"
+    if not cuda_known():
+        color = "#9aa0a6"
+    else:
+        color = "#7FCC7F" if cuda_available() else "#DDB077"
     return (
         f"QLabel{{color:{color};background:#2b2d31;border:1px solid #3a3d43;"
         f"border-radius:4px;padding:5px 10px;font-size:12px;font-weight:600;}}"
@@ -114,6 +121,13 @@ class MainWindow(QMainWindow):
             "Amarelo: sem GPU detectada, roda em CPU (~20x mais lento)."
         )
         top_bar.addWidget(self.device_label)
+        if not cuda_known():
+            # A detecção roda em paralelo com a abertura; quando terminar, o
+            # selo se corrige sozinho (sem bloquear a janela pra esperar).
+            self._badge_timer = QTimer(self)
+            self._badge_timer.setInterval(250)
+            self._badge_timer.timeout.connect(self._refresh_device_badge)
+            self._badge_timer.start()
 
         self.settings_btn = QPushButton("⚙  Configurações")
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -137,6 +151,17 @@ class MainWindow(QMainWindow):
         self.analyze.pipeline_finished.connect(self._on_pipeline_finished)
 
         self.setCentralWidget(central)
+
+    def _refresh_device_badge(self) -> None:
+        """Troca o '⏳ detectando…' pelo selo real assim que a detecção de
+        GPU (que roda em paralelo com a abertura) termina."""
+        if not cuda_known():
+            return
+        self.device_label.setText(_device_badge_text())
+        self.device_label.setStyleSheet(_device_badge_style())
+        timer = getattr(self, "_badge_timer", None)
+        if timer is not None:
+            timer.stop()
 
     @staticmethod
     def _video_from_mime(mime) -> str | None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -83,6 +84,10 @@ class Database:
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Conexão compartilhada durante um batch() (ver o método) — fora
+        # dele fica None e cada escrita abre a sua, como sempre foi.
+        self._shared: sqlite3.Connection | None = None
+        self._shared_thread: int | None = None
         with self.connect() as c:
             c.executescript(SCHEMA)
             # Migração: cache_id da pasta de refs USADA na análise fica no
@@ -96,6 +101,12 @@ class Database:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
+        # Dentro de um batch() da MESMA thread, reusa a conexão aberta: quem
+        # commita e fecha é o batch. Fora dele, comportamento de sempre.
+        shared = self._shared
+        if shared is not None and self._shared_thread == threading.get_ident():
+            yield shared
+            return
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
@@ -103,6 +114,38 @@ class Database:
             yield conn
             conn.commit()
         finally:
+            conn.close()
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Uma conexão e UMA transação pro bloco inteiro.
+
+        Cada método de escrita abria conexão, dava commit e fechava — 4,8 ms
+        por linha medidos, e o laço de análise escreve uma linha por cena mais
+        uma por personagem identificado (~700 num episódio). Com o batch, as
+        mesmas linhas entram num commit só. Nada de semântica muda: erro no
+        meio desfaz o bloco inteiro em vez de deixar meia análise gravada.
+
+        Reentrante (batch dentro de batch é no-op) e restrito à thread que
+        abriu — conexão do sqlite não atravessa thread.
+        """
+        if self._shared is not None and self._shared_thread == threading.get_ident():
+            yield
+            return
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        self._shared = conn
+        self._shared_thread = threading.get_ident()
+        try:
+            yield
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            self._shared = None
+            self._shared_thread = None
             conn.close()
 
     # --- anime / episode ---

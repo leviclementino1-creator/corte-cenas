@@ -52,6 +52,13 @@ class JikanClient:
         # Um sucesso zera a contagem — instabilidade pontual não desarma.
         self._consecutive_failures = 0
         self.dead = False
+        # Disjuntor POR FAMÍLIA de endpoint. Medido em jul/2026: o
+        # /characters/<id>/pictures devolve 504 em 100% das tentativas
+        # enquanto o /anime/<id>/characters responde 200 em 0.25s no MESMO
+        # segundo — o endpoint de galeria está morto, o de elenco não. Com
+        # um disjuntor único, a galeria derrubava o elenco junto.
+        self._dead_families: set[str] = set()
+        self._family_failures: dict[str, int] = {}
 
     def close(self) -> None:
         self.client.close()
@@ -62,20 +69,33 @@ class JikanClient:
             time.sleep(self.min_interval - delta)
         self._last = time.monotonic()
 
-    _BREAKER_TRIP = 3   # falhas SEGUIDAS que desarmam o disjuntor
+    _BREAKER_TRIP = 2      # falhas SEGUIDAS que desarmam o disjuntor
+    _FAMILY_TRIP = 2       # ...só nesta família de endpoint
+    _RETRIES = 2
+
+    @staticmethod
+    def _family(path: str) -> str:
+        """'/characters/123/pictures' -> 'characters/pictures'. Agrupa
+        chamadas do mesmo tipo, sem o id no meio."""
+        parts = [p for p in path.split("?")[0].split("/") if p and not p.isdigit()]
+        return "/".join(parts[:2])
 
     def _get(self, path: str) -> dict | None:
-        if self.dead:
+        family = self._family(path)
+        if self.dead or family in self._dead_families:
             self.failures += 1
             return None
         last_status: int | str = "?"
-        for attempt in range(3):
+        # Escada de retry curta: 0.5s, 1.0s. A antiga (1+2+3 = 6s por
+        # chamada morta, 3 chamadas pra armar) gastava 20s medidos só pra
+        # concluir o que a primeira resposta já dizia.
+        for attempt in range(self._RETRIES):
             self._throttle()
             try:
                 r = self.client.get(f"{JIKAN_BASE}{path}")
             except httpx.HTTPError as e:
                 last_status = type(e).__name__
-                time.sleep(1.0 + attempt)
+                time.sleep(0.5 * (2 ** attempt))
                 continue
             if r.status_code == 200:
                 self._consecutive_failures = 0
@@ -85,18 +105,31 @@ class JikanClient:
             # load (July 2026: whole days of 504s). Retry both — giving up on
             # the first 504 was silently gutting the reference bank.
             if r.status_code == 429 or r.status_code >= 500:
-                time.sleep(1.0 + attempt)
+                time.sleep(0.5 * (2 ** attempt))
                 continue
             break
         print(f"[Jikan] {path} falhou apos retries (HTTP {last_status})", flush=True)
         self.failures += 1
         self._consecutive_failures += 1
-        if self._consecutive_failures >= self._BREAKER_TRIP and not self.dead:
+        self._family_failures[family] = self._family_failures.get(family, 0) + 1
+        if self._family_failures[family] >= self._FAMILY_TRIP:
+            if family not in self._dead_families:
+                self._dead_families.add(family)
+                print(
+                    f"[Jikan] endpoint '{family}' fora do ar — pulando ele "
+                    "NESTA análise (os outros continuam funcionando).",
+                    flush=True,
+                )
+        # Disjuntor GERAL: só quando DUAS famílias diferentes caem é que o
+        # MyAnimeList está realmente fora do ar. Antes, o /pictures morto
+        # (que vive fora do ar) matava junto o /anime/characters que estava
+        # respondendo — e o elenco inteiro caía pras reservas à toa.
+        if len(self._dead_families) >= 2 and not self.dead:
             self.dead = True
             print(
-                f"[Jikan] {self._consecutive_failures} falhas seguidas — "
-                "desistindo do MyAnimeList NESTA análise (as reservas "
-                "AniList/Kitsu assumem na hora, sem esperar 80 timeouts).",
+                "[Jikan] duas famílias de endpoint fora do ar — desistindo do "
+                "MyAnimeList NESTA análise (as reservas AniList/Kitsu assumem "
+                "na hora, sem esperar 80 timeouts).",
                 flush=True,
             )
         return None
