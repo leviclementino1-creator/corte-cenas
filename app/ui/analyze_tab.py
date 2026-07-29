@@ -314,20 +314,12 @@ class AnalyzeTab(QWidget):
             "Só busca+baixa as imagens de referência e abre a pasta. "
             "Não corta shots nem roda CLIP. Útil pra inspecionar o que o sistema vai usar."
         )
-        self.preview_btn.setStyleSheet(
-            "QPushButton{background:#3a3d43;color:#ddd;padding:10px 14px;border-radius:6px;}"
-            "QPushButton:hover{background:#4b4f57;color:#fff;}"
-            "QPushButton:disabled{background:#2a2c30;color:#666;}"
-        )
+        self.preview_btn.setStyleSheet(theme.button())
         self.preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.preview_btn.clicked.connect(self._start_preview)
 
         self.run_btn = QPushButton("Analisar episódio")
-        self.run_btn.setStyleSheet(
-            "QPushButton{background:#4CAF50;color:white;font-weight:bold;padding:10px 16px;border-radius:6px;}"
-            "QPushButton:hover{background:#5CBF60;}"
-            "QPushButton:disabled{background:#555;}"
-        )
+        self.run_btn.setStyleSheet(theme.button("primary"))
         self.run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.run_btn.clicked.connect(self._start)
 
@@ -341,11 +333,7 @@ class AnalyzeTab(QWidget):
             "Gasta pouquíssima quota (~10-20% do modo IA antigo). "
             "Precisa de API key em ⚙ Configurações."
         )
-        self.run_ai_btn.setStyleSheet(
-            "QPushButton{background:#4169E1;color:white;font-weight:bold;padding:10px 16px;border-radius:6px;}"
-            "QPushButton:hover{background:#5379F1;}"
-            "QPushButton:disabled{background:#555;}"
-        )
+        self.run_ai_btn.setStyleSheet(theme.button("accent-outline"))
         self.run_ai_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.run_ai_btn.clicked.connect(lambda: self._start(ai_review=True))
 
@@ -357,11 +345,7 @@ class AnalyzeTab(QWidget):
             "de nenhum site\n"
             "• Anime conhecido: reforça as refs, com os nomes já sugeridos"
         )
-        self.discovery_btn.setStyleSheet(
-            "QPushButton{background:#3a3d43;color:#ddd;padding:10px 14px;border-radius:6px;}"
-            "QPushButton:hover{background:#4b4f57;color:#fff;}"
-            "QPushButton:disabled{background:#2a2c30;color:#666;}"
-        )
+        self.discovery_btn.setStyleSheet(theme.button())
         self.discovery_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.discovery_btn.clicked.connect(lambda: self._start(discovery=True))
 
@@ -369,11 +353,7 @@ class AnalyzeTab(QWidget):
         # worker stops at the next shot/stage boundary, so the click can take
         # a few seconds to land (one ffmpeg cut / API call finishes first).
         self.cancel_btn = QPushButton("✕  Cancelar análise")
-        self.cancel_btn.setStyleSheet(
-            "QPushButton{background:#8B3A3A;color:white;font-weight:bold;padding:10px 16px;border-radius:6px;}"
-            "QPushButton:hover{background:#A34444;}"
-            "QPushButton:disabled{background:#555;color:#999;}"
-        )
+        self.cancel_btn.setStyleSheet(theme.button("danger"))
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.clicked.connect(self._cancel_analysis)
         self.cancel_btn.setVisible(False)
@@ -401,7 +381,7 @@ class AnalyzeTab(QWidget):
         prow.addWidget(self.progress, 1)
         self.clock_label = QLabel("")
         self.clock_label.setStyleSheet(
-            "color:#9fdca3;font-family:Consolas,monospace;font-size:12px;"
+            theme.label("mono")
         )
         self.clock_label.setToolTip(
             "Tempo decorrido · estimativa de término (calculada pelo ritmo "

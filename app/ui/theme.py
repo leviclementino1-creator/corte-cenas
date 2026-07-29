@@ -96,6 +96,17 @@ def button(tone: str = "normal") -> str:
             f"QPushButton:pressed{{background:#3fb3ab;}}"
             f"QPushButton:disabled{{background:{SURFACE_2};color:{TXT_FAINT};}}"
         )
+    if tone == "accent-outline":
+        # Irmã da ação principal, não rival dela: mesmo destaque, mas vazada.
+        # (Era um azul chapado que brigava com o verde do lado — dois botões
+        # gritando "clique em mim" e nenhuma hierarquia entre eles.)
+        return (
+            f"QPushButton{{background:transparent;color:{ACCENT};"
+            f"border:1px solid {ACCENT_DARK};border-radius:6px;"
+            f"padding:9px 16px;font-size:13px;font-weight:600;}}"
+            f"QPushButton:hover{{background:{ACCENT_INK};border-color:{ACCENT};}}"
+            f"QPushButton:disabled{{color:{TXT_FAINT};border-color:{LINE_SOFT};}}"
+        )
     if tone == "ghost":
         return (
             f"QPushButton{{background:transparent;color:{TXT_DIM};border:none;"
@@ -128,6 +139,13 @@ QMainWindow, QWidget, QDialog {{
     font-size: 13px;
 }}
 
+/* ARMADILHA DO QSS: QLabel (e caixa/rádio) É um QWidget, então a regra
+   acima pintava um retângulo OPACO da cor do FUNDO DA JANELA atrás de cada
+   texto. Dentro de um painel — que é mais claro — isso vira uma caixinha
+   escura em volta de cada etiqueta: "Arquivo:", "OP/ED:", todas emolduradas
+   sem ninguém ter pedido. Texto tem que deixar o painel aparecer. */
+QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
+
 /* ---- abas ---- */
 QTabWidget::pane {{ border: none; background: {BG}; }}
 /* A faixa das abas leva o selo de GPU e o botão de Configurações no canto
@@ -154,9 +172,12 @@ QTabBar::tab:selected {{
 }}
 
 /* ---- agrupadores ---- */
+/* margin-top PRECISA ser maior que a altura do título, senão a borda de
+   cima do painel passa POR DENTRO do texto — era o traço cortando
+   "1. Episódio" ao meio. 13px de fonte pedem ~22px de folga. */
 QGroupBox {{
     border: 1px solid {LINE}; border-radius: 8px;
-    margin-top: 14px; padding: 14px 12px 12px;
+    margin-top: 22px; padding: 16px 14px 14px;
     background: {SURFACE};
 }}
 /* Título de grupo em fonte NORMAL e tamanho legível. A primeira versão usou
@@ -164,8 +185,10 @@ QGroupBox {{
    de dado mas péssimo como título de seção: sumia contra a borda. Mono é
    pra NÚMERO, não pra texto que a pessoa lê. */
 QGroupBox::title {{
-    subcontrol-origin: margin; left: 14px; padding: 0 8px;
+    subcontrol-origin: margin; subcontrol-position: top left;
+    left: 12px; top: 2px; padding: 0 8px;
     color: {TXT}; font-family: {SANS}; font-size: 13px; font-weight: 600;
+    background: {BG};   /* corta a borda limpo se ainda encostar */
 }}
 
 /* ---- campos ---- */
@@ -230,11 +253,16 @@ QTreeView::branch:has-siblings:adjoins-item,
 QTreeView::branch:!has-children:!has-siblings:adjoins-item {{
     border-image: none; image: none; background: transparent;
 }}
-/* A seta de abrir/fechar FICA — é ela que diz o que dá pra expandir. */
 QTreeView::branch:has-children:closed,
-QTreeView::branch:has-children:open {{ background: transparent; }}
-/* Seleção pinta a linha INTEIRA, não só o retângulo do texto. */
-QTreeView {{ show-decoration-selected: 1; }}
+QTreeView::branch:has-children:open {{
+    border-image: none; image: none; background: transparent;
+}}
+/* show-decoration-selected FICA DESLIGADO: com ele ligado a seleção invade
+   a coluna do ramo e o Qt pinta as guias por cima na cor de destaque —
+   foi exatamente o que produziu as barras cianas. A árvore da Biblioteca
+   também desliga a decoração (setRootIsDecorated(False)) e vive só de
+   indentação, que é o que a referência aprovada mostrava. */
+QTreeView {{ show-decoration-selected: 0; }}
 QHeaderView::section {{
     background: {SURFACE_2}; color: {TXT_FAINT}; border: none;
     border-bottom: 1px solid {LINE}; padding: 6px;
@@ -262,24 +290,13 @@ QRadioButton::indicator:checked {{
     border-color: {ACCENT};
 }}
 
-/* Setas do spin: as nativas são enormes e destoam de tudo. */
-QSpinBox::up-button, QDoubleSpinBox::up-button,
-QSpinBox::down-button, QDoubleSpinBox::down-button {{
-    background: {SURFACE_3}; border: none; width: 16px;
-    margin: 2px; border-radius: 3px;
-}}
-QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
-QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
-    background: {ACCENT_DARK};
-}}
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
-    width: 0; height: 0; border-left: 4px solid transparent;
-    border-right: 4px solid transparent; border-bottom: 5px solid {TXT_DIM};
-}}
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
-    width: 0; height: 0; border-left: 4px solid transparent;
-    border-right: 4px solid transparent; border-top: 5px solid {TXT_DIM};
-}}
+/* SETA DO SPIN: nada de estilizar.
+   Tentei desenhar as setas com o truque de bordas (largura/altura 0 + borda
+   grossa formando triângulo). No papel funciona; na tela virou um QUADRADO
+   BRANCO em cada spin — sem um `image:`, o Qt não tem o que pintar ali e o
+   truque não sobrevive ao subcontrole. Setinha desenhada à mão vale menos
+   que setinha que funciona: o estilo nativo fica, e só o campo é tematizado
+   (a borda e o fundo já vêm da regra de QLineEdit/QSpinBox acima). */
 
 /* ---- progresso ---- */
 QProgressBar {{

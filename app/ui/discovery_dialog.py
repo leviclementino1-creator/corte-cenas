@@ -175,7 +175,7 @@ class DiscoveryNamingDialog(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color:#3a3d43;")
+        sep.setStyleSheet(f"color:{theme.LINE};")
         outer.addWidget(sep)
 
         btn_row = QHBoxLayout()
@@ -184,11 +184,7 @@ class DiscoveryNamingDialog(QDialog):
         cancel = QPushButton("Cancelar")
         cancel.clicked.connect(self.reject)
         confirm = QPushButton("Salvar personagens")
-        confirm.setStyleSheet(
-            "QPushButton{background:#4CAF50;color:white;font-weight:bold;"
-            "padding:8px 18px;border-radius:6px;}"
-            "QPushButton:hover{background:#5CBF60;}"
-        )
+        confirm.setStyleSheet(theme.button("primary"))
         confirm.setCursor(Qt.CursorShape.PointingHandCursor)
         confirm.clicked.connect(self._confirm)
         btn_row.addWidget(cancel)

@@ -11,7 +11,20 @@ from PySide6.QtCore import (
     QThreadPool,
     Signal,
 )
-from PySide6.QtGui import QAction, QIcon, QImage, QImageReader, QPixmap, QPixmapCache
+from PySide6.QtCore import QRect, QRectF
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QIcon,
+    QImage,
+    QImageReader,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPixmapCache,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -21,12 +34,18 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QPushButton,
+    QStyle,
+    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
 
 from ..storage.db import Database
 from . import theme
+
+# As famílias sem as aspas do CSS — QFont quer o nome puro.
+_MONO_FAMILY = "Cascadia Mono"
+_SANS_FAMILY = "Segoe UI Variable Text"
 
 _THUMB = QSize(192, 108)
 _CACHE_SIZED = False
@@ -122,6 +141,91 @@ class _StripJob(QRunnable):
         self.bridge.ready.emit(self.shot_id, images)
 
 
+class _CardDelegate(QStyledItemDelegate):
+    """Desenha cada cena como CARTÃO, não como miniatura pelada.
+
+    O padrão do QListWidget é ícone com uma linha de texto embaixo — o que
+    dá pra ler ali é só o número. O cartão carrega o que a pessoa usa pra
+    decidir: o número sobreposto no canto (some no fundo da imagem, não
+    rouba altura), quem aparece na cena, e a DURAÇÃO em âmbar — a cor que
+    neste app significa tempo. Cena que veio de uma junção leva ⛓.
+    """
+
+    PAD = 6          # respiro interno do cartão
+    BAR = 20         # faixa de baixo (nome + duração)
+
+    def paint(self, painter, option, index) -> None:  # noqa: N802 (API Qt)
+        row = index.data(Qt.ItemDataRole.UserRole) or {}
+        r = option.rect.adjusted(2, 2, -2, -2)
+        sel = bool(option.state & QStyle.StateFlag.State_Selected)
+        hov = bool(option.state & QStyle.StateFlag.State_MouseOver)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        # corpo do cartão
+        painter.setBrush(QColor(theme.SURFACE_2))
+        painter.setPen(QPen(QColor(theme.ACCENT if sel else
+                                   (theme.ACCENT_DARK if hov else theme.LINE_SOFT)),
+                            2 if sel else 1))
+        painter.drawRoundedRect(r, 6, 6)
+
+        # imagem
+        img_rect = r.adjusted(self.PAD, self.PAD, -self.PAD, -(self.BAR + self.PAD))
+        pix = index.data(Qt.ItemDataRole.DecorationRole)
+        if isinstance(pix, QIcon):
+            pix = pix.pixmap(img_rect.size())
+        if isinstance(pix, QPixmap) and not pix.isNull():
+            escala = pix.scaled(
+                img_rect.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            destino = QRect(0, 0, escala.width(), escala.height())
+            destino.moveCenter(img_rect.center())
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(destino), 4, 4)
+            painter.setClipPath(path)
+            painter.drawPixmap(destino, escala)
+            painter.setClipping(False)
+
+        # etiqueta do número, sobreposta no canto da imagem
+        num = f"#{int(row.get('idx') or 0):04d}"
+        juntada = bool(row.get("merged"))
+        if juntada:
+            num += "  ⛓"
+        painter.setFont(QFont(_MONO_FAMILY, 7, QFont.Weight.DemiBold))
+        fm = painter.fontMetrics()
+        tw = fm.horizontalAdvance(num) + 10
+        tag = QRect(img_rect.left() + 4, img_rect.top() + 4, tw, fm.height() + 4)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(10, 12, 16, 205))
+        painter.drawRoundedRect(tag, 3, 3)
+        painter.setPen(QColor(theme.TIME if juntada else theme.TXT_DIM))
+        painter.drawText(tag, Qt.AlignmentFlag.AlignCenter, num)
+
+        # faixa de baixo: quem aparece | duração
+        bar = QRect(r.left() + self.PAD, r.bottom() - self.BAR - 2,
+                    r.width() - 2 * self.PAD, self.BAR)
+        dur = float(row.get("duration") or 0)
+        painter.setFont(QFont(_MONO_FAMILY, 7))
+        fmb = painter.fontMetrics()
+        txt_dur = f"{dur:.1f}s"
+        w_dur = fmb.horizontalAdvance(txt_dur)
+        painter.setPen(QColor(theme.TIME))
+        painter.drawText(bar, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                         txt_dur)
+        quem = row.get("who") or ""
+        if quem:
+            painter.setFont(QFont(_SANS_FAMILY, 7))
+            elid = painter.fontMetrics().elidedText(
+                quem, Qt.TextElideMode.ElideRight, bar.width() - w_dur - 10
+            )
+            painter.setPen(QColor(theme.ACCENT if sel else theme.TXT_DIM))
+            painter.drawText(bar, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                             elid)
+        painter.restore()
+
+
 class ShotGrid(QWidget):
     """Thumbnail grid of shots for one character.
 
@@ -141,6 +245,7 @@ class ShotGrid(QWidget):
         self.episode_root = episode_root
         self.character_name: str | None = None
         self._rows: list[dict] = []      # o que está na tela, antes de ordenar
+        self._who: dict[int, str] = {}   # id da cena -> quem aparece nela
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -172,7 +277,9 @@ class ShotGrid(QWidget):
         self.list = QListWidget()
         self.list.setViewMode(QListWidget.ViewMode.IconMode)
         self.list.setIconSize(QSize(192, 108))
-        self.list.setGridSize(QSize(210, 150))
+        self.list.setGridSize(QSize(214, 162))
+        self.list.setItemDelegate(_CardDelegate(self.list))
+        self.list.setUniformItemSizes(True)
         self.list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.list.setMovement(QListWidget.Movement.Static)
         # Extended = Ctrl+clique adiciona, Shift+clique estende, arrastar no
@@ -308,8 +415,24 @@ class ShotGrid(QWidget):
         return sorted(shots, key=lambda r: int(r.get("idx") or 0))
 
     def load_for_character(
-        self, shots: list[dict], character_name: str, _keep: bool = False
+        self,
+        shots: list[dict],
+        character_name: str,
+        _keep: bool = False,
+        who_by_shot: dict[int, str] | None = None,
     ) -> None:
+        """`who_by_shot` (id da cena -> "Nina, Eris") alimenta a faixa do
+        cartão. Sem ele, o cartão usa o personagem da vista atual."""
+        if who_by_shot is not None:
+            self._who = who_by_shot
+        for r in shots:
+            if self._who:
+                # Cena sem ninguém fica em branco — herdar o nome da VISTA
+                # ("Episódio inteiro") era mentira: dizia que alguém está
+                # ali quando o app não identificou ninguém.
+                r["who"] = self._who.get(int(r.get("id") or -1), "")
+            else:
+                r["who"] = character_name
         self._rows = list(shots)
         shots = self._sorted_rows(shots)
         self.list.clear()
@@ -324,11 +447,9 @@ class ShotGrid(QWidget):
         for row in shots:
             icon = self._icon_for(row.get("keyframe"))
             conf = row.get("confidence")
-            text = (
-                f"#{row['idx']:04d}  ({conf:.2f})" if conf is not None
-                else f"#{row['idx']:04d}"
-            )
-            it = QListWidgetItem(icon, text)
+            # Sem texto no item: quem escreve é o cartão (número sobreposto
+            # na imagem, nome e duração na faixa de baixo).
+            it = QListWidgetItem(icon, "")
             it.setData(Qt.ItemDataRole.UserRole, row)
             tip = (
                 f"Shot {row['idx']:04d}\n"

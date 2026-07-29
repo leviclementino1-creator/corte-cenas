@@ -45,13 +45,25 @@ from . import quiet, theme
 from .character_grid import ShotGrid
 
 
+def _primeiro_nome(nome: str) -> str:
+    """"Farion, Nina" -> "Nina"; "Greyrat, Eris Boreas" -> "Eris".
+
+    As fontes guardam SOBRENOME, NOME. Cortar na vírgula e pegar o começo
+    devolvia "Farion" e "Greyrat" — e como meio elenco divide sobrenome
+    (os Greyrat), a faixa do cartão ficava com três cenas seguidas
+    "Greyrat" sem dizer qual deles. Gente é chamada pelo primeiro nome."""
+    if "," in nome:
+        nome = nome.split(",", 1)[1]
+    return nome.strip().split(" ")[0] or nome.strip()
+
+
 def _mmss(segundos: float) -> str:
     """Timecode m:ss.d — como qualquer programa de edição mostra."""
     s = max(0.0, float(segundos))
     return f"{int(s // 60)}:{s % 60:04.1f}"
 
 
-_PREVIEW_W = 384          # largura do player lateral
+_PREVIEW_W = 320          # largura do player lateral
 _PREVIEW_FPS = 12         # suave o bastante pra leitura, leve pra UI
 _MAX_FRAMES = 96          # teto de memória por clipe (~8s a 12 fps)
 
@@ -98,7 +110,12 @@ class _LoadClip(QRunnable):
                 cap.release()
         except Exception:
             frames = []
-        self.bridge.ready.emit(str(self.path), frames)
+        try:
+            self.bridge.ready.emit(str(self.path), frames)
+        except RuntimeError:
+            # A janela fechou enquanto o clipe carregava — o destinatário do
+            # sinal já não existe. Nada a entregar, e nada a quebrar.
+            pass
 
 
 class LibraryTab(QWidget):
@@ -128,8 +145,19 @@ class LibraryTab(QWidget):
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(8, 8, 4, 8)
+        lbl_acervo = QLabel("ACERVO")
+        lbl_acervo.setStyleSheet(theme.label("eyebrow"))
+        lv.addWidget(lbl_acervo)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setFrameShape(QTreeWidget.Shape.NoFrame)
+        # Sem coluna de ramo: era ali que o Qt desenhava as guias da
+        # hierarquia na cor de destaque (as barras cianas). Aqui a hierarquia
+        # já está escrita — "Temporada 3", "Episódio 02" —, então indentação
+        # sozinha basta, e é o que a referência aprovada mostrava.
+        self.tree.setRootIsDecorated(False)
+        self.tree.setIndentation(14)
+        self.tree.setUniformRowHeights(True)
         self.tree.itemSelectionChanged.connect(self._on_tree_selection)
         lv.addWidget(self.tree, 1)
         self.btn_reload = QPushButton("↻  Atualizar lista")
@@ -152,7 +180,26 @@ class LibraryTab(QWidget):
         self.chars.setFlow(QListWidget.Flow.LeftToRight)
         self.chars.setWrapping(True)
         self.chars.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.chars.setMaximumHeight(64)
+        # Altura pra DUAS fileiras de personagens. Com uma só, elenco de 6
+        # já cortava a segunda linha no meio — o usuário via meia palavra e
+        # achava que o app tinha bugado.
+        self.chars.setMaximumHeight(78)
+        self.chars.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.chars.setSpacing(3)
+        self.chars.setFrameShape(QListWidget.Shape.NoFrame)
+        # PÍLULAS, como na referência: filtro de personagem é uma escolha
+        # rápida entre poucos, não uma lista pra percorrer. Arredondado e
+        # espaçado lê como "botão"; item de lista lê como "linha".
+        self.chars.setStyleSheet(
+            f"QListWidget{{background:transparent;border:none;}}"
+            f"QListWidget::item{{background:{theme.SURFACE_2};"
+            f"border:1px solid {theme.LINE};border-radius:13px;"
+            f"padding:5px 13px;margin:2px;color:{theme.TXT_DIM};}}"
+            f"QListWidget::item:hover{{border-color:{theme.ACCENT_DARK};"
+            f"color:{theme.TXT};}}"
+            f"QListWidget::item:selected{{background:{theme.ACCENT_INK};"
+            f"border-color:{theme.ACCENT_DARK};color:{theme.ACCENT};}}"
+        )
         self.chars.itemSelectionChanged.connect(self._on_char_filter)
         mv.addWidget(self.chars)
         self.grid_box = QWidget()
@@ -212,10 +259,14 @@ class LibraryTab(QWidget):
         rv.addStretch(1)
         split.addWidget(right)
 
+        # A grade de cenas é o conteúdo; as colunas laterais servem a ela.
+        # Com 240+700+424 numa janela de 1265 sobravam ~600px no meio = duas
+        # colunas de miniatura, com a terceira cortada pela metade.
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
         split.setStretchFactor(2, 0)
-        split.setSizes([240, 700, _PREVIEW_W + 40])
+        split.setSizes([196, 900, _PREVIEW_W + 24])
+        split.setCollapsible(1, False)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -323,13 +374,31 @@ class LibraryTab(QWidget):
         self.chars.setCurrentRow(0)
 
         if self.grid is not None:
+            # Desligar os sinais ANTES de destruir: sem isso o Qt ainda
+            # entrega uma mudança de seleção do widget que já morreu e o
+            # app estoura com "Signal source has been deleted".
+            try:
+                self.grid.shot_activated.disconnect()
+                self.grid.list.itemSelectionChanged.disconnect()
+            except (RuntimeError, TypeError):
+                pass
             self.grid.setParent(None)
             self.grid.deleteLater()
         self.grid = ShotGrid(self._root)
         self.grid.shot_activated.connect(self._play_shot)
         self.grid.list.itemSelectionChanged.connect(self._on_grid_selection)
         self._grid_layout.addWidget(self.grid)
-        self.grid.load_for_character(shots, "Episódio inteiro")
+        quem = {
+            sid: ", ".join(_primeiro_nome(a["name"]) for a in ass)
+            for sid, ass in by_shot.items() if ass
+        }
+        # cena que veio de uma junção ganha ⛓ no cartão
+        for r in shots:
+            r["merged"] = any(
+                m["start"] - 0.05 <= float(r["start"]) and float(r["end"]) <= m["end"] + 0.05
+                for m in self.db.shot_merges(ep_id)
+            )
+        self.grid.load_for_character(shots, "Episódio inteiro", who_by_shot=quem)
         self.header.setText(
             f"{self._episode['title']} — "
             f"S{self._episode['season']:02d}E{self._episode['episode']:02d}"

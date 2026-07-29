@@ -256,7 +256,7 @@ class SettingsDialog(QDialog):
         gem_form.addRow("Modelo:", self.gem_model_edit)
 
         gem_info = QLabel(
-            "Pega a key gratuita em <a href='https://aistudio.google.com/apikey' style='color:#7FCC7F'>"
+            "Pega a key gratuita em <a href='https://aistudio.google.com/apikey' style='color:#4cc9c0'>"
             "aistudio.google.com/apikey</a>. "
             "Se as duas keys estiverem preenchidas, NavyAI é usada primeiro e o Gemini "
             "só entra em ação se ela falhar. Se só uma tiver, ela é usada sozinha. "
@@ -277,7 +277,7 @@ class SettingsDialog(QDialog):
         version_label = QLabel(
             f"Corte Cenas <b>v{__version__}</b> — "
             "<a href='https://github.com/leviclementino1-creator/corte-cenas/releases' "
-            "style='color:#7FCC7F'>ver histórico de versões</a>"
+            "style='color:#4cc9c0'>ver histórico de versões</a>"
         )
         version_label.setOpenExternalLinks(True)
         version_row.addWidget(version_label)
@@ -286,9 +286,9 @@ class SettingsDialog(QDialog):
 
         # GPU / device status
         if cuda_available():
-            gpu_html = f"GPU: <span style='color:#7FCC7F'>{gpu_name() or 'CUDA'}</span>"
+            gpu_html = f"GPU: <span style='color:#4cc9c0'>{gpu_name() or 'CUDA'}</span>"
         else:
-            gpu_html = "GPU: <span style='color:#DDB077'>não detectada — rodando em CPU (~20x mais lento)</span>"
+            gpu_html = "GPU: <span style='color:#e8a15c'>não detectada — rodando em CPU (~20x mais lento)</span>"
         gpu_label = QLabel(gpu_html)
         gpu_label.setStyleSheet(theme.label("faint"))
         app_layout.addWidget(gpu_label)
@@ -326,7 +326,7 @@ class SettingsDialog(QDialog):
         # A subtle separator line so the fixed button bar reads as its own strip.
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color:#3a3d43;")
+        sep.setStyleSheet(f"color:{theme.LINE};")
         outer.addWidget(sep)
 
         # Fixed button bar at the bottom of the dialog — never scrolls away.
