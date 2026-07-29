@@ -314,11 +314,19 @@ class Database:
             )
 
     def shots_for_character(
-        self, character_id: int, episode_id: int | None = None
+        self,
+        character_id: int,
+        episode_id: int | None = None,
+        order: str = "idx",
     ) -> list[dict]:
         """Return shots tagged with this character.
         If `episode_id` is set, restricts to that episode (prevents shots
-        from other runs from leaking into the current view)."""
+        from other runs from leaking into the current view).
+
+        `order` padrão CRONOLÓGICO. Antes era por confiança, e isso
+        embaralhava o episódio: cenas vizinhas — justamente as que a pessoa
+        quer comparar ou juntar — caíam em pontos opostos da grade. Quem
+        precisa das duvidosas primeiro pede order="confidence"."""
         query = (
             "SELECT s.id, s.idx, s.file, s.keyframe, s.start, s.end, s.duration, "
             "sc.confidence, sc.approved "
@@ -329,7 +337,11 @@ class Database:
         if episode_id is not None:
             query += " AND s.episode_id = ?"
             args.append(episode_id)
-        query += " ORDER BY sc.confidence DESC"
+        query += (
+            " ORDER BY sc.confidence ASC, s.idx"
+            if order == "confidence"
+            else " ORDER BY s.idx"
+        )
         with self.connect() as c:
             rows = c.execute(query, args).fetchall()
             return [dict(r) for r in rows]

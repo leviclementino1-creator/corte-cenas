@@ -14,6 +14,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QAction, QIcon, QImage, QImageReader, QPixmap, QPixmapCache
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -138,13 +139,34 @@ class ShotGrid(QWidget):
         _ensure_cache_size()
         self.episode_root = episode_root
         self.character_name: str | None = None
+        self._rows: list[dict] = []      # o que está na tela, antes de ordenar
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        # Cabeçalho: contagem à esquerda, ordem à direita. A ordem CRONOLÓGICA
+        # é o padrão porque é a única em que "cenas vizinhas" ficam vizinhas
+        # na tela — sem isso, juntar duas cenas partidas vira caça ao tesouro.
+        head = QHBoxLayout()
+        head.setContentsMargins(2, 0, 2, 2)
         self.info_label = QLabel("")
         self.info_label.setStyleSheet("color:#bbb;")
-        layout.addWidget(self.info_label)
+        head.addWidget(self.info_label, 1)
+        head.addWidget(QLabel("ordem:"))
+        self.sort_box = QComboBox()
+        self.sort_box.addItem("⏱  cronológica", "idx")
+        self.sort_box.addItem("⚠  duvidosas primeiro", "confidence")
+        self.sort_box.addItem("⏳  mais longas primeiro", "duration")
+        self.sort_box.setToolTip(
+            "Cronológica: na ordem do episódio — é a ordem pra achar cenas\n"
+            "vizinhas e juntá-las.\n"
+            "Duvidosas primeiro: as de menor confiança na frente, pra revisar\n"
+            "o que tem mais chance de estar errado.\n"
+            "Mais longas primeiro: as cenas com mais material."
+        )
+        self.sort_box.currentIndexChanged.connect(self._resort)
+        head.addWidget(self.sort_box)
+        layout.addLayout(head)
 
         self.list = QListWidget()
         self.list.setViewMode(QListWidget.ViewMode.IconMode)
@@ -267,7 +289,28 @@ class ShotGrid(QWidget):
         self._hover_icon0 = None
         self._hover_idx = -1
 
-    def load_for_character(self, shots: list[dict], character_name: str) -> None:
+    def _resort(self) -> None:
+        """Reordena o que já está na tela — sem ir ao banco de novo."""
+        if self._rows:
+            self.load_for_character(self._rows, self.character_name or "", _keep=True)
+
+    def _sorted_rows(self, shots: list[dict]) -> list[dict]:
+        modo = self.sort_box.currentData() or "idx"
+        if modo == "confidence":
+            return sorted(
+                shots,
+                key=lambda r: (r.get("confidence") if r.get("confidence") is not None else 2.0,
+                               int(r.get("idx") or 0)),
+            )
+        if modo == "duration":
+            return sorted(shots, key=lambda r: -float(r.get("duration") or 0))
+        return sorted(shots, key=lambda r: int(r.get("idx") or 0))
+
+    def load_for_character(
+        self, shots: list[dict], character_name: str, _keep: bool = False
+    ) -> None:
+        self._rows = list(shots)
+        shots = self._sorted_rows(shots)
         self.list.clear()
         self.character_name = character_name
         # A vista "Episódio inteiro" traz shots SEM personagem — linha sem
