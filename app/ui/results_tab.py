@@ -611,10 +611,17 @@ class ResultsTab(QWidget):
             )
 
     def _sync_from_disk(self, silent: bool = True) -> tuple[int, int]:
-        """Explorer → app: clipe apagado da pasta de um personagem vira
-        remoção com memória (mesma semântica do botão remover). Conservador:
+        """Explorer → app, nos dois sentidos.
+
+        Clipe APAGADO da pasta de um personagem vira remoção com memória
+        (mesma semântica do botão remover); clipe ARRASTADO pra pasta de
+        outro personagem vira atribuição manual lembrada. Conservador:
         arquivo sumido só conta quando a PASTA do personagem existe; pasta
-        INTEIRA sumida vira pergunta — nunca remoção silenciosa em massa."""
+        INTEIRA sumida vira pergunta — nunca remoção silenciosa em massa.
+
+        Ordem importa: as adições entram ANTES das remoções, senão a
+        remoção de um personagem inteiro recria os links dos que sobraram
+        naquelas cenas e apaga o rastro do que o usuário tinha tirado."""
         if (
             self._current_result is None
             or not self.config.organize_by_character_enabled
@@ -623,6 +630,17 @@ class ResultsTab(QWidget):
         ep_id = getattr(self._current_result, "episode_id", None)
         root = Path(self._current_result.episode_root)
         by_char = root / "by_character"
+        if ep_id is not None and self._anime_id is not None:
+            from ..curation import apply_folder_moves
+            moved = apply_folder_moves(self.db, ep_id, self._anime_id, root)
+            if moved:
+                total_moved = sum(moved.values())
+                print(
+                    f"[CorteCenas] Sync do Explorer: {total_moved} cena(s) "
+                    "movida(s) à mão viraram atribuição lembrada — "
+                    + ", ".join(f"{k}:{v}" for k, v in sorted(moved.items())),
+                    flush=True,
+                )
         if ep_id is None or not by_char.exists():
             return 0, 0
         from ..storage.organizer import refresh_shot_links, sanitize
