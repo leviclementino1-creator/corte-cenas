@@ -21,8 +21,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QRectF, QThreadPool, QTimer, QRunnable, QObject, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QImage, QPainter, QPen, QPixmap
+from PySide6.QtCore import (
+    QObject,
+    QRect,
+    QRectF,
+    QRunnable,
+    QSize,
+    Qt,
+    QThreadPool,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QFontMetrics,
+    QImage,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -45,7 +66,7 @@ from ..config import Config
 from ..storage.db import Database
 from ..storage.organizer import refresh_shot_links
 from . import quiet, theme
-from .character_grid import ShotGrid, fill_sort_box
+from .character_grid import SORT_MODES, SORT_TIP, ShotGrid
 
 
 def _primeiro_nome(nome: str) -> str:
@@ -80,6 +101,8 @@ _FAMILIA_MONO = "Cascadia Mono"
 # Papéis guardados no item da árvore (o Qt reserva UserRole pro nosso uso).
 _NIVEL = Qt.ItemDataRole.UserRole + 2    # 0 anime · 1 temporada · 2 episódio
 _CONTA = Qt.ItemDataRole.UserRole + 3    # número à direita
+_ABERTO = Qt.ItemDataRole.UserRole + 4   # None = folha; True/False = ramo
+_PILULA = Qt.ItemDataRole.UserRole + 5   # (ícone, nome, contagem)
 
 _PREVIEW_W = 320          # largura do player lateral
 _PREVIEW_FPS = 12         # suave o bastante pra leitura, leve pra UI
@@ -88,6 +111,145 @@ _MAX_FRAMES = 96          # teto de memória por clipe (~8s a 12 fps)
 
 class _Bridge(QObject):
     ready = Signal(str, list)   # (caminho do clipe, frames já em QImage)
+
+
+def _fonte(familia: str, px: int, negrito: bool = False) -> QFont:
+    """Fonte em PIXEL. O sistema visual fala em px e QFont(fam, n) usa
+    PONTO — passar um pelo outro dá outro tamanho na tela."""
+    f = QFont(familia)
+    f.setPixelSize(px)
+    if negrito:
+        f.setWeight(QFont.Weight.DemiBold)
+    return f
+
+
+class _Trilho(QWidget):
+    """Seletor de poucas opções fixas: os três botões ficam num trilho e o
+    escolhido acende. Lista suspensa esconde as alternativas atrás de um
+    clique — com três opções que nunca mudam, esconder não paga o preço."""
+
+    def __init__(self, opcoes: list[tuple[str, str]], ao_mudar) -> None:
+        super().__init__()
+        self._ao_mudar = ao_mudar
+        self._chave = opcoes[0][1]
+        self._botoes: dict[str, QPushButton] = {}
+        self._rotulos = {c: t for t, c in opcoes}
+        self._compacto = False
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(2, 2, 2, 2)
+        lay.setSpacing(2)
+        self.setStyleSheet(
+            f"_Trilho{{background:{theme.WELL};border:1px solid {theme.LINE};"
+            f"border-radius:{theme.R_S}px;}}"
+        )
+        for texto, chave in opcoes:
+            b = QPushButton(texto)
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _=False, k=chave: self.escolher(k))
+            self._botoes[chave] = b
+            lay.addWidget(b)
+        self._pintar()
+
+    def _pintar(self) -> None:
+        for chave, b in self._botoes.items():
+            ligado = chave == self._chave
+            b.setChecked(ligado)
+            b.setStyleSheet(
+                f"QPushButton{{border:none;border-radius:3px;padding:0 12px;"
+                f"min-height:26px;font-size:12.5px;font-weight:{600 if ligado else 400};"
+                f"background:{theme.ACCENT_INK if ligado else 'transparent'};"
+                f"color:{theme.ACCENT if ligado else theme.TXT_DIM};}}"
+                f"QPushButton:hover{{color:{theme.TXT};}}"
+            )
+
+    def compactar(self, sim: bool) -> None:
+        """Em coluna estreita fica só o ícone: o trilho inteiro empurrava o
+        título e o texto das opções saía cortado pela metade."""
+        if getattr(self, "_compacto", None) == sim:
+            return
+        self._compacto = sim
+        for chave, b in self._botoes.items():
+            texto = self._rotulos[chave]
+            b.setText(texto.split()[0] if sim else texto)
+            b.setToolTip(texto if sim else "")
+        self._pintar()
+
+    def escolher(self, chave: str) -> None:
+        if chave == self._chave:
+            self._pintar()
+            return
+        self._chave = chave
+        self._pintar()
+        if self._ao_mudar:
+            self._ao_mudar()
+
+    def currentData(self) -> str:   # noqa: N802 (mesma API do QComboBox)
+        return self._chave
+
+
+class _Pilula(QStyledItemDelegate):
+    """Filtro de personagem: ícone · nome · contagem.
+
+    O nome vem em texto e a contagem em MONO ÂMBAR — nunca os dois na mesma
+    cor. É isso que deixa a fileira legível de longe: o olho pega a coluna
+    de números sem ler os nomes. Item de lista comum pinta tudo de uma cor
+    só, por isso a pílula é desenhada aqui.
+    """
+
+    ALTURA = theme.H_PILL
+
+    def _partes(self, index) -> tuple[str, str, str]:
+        d = index.data(Qt.ItemDataRole.UserRole + 5) or ("", "", "")
+        return d
+
+    def paint(self, painter, option, index) -> None:  # noqa: N802 (API Qt)
+        from PySide6.QtWidgets import QStyle as _S
+        icone, nome, conta = self._partes(index)
+        sel = bool(option.state & _S.StateFlag.State_Selected)
+        hov = bool(option.state & _S.StateFlag.State_MouseOver)
+        r = option.rect
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if sel:
+            fundo, borda = theme.ACCENT_INK, theme.ACCENT
+        elif hov:
+            fundo, borda = theme.SURFACE_3, theme.LINE_BRIGHT
+        else:
+            fundo, borda = theme.SURFACE_2, theme.LINE
+        painter.setBrush(QColor(fundo))
+        painter.setPen(QPen(QColor(borda), 1))
+        painter.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 17, 17)
+
+        x = r.left() + 15
+        meio = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        if icone:
+            painter.setFont(_fonte(_FAMILIA_SANS, 13))
+            painter.setPen(QColor(theme.TXT_DIM))
+            larg = painter.fontMetrics().horizontalAdvance(icone)
+            painter.drawText(QRect(x, r.top(), larg, r.height()), meio, icone)
+            x += larg + 8
+        painter.setFont(_fonte(_FAMILIA_SANS, 13, sel))
+        painter.setPen(QColor(theme.TXT))
+        larg = painter.fontMetrics().horizontalAdvance(nome)
+        painter.drawText(QRect(x, r.top(), larg, r.height()), meio, nome)
+        x += larg + 8
+        painter.setFont(_fonte(_FAMILIA_MONO, 12))
+        painter.setPen(QColor(theme.TIME))
+        painter.drawText(
+            QRect(x, r.top(), r.right() - x, r.height()), meio, conta
+        )
+        painter.restore()
+
+    def sizeHint(self, option, index):  # noqa: N802 (API Qt)
+        icone, nome, conta = self._partes(index)
+        larg = 30
+        if icone:
+            larg += QFontMetrics(_fonte(_FAMILIA_SANS, 13)).horizontalAdvance(icone) + 8
+        larg += QFontMetrics(_fonte(_FAMILIA_SANS, 13, True)).horizontalAdvance(nome) + 8
+        larg += QFontMetrics(_fonte(_FAMILIA_MONO, 12)).horizontalAdvance(conta)
+        return QSize(larg, self.ALTURA)
 
 
 class _LinhaAcervo(QStyledItemDelegate):
@@ -125,35 +287,49 @@ class _LinhaAcervo(QStyledItemDelegate):
                                     1.5, 1.5)
 
         dados = index.data(Qt.ItemDataRole.UserRole) or {}
-        recuo = 10 + int(index.data(_NIVEL) or 0) * 14
-        conta = index.data(_CONTA)
-        fonte = QFont(_FAMILIA_SANS, 8)
-        fonte.setItalic(bool(dados) and not dados.get("ok", True))
-        painter.setFont(fonte)
+        nivel = int(index.data(_NIVEL) or 0)
+        sumiu = bool(dados) and not dados.get("ok", True)
+        recuo = (10, 24, 38)[min(nivel, 2)]
+        meio = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 
+        # triângulo pequeno e apagado: é affordance, não conteúdo
+        aberto = index.data(_ABERTO)
+        if aberto is not None:
+            painter.setFont(_fonte(_FAMILIA_SANS, 9))
+            painter.setPen(QColor(theme.TXT_FAINT))
+            painter.drawText(QRect(r.left() + recuo, r.top(), 12, r.height()),
+                             meio, "▾" if aberto else "▸")
+            recuo += 14
+
+        # a contagem é NÚMERO: mono âmbar, como toda medida do app
         larg_conta = 0
+        conta = index.data(_CONTA)
         if conta is not None:
-            painter.setFont(QFont(_FAMILIA_MONO, 8))
+            painter.setFont(_fonte(_FAMILIA_MONO, 12))
             txt = str(conta)
             larg_conta = painter.fontMetrics().horizontalAdvance(txt) + 12
-            painter.setPen(QColor(theme.ACCENT if sel else theme.TXT_FAINT))
+            painter.setPen(QColor(theme.TXT_GHOST if sumiu else theme.TIME))
             painter.drawText(
-                r.adjusted(0, 0, -8, 0),
+                r.adjusted(0, 0, -10, 0),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, txt,
             )
-            painter.setFont(fonte)
 
-        if sel:
-            cor = theme.ACCENT
-        elif dados and not dados.get("ok", True):
-            cor = theme.TXT_FAINT
+        # Hierarquia por VALOR do texto: anime claro, temporada média,
+        # episódio médio (e claro quando é o aberto). O ciano fica reservado
+        # pra barra da seleção — dois destaques na mesma linha brigam.
+        fonte = _fonte(_FAMILIA_SANS, 13)
+        fonte.setItalic(sumiu)
+        painter.setFont(fonte)
+        if sumiu:
+            cor = theme.TXT_GHOST
+        elif sel or nivel == 0 or hov:
+            cor = theme.TXT
         else:
-            cor = theme.TXT if hov else theme.TXT_DIM
+            cor = theme.TXT_DIM
         painter.setPen(QColor(cor))
         caixa = r.adjusted(recuo, 0, -larg_conta, 0)
         painter.drawText(
-            caixa,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            caixa, meio,
             painter.fontMetrics().elidedText(
                 str(index.data(Qt.ItemDataRole.DisplayRole) or ""),
                 Qt.TextElideMode.ElideRight, caixa.width(),
@@ -269,10 +445,12 @@ class LibraryTab(QWidget):
             f"border-right:1px solid {theme.LINE};}}"
         )
         lv = QVBoxLayout(left)
-        lv.setContentsMargins(10, 10, 6, 10)
-        lv.setSpacing(6)
+        # Medidas da maquete: painel 8 nas laterais, 14 em cima, 12 embaixo;
+        # as linhas quase encostadas umas nas outras (2).
+        lv.setContentsMargins(8, 14, 8, 12)
+        lv.setSpacing(2)
         lbl_acervo = QLabel("ACERVO")
-        lbl_acervo.setStyleSheet(theme.label("eyebrow"))
+        lbl_acervo.setStyleSheet(theme.label("eyebrow") + "padding:0 6px 8px;")
         lv.addWidget(lbl_acervo)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
@@ -295,8 +473,17 @@ class LibraryTab(QWidget):
         self.tree.customContextMenuRequested.connect(self._menu_acervo)
         lv.addWidget(self.tree, 1)
 
+        # A faixa de ações se separa da árvore por um traço, como na
+        # maquete — sem ele, o último episódio e o primeiro atalho viram a
+        # mesma lista.
+        risco_acoes = QWidget()
+        risco_acoes.setFixedHeight(1)
+        risco_acoes.setStyleSheet(f"background:{theme.LINE_SOFT};")
+        lv.addSpacing(8)
+        lv.addWidget(risco_acoes)
+        lv.addSpacing(8)
         lbl_acoes = QLabel("AÇÕES")
-        lbl_acoes.setStyleSheet(theme.label("eyebrow"))
+        lbl_acoes.setStyleSheet(theme.label("eyebrow") + "padding:0 10px 6px;")
         lv.addWidget(lbl_acoes)
         # Ações da barra lateral em texto (ghost), não em dois botões
         # sólidos: elas são atalhos permanentes, não a ação principal da
@@ -317,70 +504,96 @@ class LibraryTab(QWidget):
         # --- meio: cenas + personagens
         mid = QWidget()
         mv = QVBoxLayout(mid)
-        mv.setContentsMargins(14, 10, 8, 8)
-        mv.setSpacing(8)
+        mv.setContentsMargins(0, 0, 0, 0)
+        mv.setSpacing(0)
+        cabecalho = QWidget()
+        cv = QVBoxLayout(cabecalho)
+        cv.setContentsMargins(16, 16, 16, 12)
+        cv.setSpacing(12)
         # TÍTULO e DADOS em linhas separadas. Amontoados na mesma linha
         # ("Mushoku Tensei III: … — S03E02 · 332 cenas · 6 personagens") o
         # nome do episódio e a contagem disputavam o mesmo olhar e nenhum dos
         # dois era lido. Título é nome; a linha de baixo é medida.
-        self.header = QLabel("Escolha um episódio na lista")
-        self.header.setStyleSheet(theme.label("title"))
-        mv.addWidget(self.header)
+        linha_titulo = QHBoxLayout()
+        linha_titulo.setSpacing(20)
+        self._titulo_cheio = "Escolha um episódio na lista"
+        self.header = QLabel(self._titulo_cheio)
+        # Sem mínimo, o QLabel exige a largura do texto inteiro e empurra o
+        # seletor de ordem pra fora; com ele, o título encolhe e é
+        # ELIDIDO por _elide_titulo (o Qt não elide QLabel sozinho — ele
+        # simplesmente corta a palavra no meio, que era o que acontecia).
+        self.header.setMinimumWidth(120)
+        self.header.setStyleSheet(
+            f"font-family:{theme.DISP};font-size:19px;font-weight:600;color:{theme.TXT};padding-left:4px;"
+        )
+        linha_titulo.addWidget(self.header, 1)
+        lbl_ordem = QLabel("ordem")
+        lbl_ordem.setStyleSheet(theme.label("faint"))
+        linha_titulo.addWidget(lbl_ordem)
+        # O seletor de ordem é um TRILHO de três opções, não uma lista
+        # suspensa: são três, sempre as mesmas, e a escolhida fica visível
+        # sem abrir nada. Ele mora aqui (e não dentro da grade) pra
+        # sobreviver à troca de episódio, que reconstrói a grade.
+        self.sort_box = _Trilho(
+            [(t, c) for t, c in SORT_MODES], self._on_sort
+        )
+        self.sort_box.setToolTip(SORT_TIP)
+        linha_titulo.addWidget(self.sort_box)
+        cv.addLayout(linha_titulo)
 
-        linha_meta = QHBoxLayout()
-        linha_meta.setContentsMargins(0, 0, 0, 0)
-        linha_meta.setSpacing(8)
         self.meta = QLabel("")
         self.meta.setTextFormat(Qt.TextFormat.RichText)
+        self.meta.setWordWrap(True)
         self.meta.setStyleSheet(
-            f"font-family:{theme.MONO};font-size:11.5px;color:{theme.TXT_DIM};"
+            f"font-family:{theme.MONO};font-size:12.5px;color:{theme.TXT_FAINT};"
+            f"padding-left:4px;"
         )
-        linha_meta.addWidget(self.meta)
-        linha_meta.addStretch(1)
-        lbl_ordem = QLabel("ordem:")
-        lbl_ordem.setStyleSheet(theme.label("faint"))
-        linha_meta.addWidget(lbl_ordem)
-        # O seletor de ordem mora AQUI, na linha de dados, e não dentro da
-        # grade: assim ele sobrevive à troca de episódio (a grade é
-        # reconstruída a cada um) e a escolha do usuário não se perde.
-        self.sort_box = QComboBox()
-        fill_sort_box(self.sort_box)
-        self.sort_box.currentIndexChanged.connect(self._on_sort)
-        linha_meta.addWidget(self.sort_box)
-        mv.addLayout(linha_meta)
+        cv.addWidget(self.meta)
 
         self.chars = QListWidget()
+        self.chars.setItemDelegate(_Pilula(self.chars))
         self.chars.setFlow(QListWidget.Flow.LeftToRight)
-        self.chars.setWrapping(True)
+        # UMA linha, com rolagem horizontal. Quebrando em duas, a fileira de
+        # filtros crescia pra baixo e empurrava a grade — o conteúdo perdia
+        # altura por causa do controle que serve a ele.
+        self.chars.setWrapping(False)
         self.chars.setResizeMode(QListWidget.ResizeMode.Adjust)
         # A altura é CALCULADA depois de encher (ver _ajustar_altura_pills).
         # Chutar 78px cortava a segunda fileira de pílulas exatamente no meio
         # da palavra — a caixa comendo o texto.
-        self.chars.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.chars.setSpacing(3)
+        self.chars.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.chars.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.chars.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.chars.setSpacing(4)   # 4 de cada lado = os 8 da maquete
         self.chars.setFrameShape(QListWidget.Shape.NoFrame)
         # PÍLULAS, como na referência: filtro de personagem é uma escolha
         # rápida entre poucos, não uma lista pra percorrer. Arredondado e
         # espaçado lê como "botão"; item de lista lê como "linha".
-        # Pílula h34 → raio 17, metade da altura (raio 999 não vira cápsula
-        # no Qt: ele não clampa, a borda degenera e volta a ser retângulo).
+        # A pílula é desenhada pelo delegate (_Pilula) porque nome e contagem
+        # têm cores diferentes. Aqui só se apaga a moldura da lista.
         self.chars.setStyleSheet(
             f"QListWidget{{background:transparent;border:none;}}"
-            f"QListWidget::item{{background:{theme.SURFACE_2};"
-            f"border:1px solid {theme.LINE};border-radius:17px;"
-            f"min-height:32px;padding:0 15px;margin:2px;color:{theme.TXT_DIM};}}"
-            f"QListWidget::item:hover{{background:{theme.SURFACE_3};"
-            f"border-color:{theme.LINE_BRIGHT};color:{theme.TXT};}}"
-            f"QListWidget::item:selected{{background:{theme.ACCENT_INK};"
-            f"border-color:{theme.ACCENT};color:{theme.ACCENT};}}"
+            f"QListWidget::item{{border:none;background:transparent;}}"
         )
         self.chars.itemSelectionChanged.connect(self._on_char_filter)
         self.chars.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.chars.customContextMenuRequested.connect(self._menu_personagem)
-        mv.addWidget(self.chars)
+        cv.addWidget(self.chars)
+        mv.addWidget(cabecalho)
+
+        risco = QWidget()
+        risco.setFixedHeight(1)
+        risco.setStyleSheet(f"background:{theme.LINE_SOFT};")
+        mv.addWidget(risco)
+
         self.grid_box = QWidget()
         self._grid_layout = QVBoxLayout(self.grid_box)
-        self._grid_layout.setContentsMargins(0, 0, 0, 0)
+        # O `spacing` da grade (6) já cria margem em VOLTA de cada cartão,
+        # inclusive nas bordas. Se o container também usasse 20/14, a
+        # primeira coluna ficaria a 26 e as outras a 12 entre si. Descontando
+        # o spacing aqui, a distância até a borda fica igual em todos os
+        # lados e igual ao respiro entre os cartões.
+        self._grid_layout.setContentsMargins(20 - 6, 14 - 6, 20 - 6, 14 - 6)
         self.grid: ShotGrid | None = None
         mv.addWidget(self.grid_box, 1)
         split.addWidget(mid)
@@ -388,8 +601,8 @@ class LibraryTab(QWidget):
         # --- direita: player em loop
         right = QWidget()
         rv = QVBoxLayout(right)
-        rv.setContentsMargins(10, 10, 10, 10)
-        rv.setSpacing(8)
+        rv.setContentsMargins(16, 14, 16, 14)
+        rv.setSpacing(14)
         cap = QLabel("A CENA")
         cap.setStyleSheet(theme.label("eyebrow"))
         rv.addWidget(cap)
@@ -402,11 +615,20 @@ class LibraryTab(QWidget):
         self.player.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.player.setFixedHeight(int(_PREVIEW_W * 9 / 16))
         self.player.setMinimumWidth(240)
+        # SEM padding: o clipe preenche a caixa. Com respiro interno, o vídeo
+        # ficava boiando dentro de uma moldura e nunca encostava na borda —
+        # e a caixa deixava de ser "a tela" pra virar um quadro.
         self.player.setStyleSheet(
             f"background:{theme.SURFACE_2};border:1px solid {theme.LINE};"
-            f"border-radius:6px;color:{theme.TXT_FAINT};padding:10px;"
+            f"border-radius:6px;color:{theme.TXT_FAINT};padding:0;"
         )
         rv.addWidget(self.player)
+
+        # Barra de posição do loop: 3px no pé da tela, como na referência. É
+        # o que diz que o clipe está andando (e onde) sem escrever nada.
+        self.loop_bar = QWidget(self.player)
+        self.loop_bar.setStyleSheet(f"background:{theme.TIME};")
+        self.loop_bar.hide()
 
         # Selo "em loop" POR CIMA da tela, como na referência: quem chega no
         # meio da sessão precisa saber que aquilo repete sozinho e não é um
@@ -415,35 +637,80 @@ class LibraryTab(QWidget):
         self.loop_pill.setStyleSheet(theme.chip("accent"))
         self.loop_pill.hide()
 
+        # Ficha da cena: rótulo numa coluna FIXA de 66px e o valor do lado —
+        # com o rótulo colado no valor, os dados de quatro cenas seguidas
+        # nunca alinham e o olho tem que reler cada linha. Tabela em rich
+        # text é o jeito de o Qt garantir a coluna.
         self.player_info = QLabel("")
         self.player_info.setTextFormat(Qt.TextFormat.RichText)
-        self.player_info.setWordWrap(True)
         self.player_info.setStyleSheet(
-            f"font-family:{theme.MONO};font-size:11.5px;color:{theme.TXT_DIM};"
-            f"padding:10px 2px;"
+            f"font-family:{theme.MONO};font-size:12.5px;color:{theme.TXT_DIM};"
         )
         rv.addWidget(self.player_info)
 
-        # Ações da cena — o que a referência prometia e faltava aqui: dá pra
-        # curar sem sair da Biblioteca.
+        divisor = QWidget()
+        divisor.setFixedHeight(1)
+        divisor.setStyleSheet(f"background:{theme.LINE_SOFT};")
+        rv.addWidget(divisor)
+
+        # Ações da cena — curar sem sair da Biblioteca. A principal é
+        # centralizada e cheia; as outras duas são linhas de menu: ícone à
+        # esquerda, texto alinhado, altura menor.
+        acoes = QVBoxLayout()
+        acoes.setSpacing(8)
         self.btn_merge = QPushButton("⛓   Juntar com a próxima")
         self.btn_merge.setStyleSheet(theme.button("primary"))
         self.btn_merge.clicked.connect(lambda: self._scene_action("merge_next"))
-        rv.addWidget(self.btn_merge)
+        acoes.addWidget(self.btn_merge)
 
-        self.btn_move = QPushButton("↗   Mover pra outro personagem")
+        self.btn_move = QPushButton("↗    Mover pra outro personagem")
+        self.btn_move.setStyleSheet(theme.button("linha"))
         self.btn_move.clicked.connect(lambda: self._scene_action("move"))
-        rv.addWidget(self.btn_move)
+        acoes.addWidget(self.btn_move)
 
-        self.btn_drop = QPushButton("⤫   Remover desta pasta")
-        self.btn_drop.setStyleSheet(theme.button("danger"))
+        self.btn_drop = QPushButton("⤫    Remover desta pasta")
+        self.btn_drop.setStyleSheet(theme.button("linha-danger"))
         self.btn_drop.clicked.connect(lambda: self._scene_action("remove"))
-        rv.addWidget(self.btn_drop)
+        acoes.addWidget(self.btn_drop)
+        rv.addLayout(acoes)
 
         for b in (self.btn_merge, self.btn_move, self.btn_drop):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setEnabled(False)
+
+        # Sem stretch entre as ações e os atalhos: eles pertencem ao mesmo
+        # bloco. O vazio vai TODO pro fim do painel.
+        atalhos = QLabel(
+            f"<span style='color:{theme.TXT_FAINT}'>Atalhos:</span> "
+            + " · ".join(
+                f"<span style='font-family:{theme.MONO};color:{theme.TXT_DIM}'>{t}</span>"
+                f" <span style='color:{theme.TXT_FAINT}'>{d}</span>"
+                for t, d in (("J", "juntar"), ("M", "mover"), ("Del", "remover"),
+                             ("←→", "cena anterior/próxima"))
+            )
+        )
+        atalhos.setWordWrap(True)
+        atalhos.setStyleSheet(
+            f"font-size:12px;color:{theme.TXT_FAINT};"
+            f"border-top:1px solid {theme.LINE_SOFT};padding-top:12px;"
+            f"margin-top:2px;"
+        )
+        rv.addWidget(atalhos)
         rv.addStretch(1)
         split.addWidget(right)
+        self._painel_cena = right
+        self._cena_forcada = False
+
+        # Os atalhos do rodapé precisam EXISTIR: escrever tecla que não faz
+        # nada é pior que não escrever.
+        for tecla, acao in (("J", "merge_next"), ("M", "move"), ("Del", "remove")):
+            QShortcut(QKeySequence(tecla), self,
+                      activated=lambda a=acao: self._scene_action(a))
+        QShortcut(QKeySequence(Qt.Key.Key_Left), self,
+                  activated=lambda: self._passo_cena(-1))
+        QShortcut(QKeySequence(Qt.Key.Key_Right), self,
+                  activated=lambda: self._passo_cena(1))
+        QShortcut(QKeySequence("Ctrl+P"), self, activated=self.alternar_painel_cena)
 
         # A grade de cenas é o conteúdo; as colunas laterais servem a ela.
         # Com 240+700+424 numa janela de 1265 sobravam ~600px no meio = duas
@@ -473,15 +740,15 @@ class LibraryTab(QWidget):
     # Guardado no item pra o triângulo poder ser reescrito sem comer o rótulo.
     _ROTULO = Qt.ItemDataRole.UserRole + 1
 
-    def _marcar_seta(self, item: QTreeWidgetItem, aberto: bool) -> None:
-        base = item.data(0, self._ROTULO)
-        if base:
-            item.setText(0, ("▾  " if aberto else "▸  ") + base)
+    @staticmethod
+    def _marcar_seta(item: QTreeWidgetItem, aberto: bool) -> None:
+        item.setData(0, _ABERTO, aberto)
 
     def _no_ramo(self, rotulo: str, contagem: int, nivel: int) -> QTreeWidgetItem:
         """Nó que abre e fecha: triângulo no rótulo, contagem à direita."""
-        item = QTreeWidgetItem(["▾  " + rotulo])
+        item = QTreeWidgetItem([rotulo])
         item.setData(0, self._ROTULO, rotulo)
+        item.setData(0, _ABERTO, True)
         item.setData(0, _NIVEL, nivel)
         item.setData(0, _CONTA, contagem)
         item.setToolTip(0, rotulo)
@@ -649,7 +916,8 @@ class LibraryTab(QWidget):
         self._current_shot = None
         self._stop_player()
         self.chars.clear()
-        self.header.setText("Escolha um episódio na lista")
+        self._titulo_cheio = "Escolha um episódio na lista"
+        self._elide_titulo()
         self.meta.setText("")
         self.player_info.setText("")
         self.btn_open.setEnabled(False)
@@ -761,8 +1029,9 @@ class LibraryTab(QWidget):
         anterior = self._filtro
         self._recarregando = True
         self.chars.clear()
-        todos = QListWidgetItem(f"📼 Todas ({len(shots)})")
+        todos = QListWidgetItem()
         todos.setData(Qt.ItemDataRole.UserRole, None)
+        todos.setData(_PILULA, ("📼", "Todas", str(len(shots))))
         self.chars.addItem(todos)
         contagem: dict[str, int] = {}
         for ass in by_shot.values():
@@ -772,8 +1041,9 @@ class LibraryTab(QWidget):
         for i, (nome, n) in enumerate(
             sorted(contagem.items(), key=lambda kv: -kv[1]), start=1
         ):
-            it = QListWidgetItem(f"{nome} ({n})")
+            it = QListWidgetItem()
             it.setData(Qt.ItemDataRole.UserRole, nome)
+            it.setData(_PILULA, ("", nome, str(n)))
             self.chars.addItem(it)
             if nome == anterior:
                 alvo = i
@@ -818,17 +1088,30 @@ class LibraryTab(QWidget):
                 for m in juncoes
             )
         self._shots = shots
-        self.header.setText(
+        self._titulo_cheio = (
             f"{self._episode['title']} — "
             f"S{self._episode['season']:02d}E{self._episode['episode']:02d}"
         )
+        self._elide_titulo()
         dur = max((float(r["end"]) for r in shots), default=0.0)
-        a = f"color:{theme.ACCENT}"
-        self.meta.setText(
-            f"<b style='{a}'>{len(shots)}</b> cenas &nbsp;·&nbsp; "
-            f"<b style='{a}'>{len(contagem)}</b> personagens &nbsp;·&nbsp; "
-            f"<b style='color:{theme.TIME}'>{_mmss_curto(dur)}</b>"
+        # Números em âmbar (é a cor de medida deste app); as DUVIDOSAS em
+        # vermelho, porque é a única contagem que pede ação.
+        duvidosas = sum(
+            1 for ass in by_shot.values()
+            for a in ass
+            if a.get("confidence") is not None and float(a["confidence"]) < 0.80
         )
+        t = f"color:{theme.TIME}"
+        partes = [
+            f"<span style='{t}'>{len(shots)}</span> cenas",
+            f"<span style='{t}'>{len(contagem)}</span> personagens",
+            f"<span style='{t}'>{_mmss_curto(dur)}</span>",
+        ]
+        if duvidosas:
+            partes.append(
+                f"<span style='color:{theme.DANGER}'>{duvidosas}</span> duvidosas"
+            )
+        self.meta.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(partes))
         self._aplicar_filtro()
 
     def _ajustar_altura_pills(self) -> None:
@@ -842,7 +1125,11 @@ class LibraryTab(QWidget):
         if alt <= 0:
             return
         e = self.chars.spacing()
-        novo = 2 * (alt + 2 * e) + 4
+        # UMA fileira; a barra de rolagem horizontal entra por baixo quando
+        # o elenco não cabe.
+        novo = alt + 2 * e + 4
+        if self.chars.horizontalScrollBar().isVisible():
+            novo += self.chars.horizontalScrollBar().height()
         if novo != self.chars.height():   # só mexe se mudou (evita laço)
             self.chars.setFixedHeight(novo)
 
@@ -902,15 +1189,30 @@ class LibraryTab(QWidget):
         conf = row.get("confidence")
         donos = self._by_shot.get(int(row["id"]), [])
         quem = [a["name"] for a in donos]
-        k = f"color:{theme.TXT_FAINT}"
-        t = f"color:{theme.TIME}"
+        linhas = [
+            ("cena", f"#{int(row['idx']):04d}", theme.TXT),
+            ("tempo", f"{_mmss(ini)} → {_mmss(fim)}", theme.TIME),
+            ("duração", f"{fim - ini:.1f}s", theme.TIME),
+            ("quem", ", ".join(quem) if quem else "—",
+             theme.TXT if quem else theme.TXT_GHOST),
+        ]
+        confs = [a["confidence"] for a in donos if a.get("confidence") is not None]
+        if confs:
+            # Verde = evidência boa; âmbar quando alguma está morna. Cor de
+            # estado aqui vale mais que o número: diz se dá pra confiar.
+            linhas.append((
+                "confiança", " / ".join(f"{c:.2f}" for c in confs),
+                theme.OK if min(confs) >= 0.80 else theme.TIME,
+            ))
         self.player_info.setText(
-            f"<span style='{k}'>cena</span> &nbsp;#{int(row['idx']):04d}<br>"
-            f"<span style='{k}'>tempo</span> &nbsp;{_mmss(ini)} → {_mmss(fim)}<br>"
-            f"<span style='{k}'>duração</span> &nbsp;<b style='{t}'>{fim - ini:.1f}s</b>"
-            + (f" &nbsp;<span style='{k}'>conf</span> {conf:.2f}" if conf is not None else "")
-            + f"<br><span style='{k}'>quem</span> &nbsp;"
-            + (", ".join(quem) if quem else "—")
+            "<table cellspacing='0' cellpadding='0'>"
+            + "".join(
+                f"<tr><td width='66' style='color:{theme.TXT_FAINT}'>{r}</td>"
+                f"<td style='color:{c}'>{v}</td></tr>"
+                f"<tr><td colspan='2' height='7'></td></tr>"
+                for r, v, c in linhas
+            )
+            + "</table>"
         )
         self._current_shot = row
         # As ações por personagem valem na vista "Todas" TAMBÉM. Antes elas
@@ -953,25 +1255,68 @@ class LibraryTab(QWidget):
             max(6, self.player.width() - self.loop_pill.width() - 8), 8
         )
 
+    def _elide_titulo(self) -> None:
+        larg = max(120, self.header.width())
+        self.header.setToolTip(self._titulo_cheio)
+        self.header.setText(
+            QFontMetrics(self.header.font()).elidedText(
+                self._titulo_cheio, Qt.TextElideMode.ElideRight, larg
+            )
+        )
+
+    # Abaixo desta largura o painel da cena se recolhe: 248 + 320 fixos numa
+    # janela de 980 deixam a grade com UMA coluna, e a grade é o conteúdo.
+    LARGURA_CENA_SOME = 1180
+
+    def _ajustar_colunas(self) -> None:
+        # Sem guardar em `isVisible()`: durante a construção o painel ainda
+        # não foi mostrado, então comparar com ele fazia a regra concluir
+        # "já está do jeito certo" e nunca aplicar nada. setVisible com o
+        # mesmo valor não custa nada — o estado desejado é que manda.
+        self._painel_cena.setVisible(
+            self.width() >= self.LARGURA_CENA_SOME or self._cena_forcada
+        )
+        # Coluna do meio apertada: o trilho de ordem fica só com os ícones.
+        self.sort_box.compactar(self.grid_box.width() < 620)
+
+    def showEvent(self, event) -> None:   # noqa: N802 (API Qt)
+        super().showEvent(event)
+        self._ajustar_colunas()
+
+    def alternar_painel_cena(self) -> None:
+        """Ctrl+P: traz o painel de volta numa janela estreita (ou o esconde
+        pra dar espaço à grade numa larga)."""
+        self._cena_forcada = not self._painel_cena.isVisible()
+        self._painel_cena.setVisible(self._cena_forcada)
+
     def resizeEvent(self, event) -> None:   # noqa: N802 (API Qt)
         super().resizeEvent(event)
         self._ajustar_altura_pills()
+        self._elide_titulo()
+        self._ajustar_colunas()
 
     def _tick(self) -> None:
         if not self._frames:
             self._timer.stop()
             return
-        img = self._frames[self._frame_i % len(self._frames)]
+        i = self._frame_i % len(self._frames)
+        img = self._frames[i]
         pm = QPixmap.fromImage(img)
         # Os quadros são decodificados pequenos (320px) pra caberem na
-        # memória; aqui eles acompanham o tamanho da tela, sem deformar.
-        if pm.width() != self.player.width() or pm.height() > self.player.height():
+        # memória; aqui eles ocupam a tela inteira, sem deformar e sempre
+        # centralizados (o QLabel está com AlignCenter).
+        if pm.size() != self.player.size():
             pm = pm.scaled(
                 self.player.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
         self.player.setPixmap(pm)
+        frac = (i + 1) / len(self._frames)
+        self.loop_bar.setGeometry(
+            1, self.player.height() - 4, int((self.player.width() - 2) * frac), 3
+        )
+        self.loop_bar.show()
         self._frame_i += 1
 
     def _stop_player(self) -> None:
@@ -980,12 +1325,22 @@ class LibraryTab(QWidget):
         self._frame_i = 0
         self._pending = None
         self.loop_pill.hide()
+        self.loop_bar.hide()
         self.player.setPixmap(QPixmap())
         self.player.setText("Clique numa cena\npra ela tocar aqui, em loop")
 
     def _on_sort(self) -> None:
         if self.grid is not None:
             self.grid.set_sort_mode(self.sort_box.currentData() or "idx")
+
+    def _passo_cena(self, passo: int) -> None:
+        """←/→ andam pela grade sem tirar a mão do teclado."""
+        if self.grid is None or not self.grid.list.count():
+            return
+        atual = self.grid.list.currentRow()
+        novo = max(0, min(self.grid.list.count() - 1, atual + passo))
+        if novo != atual:
+            self.grid.list.setCurrentRow(novo)
 
     def _char_id(self, nome: str) -> int | None:
         """Id do personagem DESTE anime. Sem o vínculo com o anime, um

@@ -59,14 +59,16 @@ _CACHE_SIZED = False
 # some (não dá pra reconhecer a cena); acima do máximo a miniatura estica.
 _CELULA_MIN = theme.CARD_MIN
 _CELULA_MAX = theme.CARD_MAX
+_RESPIRO = 12       # respiro entre cartões (e até a borda)
+_COLUNAS_MAX = theme.CARD_COLS_MAX
 
 # Uma fonte só pra ordem das cenas: a grade usa, e a Biblioteca (que mostra o
 # seletor no seu próprio cabeçalho) usa a mesma lista em vez de repetir os
 # rótulos e correr o risco de as duas telas discordarem.
 SORT_MODES: list[tuple[str, str]] = [
     ("⏱  cronológica", "idx"),
-    ("⚠  duvidosas primeiro", "confidence"),
-    ("⏳  mais longas primeiro", "duration"),
+    ("⚠  duvidosas", "confidence"),
+    ("⏳  mais longas", "duration"),
 ]
 SORT_TIP = (
     "Cronológica: na ordem do episódio — é a ordem pra achar cenas\n"
@@ -171,7 +173,13 @@ class _StripJob(QRunnable):
             cap.release()
         except Exception:
             images = []
-        self.bridge.ready.emit(self.shot_id, images)
+        try:
+            self.bridge.ready.emit(self.shot_id, images)
+        except RuntimeError:
+            # A grade foi trocada (outro episódio, outro personagem) enquanto
+            # esta tira era extraída — o destinatário do sinal já não existe.
+            # Nada a entregar, e nada a quebrar.
+            pass
 
 
 class _CardDelegate(QStyledItemDelegate):
@@ -192,35 +200,65 @@ class _CardDelegate(QStyledItemDelegate):
     nenhuma moldura clara em volta.
     """
 
-    PAD = 6          # respiro interno do cartão
     BAR = 26         # faixa de baixo (nome + duração)
-    TAG_H = 18       # selo do número
+    TAG_H = 18       # selo do número e marca de aviso
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.hover_id: int | None = None   # cena sob o mouse
         self.hover_frac = 0.0              # posição do scrub, 0..1
 
+    def sizeHint(self, option, index):  # noqa: N802 (API Qt)
+        """O item ocupa a CÉLULA inteira.
+
+        Sem isto o Qt dava ao item uma altura menor que a da célula e o
+        centralizava dentro dela: o respiro vertical entre cartões saía 18
+        (medido) enquanto o horizontal era 12. Respiro que muda de valor
+        conforme a direção é justamente o que faz uma grade parecer torta
+        sem ninguém saber apontar onde."""
+        vista = option.widget
+        if vista is not None and vista.gridSize().isValid():
+            return vista.gridSize()
+        return super().sizeHint(option, index)
+
+    @staticmethod
+    def _fonte(familia: str, px: int, negrito: bool = False) -> QFont:
+        """Fonte em PIXEL, não em ponto. O sistema visual fala em px; passar
+        o número como ponto (QFont(fam, 8)) dá outro tamanho na tela e é o
+        que fazia o cartão sair diferente da maquete."""
+        f = QFont(familia)
+        f.setPixelSize(px)
+        if negrito:
+            f.setWeight(QFont.Weight.DemiBold)
+        return f
+
     def paint(self, painter, option, index) -> None:  # noqa: N802 (API Qt)
         row = index.data(Qt.ItemDataRole.UserRole) or {}
-        r = option.rect.adjusted(1, 1, -1, -1)
+        meio = _RESPIRO // 2
+        r = option.rect.adjusted(meio, meio, -meio, -meio)
         sel = bool(option.state & QStyle.StateFlag.State_Selected)
         hov = int(row.get("id") or -1) == self.hover_id
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        # corpo do cartão — borda PRA DENTRO (o retângulo encolhe meio traço,
-        # não o cartão)
+        # Corpo do cartão. A borda é desenhada PRA DENTRO (o retângulo
+        # encolhe meio traço, não o cartão): selecionar não muda o tamanho e
+        # a grade não reflui debaixo do clique.
         larg = 2 if sel else 1
         corpo = QRectF(r).adjusted(larg / 2, larg / 2, -larg / 2, -larg / 2)
-        painter.setBrush(QColor(theme.ACCENT_INK if sel else theme.SURFACE_2))
-        painter.setPen(QPen(QColor(theme.ACCENT if sel else
-                                   (theme.LINE if hov else theme.LINE_SOFT)), larg))
-        painter.drawRoundedRect(corpo, theme.R_M, theme.R_M)
+        recorte = QPainterPath()
+        recorte.addRoundedRect(QRectF(r), theme.R_M, theme.R_M)
+        painter.setClipPath(recorte)
 
-        # imagem: 16:9 recortado no centro, sem tarja
-        img_rect = r.adjusted(self.PAD, self.PAD, -self.PAD, -(self.BAR + self.PAD))
+        painter.setBrush(QColor(theme.ACCENT_INK if sel else theme.SURFACE_2))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(QRectF(r), theme.R_M, theme.R_M)
+
+        # A MINIATURA VAI DE BORDA A BORDA: ela é a única imagem da tela e
+        # não leva moldura. Uma margem em volta faz o cartão parecer um
+        # porta-retrato — e rouba pixels da coisa que a pessoa veio ver.
+        img_rect = QRect(r.left(), r.top(), r.width(), r.height() - self.BAR)
         pix = index.data(Qt.ItemDataRole.DecorationRole)
         if isinstance(pix, QIcon):
             pix = pix.pixmap(img_rect.size())
@@ -229,101 +267,114 @@ class _CardDelegate(QStyledItemDelegate):
                 img_rect.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            recorte = QRect(0, 0, img_rect.width(), img_rect.height())
-            recorte.moveCenter(QRect(0, 0, escala.width(), escala.height()).center())
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(img_rect), theme.R_XS, theme.R_XS)
-            painter.setClipPath(path)
-            painter.drawPixmap(img_rect, escala, recorte)
-            painter.setClipping(False)
+            corte = QRect(0, 0, img_rect.width(), img_rect.height())
+            corte.moveCenter(QRect(0, 0, escala.width(), escala.height()).center())
+            painter.drawPixmap(img_rect, escala, corte)
 
-        # scrub: barra de 3px + timecode, só sob o mouse
+        # scrub: trilho de 3px no pé da imagem + timecode que segue o mouse
         if hov:
             ini = float(row.get("start") or 0)
             dur = float(row.get("duration") or 0)
-            trilho = QRect(img_rect.left(), img_rect.bottom() - 3,
+            trilho = QRect(img_rect.left(), img_rect.bottom() - 2,
                            img_rect.width(), 3)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(8, 10, 14, 190))
+            painter.setBrush(QColor(11, 14, 18))
             painter.drawRect(trilho)
             painter.setBrush(QColor(theme.TIME))
             painter.drawRect(QRect(trilho.left(), trilho.top(),
                                    int(trilho.width() * self.hover_frac), 3))
             t = ini + dur * self.hover_frac
             self._selo(
-                painter,
-                QRect(img_rect.right() - 4, img_rect.top() + 4, 0, 0),
-                f"{int(t // 60):02d}:{t % 60:04.1f}",
-                theme.TIME, direita=True,
+                painter, QRect(img_rect.right() - 6, img_rect.top() + 6, 0, 0),
+                f"{int(t // 60):02d}:{t % 60:04.1f}", theme.TIME,
+                fundo=QColor(11, 14, 18, 230), direita=True,
             )
 
-        # selo do número (com ⛓ quando a cena veio de uma junção)
+        # selo do número, no canto de cima à esquerda (com ⛓ se veio de junção)
         num = f"#{int(row.get('idx') or 0):04d}"
-        juntada = bool(row.get("merged"))
-        if juntada:
-            num += "  ⛓"
         self._selo(
-            painter, QRect(img_rect.left() + 4, img_rect.top() + 4, 0, 0), num,
+            painter, QRect(img_rect.left() + 6, img_rect.top() + 6, 0, 0), num,
             theme.ON_ACCENT if sel else theme.TXT_DIM,
             fundo=QColor(theme.ACCENT) if sel else QColor(11, 14, 18, 209),
+            sufixo="⛓" if row.get("merged") else "",
+            cor_sufixo=theme.ON_ACCENT if sel else theme.ACCENT,
         )
 
-        # marca de seleção múltipla: ✓ no canto direito
-        if sel and self._varios(option):
-            marca = QRect(img_rect.right() - 22, img_rect.bottom() - 22, 18, 18)
+        # canto de cima à direita: ⚠ da cena duvidosa, ✓ da seleção múltipla
+        conf = row.get("confidence")
+        duvidosa = conf is not None and float(conf) < 0.80
+        varios = sel and self._varios(option)
+        if duvidosa or varios:
+            marca = QRect(img_rect.right() - 6 - self.TAG_H, img_rect.top() + 6,
+                          self.TAG_H, self.TAG_H)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(theme.ACCENT))
-            painter.drawRoundedRect(marca, 9, 9)
-            painter.setPen(QColor(theme.ON_ACCENT))
-            painter.setFont(QFont(_SANS_FAMILY, 8, QFont.Weight.Bold))
-            painter.drawText(marca, Qt.AlignmentFlag.AlignCenter, "✓")
+            painter.setBrush(QColor(theme.ACCENT) if varios else QColor(11, 14, 18, 230))
+            painter.drawRoundedRect(marca, theme.R_XS, theme.R_XS)
+            painter.setPen(QColor(theme.ON_ACCENT if varios else theme.DANGER))
+            painter.setFont(self._fonte(_SANS_FAMILY, 11, True))
+            painter.drawText(marca, Qt.AlignmentFlag.AlignCenter, "✓" if varios else "⚠")
 
         # faixa de baixo: quem aparece | duração
-        bar = QRect(r.left() + self.PAD, r.bottom() - self.BAR - 1,
-                    r.width() - 2 * self.PAD, self.BAR)
+        faixa = QRect(r.left(), r.bottom() - self.BAR + 1, r.width(), self.BAR)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(theme.ACCENT_INK if sel else theme.SURFACE_2))
+        painter.drawRect(faixa)
+        texto_faixa = faixa.adjusted(8, 0, -8, 0)
+
         dur = float(row.get("duration") or 0)
-        painter.setFont(QFont(_MONO_FAMILY, 8))
+        painter.setFont(self._fonte(_MONO_FAMILY, 12))
         txt_dur = f"{dur:.1f}s"
         w_dur = painter.fontMetrics().horizontalAdvance(txt_dur)
         painter.setPen(QColor(theme.TIME))
-        painter.drawText(bar, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        painter.drawText(texto_faixa,
+                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                          txt_dur)
 
         quem = row.get("who") or ""
-        conf = row.get("confidence")
-        duvidosa = conf is not None and float(conf) < 0.80
-        painter.setFont(QFont(_SANS_FAMILY, 8))
-        aviso = 0
-        if duvidosa:
-            painter.setPen(QColor(theme.DANGER))
-            painter.drawText(bar, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                             "⚠")
-            aviso = painter.fontMetrics().horizontalAdvance("⚠  ")
-        # Cena sem ninguém não fica em branco: ela DIZ que ninguém foi
-        # identificado, senão parece que o rodapé não carregou.
-        texto = quem or "sem identificação"
+        painter.setFont(self._fonte(_SANS_FAMILY, 12))
+        # Cena sem ninguém DIZ que ninguém foi identificado — em branco
+        # parece rodapé que não carregou.
         elid = painter.fontMetrics().elidedText(
-            texto, Qt.TextElideMode.ElideRight, bar.width() - w_dur - 12 - aviso
+            quem or "sem identificação", Qt.TextElideMode.ElideRight,
+            texto_faixa.width() - w_dur - 8,
         )
         painter.setPen(QColor(
             (theme.TXT if sel else theme.TXT_DIM) if quem else theme.TXT_GHOST
         ))
-        painter.drawText(bar.adjusted(aviso, 0, 0, 0),
+        painter.drawText(texto_faixa,
                          Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elid)
+
+        # a borda por último, por cima de tudo
+        painter.setClipping(False)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(theme.ACCENT if sel else
+                                   (theme.LINE if hov else theme.LINE_SOFT)), larg))
+        painter.drawRoundedRect(corpo, theme.R_M, theme.R_M)
         painter.restore()
 
     def _selo(self, painter, ancora: QRect, texto: str, cor: str,
-              fundo: QColor | None = None, direita: bool = False) -> None:
-        """Etiqueta pequena sobreposta à imagem (número, timecode)."""
-        painter.setFont(QFont(_MONO_FAMILY, 7, QFont.Weight.DemiBold))
-        larg = painter.fontMetrics().horizontalAdvance(texto) + 12
+              fundo: QColor | None = None, direita: bool = False,
+              sufixo: str = "", cor_sufixo: str = "") -> None:
+        """Etiqueta h18 sobreposta à imagem (número, timecode)."""
+        fonte = self._fonte(_MONO_FAMILY, 11, True)
+        painter.setFont(fonte)
+        fm = painter.fontMetrics()
+        larg = fm.horizontalAdvance(texto) + 12
+        if sufixo:
+            larg += fm.horizontalAdvance(sufixo) + 5
         x = ancora.left() - larg if direita else ancora.left()
         caixa = QRect(x, ancora.top(), larg, self.TAG_H)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(fundo if fundo is not None else QColor(11, 14, 18, 209))
         painter.drawRoundedRect(caixa, theme.R_XS, theme.R_XS)
         painter.setPen(QColor(cor))
-        painter.drawText(caixa, Qt.AlignmentFlag.AlignCenter, texto)
+        alvo = caixa.adjusted(6, 0, -6, 0)
+        painter.drawText(alvo, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         texto)
+        if sufixo:
+            painter.setPen(QColor(cor_sufixo or cor))
+            painter.drawText(alvo,
+                             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                             sufixo)
 
     @staticmethod
     def _varios(option) -> bool:
@@ -389,7 +440,11 @@ class ShotGrid(QWidget):
         # Extended = Ctrl+clique adiciona, Shift+clique estende, arrastar no
         # vazio desenha laço — as ações do botão direito valem pra todos.
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.list.setSpacing(6)
+        # spacing 0: o respiro é desenhado por dentro da célula (ver
+        # _ajustar_celulas) — foi a única forma de o mesmo valor valer
+        # entre cartões E até a borda.
+        self.list.setSpacing(0)
+        self._sobra = 0
         self.list.itemDoubleClicked.connect(self._on_activate)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._show_context_menu)
@@ -414,23 +469,60 @@ class ShotGrid(QWidget):
         self._pool = QThreadPool.globalInstance()
 
     def _ajustar_celulas(self) -> None:
-        """Reparte a largura disponível em colunas inteiras — sem sobra."""
-        larg = self.list.viewport().width()
+        """Reparte a largura disponível em colunas inteiras, com o MESMO
+        respiro entre cartões e até a borda.
+
+        Medido, não suposto: o `spacing` do QListWidget não somou nada às
+        células aqui — os retângulos saíam colados (gap 0) e o que parecia
+        respiro era só a borda de um cartão ao lado da do outro. Então o
+        respiro é desenhado por DENTRO da célula (o cartão encolhe 6 de cada
+        lado, ver o delegate), o que dá 12 entre dois cartões e, somado à
+        margem do container, 20 até a borda — nos quatro lados.
+
+        A sobra da divisão vai pra margem direita: sem isso a última coluna
+        ficava a 24 da borda enquanto a primeira ficava a 20.
+        """
+        # A base é a largura ÚTIL medida (o viewport já desconta moldura e
+        # barra de rolagem) mais a sobra que eu mesmo devolvi na margem —
+        # assim a conta não muda quando eu mexo na margem, e não entra em
+        # laço. Calcular por fora, no widget, errava por 2px de moldura e a
+        # última coluna não cabia por causa deles.
+        larg = self.list.viewport().width() + max(0, self._sobra)
         if larg <= 0:
             return
-        # O espaçamento entra POR FORA da célula: cada item ocupa
-        # gridSize + 2*spacing. Ignorar isso foi o que deixou a faixa morta —
-        # a conta dava duas colunas, o Qt cabia uma.
-        folga = 2 * self.list.spacing()
-        colunas = max(1, larg // (_CELULA_MIN + folga))
-        celula = int(min(_CELULA_MAX, larg // colunas - folga))
-        if celula == self.list.gridSize().width():
+        # Quantas colunas cabem, com teto de 5 (mais que isso a miniatura
+        # fica pequena demais pra reconhecer a cena). Cada coluna ocupa
+        # cartão + respiro, porque é assim que a célula do Qt é medida —
+        # o respiro do último some por dentro, no desenho.
+        #
+        # PISO com 4px de tolerância abaixo do mínimo: em algumas larguras
+        # (1440, por exemplo) o mínimo de 196 e "caber mais uma coluna"
+        # brigam por 3px. Entre um cartão 3px menor e uma coluna inteira a
+        # menos, a coluna vale mais — 3px ninguém vê, uma coluna todo mundo.
+        # Os 2px de folga são o troco do Qt: com a conta cheia, a última
+        # coluna caía fora por 1px e a fileira perdia uma coluna inteira.
+        piso = _CELULA_MIN - 4
+        util = max(1, larg - 2)
+        colunas = max(1, min(_COLUNAS_MAX, (util + _RESPIRO) // (piso + _RESPIRO)))
+        while colunas > 1 and util // colunas - _RESPIRO < piso:
+            colunas -= 1
+        celula = min(_CELULA_MAX, util // colunas - _RESPIRO)
+        passo = int(celula + _RESPIRO)
+        sobra = max(0, larg - passo * colunas)
+        if passo == self.list.gridSize().width() and sobra == self._sobra:
             return   # nada mudou (e assim a barra de rolagem não faz vaivém)
-        pad = _CardDelegate.PAD
-        img_w = max(60, celula - 2 * pad - 8)
-        img_h = int(img_w * 9 / 16)
-        self.list.setIconSize(QSize(img_w, img_h))
-        self.list.setGridSize(QSize(celula, img_h + _CardDelegate.BAR + 2 * pad + 10))
+        self._sobra = sobra
+        # A sobra da divisão é REPARTIDA entre os dois lados (jogada toda na
+        # direita, a última coluna ficava até 5px mais longe da borda que a
+        # primeira, e assimetria de 5px o olho pega). Mas 2px ficam DENTRO do
+        # viewport de propósito: quando a última coluna termina exatamente na
+        # borda, o Qt considera que ela não coube e quebra a fileira — a
+        # grade perdia uma coluna inteira por causa de um pixel.
+        dist = max(0, sobra - 2)
+        self.layout().setContentsMargins(dist // 2, 0, dist - dist // 2, 0)
+        img_h = int((passo - _RESPIRO) * 9 / 16)
+        self.list.setIconSize(QSize(passo - _RESPIRO, img_h))
+        self.list.setGridSize(QSize(passo, img_h + _CardDelegate.BAR + _RESPIRO))
 
     def resizeEvent(self, event) -> None:   # noqa: N802 (API Qt)
         super().resizeEvent(event)
@@ -442,6 +534,12 @@ class ShotGrid(QWidget):
                 self._hover_stop()
             elif event.type() == QEvent.Type.MouseMove:
                 self._hover_move(event.position().toPoint())
+            elif event.type() == QEvent.Type.Resize:
+                # A largura ÚTIL muda sem a grade mudar de tamanho — é o que
+                # acontece quando a barra de rolagem aparece ou some. Ouvir
+                # só o resize do widget deixava a conta de colunas com um
+                # número velho, e sobrava faixa morta à direita.
+                self._ajustar_celulas()
         return super().eventFilter(obj, event)
 
     def _hover_move(self, pos) -> None:

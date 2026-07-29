@@ -97,7 +97,9 @@ class MainWindow(QMainWindow):
         # importa. O QTabWidget tem encaixe pra isso (corner widget).
         canto = QWidget()
         top_bar = QHBoxLayout(canto)
-        top_bar.setContentsMargins(0, 0, 8, 0)
+        # Alinhado com a linha de base das abas (barra de 44, aba de 36):
+        # os selos ficam no mesmo pé, não boiando no meio da faixa.
+        top_bar.setContentsMargins(0, 8, 12, 5)
         top_bar.setSpacing(8)
 
         self.device_label = QLabel(_device_badge_text())
@@ -116,9 +118,19 @@ class MainWindow(QMainWindow):
             self._badge_timer.timeout.connect(self._refresh_device_badge)
             self._badge_timer.start()
 
-        self.settings_btn = QPushButton("⚙  Configurações")
+        # Na barra de abas, Configurações é IRMÃO do selo de GPU: mesma
+        # altura, mesmo raio de cápsula. Como botão retangular ele parecia a
+        # ação principal da janela, que ele não é.
+        self.settings_btn = QPushButton("⚙   Configurações")
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.settings_btn.setStyleSheet(theme.button())
+        self.settings_btn.setStyleSheet(
+            f"QPushButton{{background:{theme.SURFACE_2};color:{theme.TXT};"
+            f"border:1px solid {theme.LINE};border-radius:13px;"
+            f"min-height:24px;max-height:24px;padding:0 12px;"
+            f"font-size:12.5px;font-weight:500;}}"
+            f"QPushButton:hover{{background:{theme.SURFACE_3};"
+            f"border-color:{theme.LINE_BRIGHT};}}"
+        )
         self.settings_btn.clicked.connect(self._open_settings)
         top_bar.addWidget(self.settings_btn)
         self.tabs.setCornerWidget(canto, Qt.Corner.TopRightCorner)

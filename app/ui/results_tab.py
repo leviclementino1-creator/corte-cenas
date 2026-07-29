@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSplitter,
+    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
@@ -30,6 +31,61 @@ from . import quiet, theme
 from .character_grid import ShotGrid
 from .quiet import set_quiet_icon
 from .worker import HarvestWorker, ReframeWorker
+
+
+class _LinhaContagem(QStyledItemDelegate):
+    """Linha de lista com o NOME à esquerda e a contagem à direita, em mono
+    âmbar. Escrever "Nina  (91)" no meio do texto joga o número no meio da
+    frase: pra comparar dois personagens, o olho tem que ler os dois nomes
+    inteiros antes de achar o número."""
+
+    def paint(self, painter, option, index) -> None:  # noqa: N802 (API Qt)
+        from PySide6.QtGui import QColor, QFont, QPainter, QPen
+        from PySide6.QtCore import QRectF
+        from PySide6.QtWidgets import QStyle as _S
+
+        sel = bool(option.state & _S.StateFlag.State_Selected)
+        hov = bool(option.state & _S.StateFlag.State_MouseOver)
+        r = option.rect.adjusted(2, 1, -2, -1)
+        texto = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+        nome, _, conta = texto.rpartition("\t")
+        if not nome:
+            nome, conta = texto, ""
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if sel or hov:
+            painter.setPen(QPen(QColor(theme.ACCENT_DIM if sel else theme.SURFACE_3), 1))
+            painter.setBrush(QColor(theme.ACCENT_INK if sel else theme.SURFACE_2))
+            painter.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5),
+                                    theme.R_S, theme.R_S)
+        if sel:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.ACCENT))
+            painter.drawRoundedRect(QRectF(r.left(), r.top() + 1, 3, r.height() - 2),
+                                    1.5, 1.5)
+        meio = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        larg_conta = 0
+        if conta:
+            f = QFont("Cascadia Mono"); f.setPixelSize(12)
+            painter.setFont(f)
+            larg_conta = painter.fontMetrics().horizontalAdvance(conta) + 12
+            painter.setPen(QColor(theme.TIME))
+            painter.drawText(r.adjusted(0, 0, -10, 0),
+                             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                             conta)
+        f = QFont("Segoe UI Variable Text"); f.setPixelSize(13)
+        painter.setFont(f)
+        painter.setPen(QColor(theme.TXT if (sel or hov) else theme.TXT_DIM))
+        caixa = r.adjusted(10, 0, -larg_conta, 0)
+        painter.drawText(caixa, meio, painter.fontMetrics().elidedText(
+            nome, Qt.TextElideMode.ElideRight, caixa.width()))
+        painter.restore()
+
+    def sizeHint(self, option, index):  # noqa: N802 (API Qt)
+        s = super().sizeHint(option, index)
+        s.setHeight(theme.H_ROW)
+        return s
 
 
 class ResultsTab(QWidget):
@@ -51,37 +107,39 @@ class ResultsTab(QWidget):
         root.setSpacing(10)
 
         self.header = QLabel("Nenhum episódio processado nesta sessão.")
-        self.header.setStyleSheet(theme.label("title"))
+        self.header.setStyleSheet(
+            f"font-family:{theme.DISP};font-size:19px;font-weight:600;color:{theme.TXT};"
+        )
         root.addWidget(self.header)
 
+        # Linha de medida, no mesmo formato da Biblioteca: número em âmbar,
+        # rótulo apagado. Duas telas que mostram a mesma coisa têm que
+        # mostrar do mesmo jeito, senão cada uma tem que ser reaprendida.
         self.summary = QLabel("")
-        self.summary.setStyleSheet(theme.label("dim"))
-        root.addWidget(self.summary)
-
-        actions = QHBoxLayout()
-        self.btn_open = QPushButton("Abrir pasta do episódio")
-        self.btn_open.clicked.connect(self._open_folder)
-        self.btn_open.setEnabled(False)
-        actions.addWidget(self.btn_open)
-        self.btn_sync = QPushButton("🔄 Sincronizar pastas")
-        self.btn_sync.setToolTip(
-            "Faxinou no Explorer? Clipe apagado da pasta de um personagem "
-            "vira remoção lembrada (mesma coisa que remover pelo app)."
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
+        self.summary.setWordWrap(True)
+        self.summary.setStyleSheet(
+            f"font-family:{theme.MONO};font-size:12.5px;color:{theme.TXT_FAINT};"
         )
-        self.btn_sync.clicked.connect(self._sync_clicked)
-        self.btn_sync.setEnabled(False)
-        actions.addWidget(self.btn_sync)
-        actions.addStretch(1)
-        root.addLayout(actions)
+        root.addWidget(self.summary)
 
         split = QSplitter(Qt.Orientation.Horizontal)
 
         left = QWidget()
         left_v = QVBoxLayout(left)
-        left_v.setContentsMargins(0, 0, 0, 0)
+        left_v.setContentsMargins(0, 0, 8, 0)
         left_v.setSpacing(6)
 
+        cap_elenco = QLabel("ELENCO")
+        cap_elenco.setStyleSheet(theme.label("eyebrow"))
+        left_v.addWidget(cap_elenco)
+
         self.char_list = QListWidget()
+        self.char_list.setItemDelegate(_LinhaContagem(self.char_list))
+        self.char_list.setStyleSheet(
+            f"QListWidget{{background:transparent;border:none;}}"
+            f"QListWidget::item{{border:none;background:transparent;}}"
+        )
         self.char_list.itemSelectionChanged.connect(self._on_character_selected)
         # Botão direito no personagem: remover ele do episódio INTEIRO
         # (cenas + pastas reais), com a decisão lembrada.
@@ -89,7 +147,29 @@ class ResultsTab(QWidget):
         self.char_list.customContextMenuRequested.connect(self._char_menu)
         left_v.addWidget(self.char_list, 1)
 
-        self.btn_refs = QPushButton("Abrir pasta de refs")
+        # AÇÕES da coluna: linhas de menu com ícone à esquerda, não botões
+        # cheios. Cinco botões sólidos empilhados brigam entre si e com a
+        # grade, que é o conteúdo.
+        cap_acoes = QLabel("AÇÕES")
+        cap_acoes.setStyleSheet(theme.label("eyebrow"))
+        left_v.addWidget(cap_acoes)
+
+        self.btn_sync = QPushButton("🔄    Sincronizar pastas")
+        self.btn_sync.setToolTip(
+            "Faxinou no Explorer? Clipe apagado da pasta de um personagem "
+            "vira remoção lembrada (mesma coisa que remover pelo app)."
+        )
+        self.btn_sync.clicked.connect(self._sync_clicked)
+        self.btn_sync.setEnabled(False)
+        left_v.addWidget(self.btn_sync)
+
+        self.btn_open = QPushButton("📂    Abrir pasta do episódio")
+        self.btn_open.setToolTip("Abre no Explorer a pasta deste episódio.")
+        self.btn_open.clicked.connect(self._open_folder)
+        self.btn_open.setEnabled(False)
+        left_v.addWidget(self.btn_open)
+
+        self.btn_refs = QPushButton("🖼    Abrir pasta de refs")
         self.btn_refs.setEnabled(False)
         self.btn_refs.setToolTip(
             "Abre no Explorer a pasta de imagens de referência do personagem selecionado. "
@@ -98,7 +178,7 @@ class ResultsTab(QWidget):
         self.btn_refs.clicked.connect(self._open_refs_folder)
         left_v.addWidget(self.btn_refs)
 
-        self.btn_vertical = QPushButton("Exportar vertical 1080×1920")
+        self.btn_vertical = QPushButton("▯    Exportar vertical 1080×1920")
         self.btn_vertical.setEnabled(False)
         self.btn_vertical.setToolTip(
             "Gera uma versão vertical (9:16) de cada shot do personagem, "
@@ -108,7 +188,7 @@ class ResultsTab(QWidget):
         self.btn_vertical.clicked.connect(self._start_reframe)
         left_v.addWidget(self.btn_vertical)
 
-        self.btn_export_refs = QPushButton("Exportar refs deste anime (.zip)")
+        self.btn_export_refs = QPushButton("⤓    Exportar refs deste anime (.zip)")
         self.btn_export_refs.setEnabled(False)
         self.btn_export_refs.setToolTip(
             "Gera um .zip com o banco de referências deste anime (uma pasta "
@@ -118,7 +198,7 @@ class ResultsTab(QWidget):
         self.btn_export_refs.clicked.connect(self._export_refs)
         left_v.addWidget(self.btn_export_refs)
 
-        self.btn_harvest = QPushButton("Reforçar refs com este ep")
+        self.btn_harvest = QPushButton("✚    Reforçar refs com este ep")
         self.btn_harvest.setEnabled(False)
         self.btn_harvest.setToolTip(
             "Pega os shots de mais alta confiança (≥0.90) de cada personagem "
@@ -134,6 +214,11 @@ class ResultsTab(QWidget):
         self.reframe_progress.setVisible(False)
         left_v.addWidget(self.reframe_progress)
 
+        for b in (self.btn_sync, self.btn_open, self.btn_refs, self.btn_vertical,
+                  self.btn_export_refs, self.btn_harvest):
+            b.setStyleSheet(theme.button("linha"))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+
         split.addWidget(left)
 
         self.grid: ShotGrid | None = None
@@ -143,7 +228,10 @@ class ResultsTab(QWidget):
         right_v.setSpacing(0)
         self._grid_container = QWidget()
         self._grid_layout = QVBoxLayout(self._grid_container)
-        self._grid_layout.setContentsMargins(0, 0, 0, 0)
+        # Mesma conta da Biblioteca: o spacing da grade entra também nas
+        # bordas, então o container desconta pra a distância até a borda
+        # ficar igual à distância entre os cartões.
+        self._grid_layout.setContentsMargins(20 - 6, 14 - 6, 20 - 6, 14 - 6)
         placeholder = QLabel(
             "Selecione um personagem para ver seus shots.\n"
             "Passe o mouse numa cena pra vê-la em movimento; duplo clique abre no player."
@@ -160,8 +248,9 @@ class ResultsTab(QWidget):
         # alguém arrasta a divisória pra direita.
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
-        left.setMinimumWidth(180)
-        left.setMaximumWidth(340)
+        # 268 fixos: um pouco mais larga que o ACERVO da Biblioteca por
+        # causa das cinco linhas de ação. Não estica — quem estica é a grade.
+        left.setFixedWidth(268)
         right.setMinimumWidth(360)
         split.setCollapsible(1, False)
         split.setSizes([220, 700])
@@ -308,17 +397,31 @@ class ResultsTab(QWidget):
         if ep_id is not None:
             n_all = len(self.db.shots_for_episode(ep_id))
             if n_all:
-                it_all = QListWidgetItem(f"📼 Episódio inteiro  ({n_all})")
+                it_all = QListWidgetItem(f"📼  Episódio inteiro	{n_all}")
                 it_all.setData(
                     Qt.ItemDataRole.UserRole,
                     {"all": True, "name": "Episódio inteiro"},
                 )
                 self.char_list.addItem(it_all)
+            # Onde moram os erros: as cenas que ninguém reclamou. Escondidas
+            # dentro de "Episódio inteiro" elas se perdiam entre 331 outras.
+            com_dono = set(self.db.assignments_for_episode(ep_id).keys())
+            n_orfas = sum(
+                1 for r in self.db.shots_for_episode(ep_id)
+                if int(r["id"]) not in com_dono
+            )
+            if n_orfas:
+                it_orf = QListWidgetItem(f"sem identificação	{n_orfas}")
+                it_orf.setData(
+                    Qt.ItemDataRole.UserRole,
+                    {"orphans": True, "name": "Sem identificação"},
+                )
+                self.char_list.addItem(it_orf)
         for c in self.db.get_characters_for_anime(self._anime_id):
             shots = self.db.shots_for_character(c["id"], episode_id=ep_id)
             if not shots:
                 continue
-            item = QListWidgetItem(f"{c['name']}  ({len(shots)})")
+            item = QListWidgetItem(f"{c['name']}	{len(shots)}")
             item.setData(Qt.ItemDataRole.UserRole, c)
             self.char_list.addItem(item)
 
@@ -349,7 +452,7 @@ class ResultsTab(QWidget):
         ranked = sorted(pair_counts.items(), key=lambda kv: -kv[1]["count"])[:40]
         for (id_a, id_b), e in ranked:
             na, nb = e["names"]
-            item = QListWidgetItem(f"{na} + {nb}  ({e['count']})")
+            item = QListWidgetItem(f"{na} + {nb}	{e['count']}")
             item.setData(
                 Qt.ItemDataRole.UserRole,
                 {"pair": True, "ids": (id_a, id_b), "name": f"{na} + {nb}"},
@@ -371,6 +474,16 @@ class ResultsTab(QWidget):
             # personagem (não há de quem remover um shot sem dono).
             shots = self.db.shots_for_episode(ep_id) if ep_id is not None else []
             self.grid.load_for_character(shots, "Episódio inteiro")
+            self.btn_refs.setEnabled(False)
+            self.btn_vertical.setEnabled(False)
+            return
+        if c.get("orphans"):
+            com_dono = set(self.db.assignments_for_episode(ep_id).keys())
+            shots = [
+                r for r in self.db.shots_for_episode(ep_id)
+                if int(r["id"]) not in com_dono
+            ]
+            self.grid.load_for_character(shots, "Sem identificação")
             self.btn_refs.setEnabled(False)
             self.btn_vertical.setEnabled(False)
             return

@@ -85,6 +85,7 @@ R_XS, R_S, R_M, R_L = 3, 4, 6, 8     # marcar · campo/botão/aba · cartão · 
 H_ROW, H_CTRL, H_PILL, H_TAB, H_PRIMARY = 30, 32, 34, 36, 38
 W_ACERVO, W_CENA = 248, 320          # colunas fixas da Biblioteca
 CARD_MIN, CARD_MAX = 196, 300        # o cartão é o único elástico
+CARD_COLS_MAX = 5                    # teto de colunas da grade
 
 
 def label(kind: str) -> str:
@@ -167,7 +168,7 @@ def button(tone: str = "normal") -> str:
         return (
             f"QPushButton{{background:{BG};color:{ACCENT};"
             f"border:1px solid {ACCENT_DIM};border-radius:{R_S}px;"
-            f"min-height:{H_CTRL - 2}px;padding:0 16px;"
+            f"min-height:{H_PRIMARY - 2}px;padding:0 16px;"
             f"font-size:14px;font-weight:600;}}"
             f"QPushButton:hover{{background:{ACCENT_INK};border-color:{ACCENT};"
             f"color:{ACCENT_LIGHT};}}"
@@ -192,6 +193,41 @@ def button(tone: str = "normal") -> str:
             f"QPushButton:focus{{background:{SURFACE};border:2px solid {ACCENT};"
             f"padding:0 9px;color:{TXT};}}"
             f"QPushButton:disabled{{background:transparent;border-color:transparent;"
+            f"color:{TXT_OFF};}}"
+        )
+    if tone == "alto":
+        # Secundário da MESMA altura da ação principal: é uma variação dela
+        # (analisar com IA), não um destaque concorrente. Cinza de propósito
+        # — duas bordas cianas lado a lado fazem o olho escolher no par ou
+        # ímpar.
+        return (
+            f"QPushButton{{background:{SURFACE_2};color:{TXT};"
+            f"border:1px solid {LINE};border-radius:{R_S}px;"
+            f"min-height:{H_PRIMARY - 2}px;padding:0 16px;"
+            f"font-size:14px;font-weight:600;}}"
+            f"QPushButton:hover{{background:{SURFACE_3};border-color:{LINE_BRIGHT};}}"
+            f"QPushButton:pressed{{background:{PRESSED};color:{TXT_DIM};}}"
+            f"QPushButton:focus{{border:2px solid {ACCENT};padding:0 15px;}}"
+            f"QPushButton:disabled{{background:{PRESSED};border-color:{LINE_SOFT};"
+            f"color:{TXT_OFF};}}"
+        )
+    if tone in ("linha", "linha-danger"):
+        # Ação secundária do painel da cena: lê como LINHA DE MENU — ícone à
+        # esquerda, texto alinhado, altura menor. Centralizado, ele competia
+        # com a ação principal logo acima.
+        perigo = tone.endswith("danger")
+        return (
+            f"QPushButton{{background:{DANGER_INK if perigo else SURFACE_2};"
+            f"color:{DANGER if perigo else TXT};"
+            f"border:1px solid {DANGER_LINE if perigo else LINE};"
+            f"border-radius:{R_S}px;min-height:{H_CTRL - 2}px;"
+            f"padding:0 12px;font-size:13px;font-weight:500;text-align:left;}}"
+            f"QPushButton:hover{{background:{DANGER_INK_2 if perigo else SURFACE_3};"
+            f"border-color:{DANGER_LINE_2 if perigo else LINE_BRIGHT};"
+            f"color:{DANGER_LIGHT if perigo else TXT};}}"
+            f"QPushButton:pressed{{background:{DANGER if perigo else PRESSED};"
+            f"color:{ON_DANGER if perigo else TXT_DIM};}}"
+            f"QPushButton:disabled{{background:{PRESSED};border-color:{LINE_SOFT};"
             f"color:{TXT_OFF};}}"
         )
     if tone == "danger":
@@ -251,12 +287,16 @@ QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
 /* A aba ativa se FUNDE com o conteúdo: mesmo fundo, borda de baixo apagada
    e um traço ciano de 2px no topo. Sem sublinhado por baixo — o QTabBar não
    deixa desenhar sob o conteúdo de forma confiável. */
+/* Barra de 44 no total: 8 de respiro em cima + aba de 36 encostada embaixo.
+   Sem esses 8, a aba ativa encosta no topo da janela e a barra deixa de ter
+   linha de base. O recuo de 12 é o mesmo padding lateral do conteúdo. */
 QTabWidget::pane {{ border: none; background: {BG}; }}
 QTabWidget::tab-bar {{ left: 12px; }}
 QTabBar {{ background: transparent; }}
 QTabBar::tab {{
     background: transparent; color: {TXT_DIM};
-    min-height: {H_TAB - 2}px; padding: 0 16px; margin: 0 1px;
+    min-height: {H_TAB - 2}px; max-height: {H_TAB - 2}px;
+    padding: 0 16px; margin: 8px 1px 0 1px;
     border: 1px solid transparent;
     border-top-left-radius: {R_S}px; border-top-right-radius: {R_S}px;
     font-size: 14px; font-weight: 500;

@@ -6,6 +6,7 @@ from PySide6.QtCore import QElapsedTimer, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QBrush, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
+    QSizePolicy,
     QButtonGroup,
     QCheckBox,
     QDialog,
@@ -140,6 +141,35 @@ class AnalyzeTab(QWidget):
         self._tray: QSystemTrayIcon | None = None
         self._build_ui()
 
+    @staticmethod
+    def _cabecalho(numero: str, titulo: str) -> QWidget:
+        """Cabeçalho de seção: número, título e um traço que vai até a borda.
+
+        É o que substitui o cartão. O traço dá o limite que a borda dava, sem
+        fechar uma caixa em volta de quatro campos — e sai de graça em
+        altura, que numa janela de 640 é o recurso escasso.
+        """
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(10)
+        num = QLabel(numero)
+        num.setStyleSheet(
+            f"font-family:{theme.MONO};font-size:11px;font-weight:600;"
+            f"color:{theme.ACCENT};"
+        )
+        lay.addWidget(num)
+        tit = QLabel(titulo)
+        tit.setStyleSheet(f"font-size:13px;font-weight:600;color:{theme.TXT};")
+        lay.addWidget(tit)
+        traco = QWidget()
+        traco.setFixedHeight(1)
+        traco.setStyleSheet(f"background:{theme.LINE_SOFT};")
+        traco.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        lay.addWidget(traco, 1)
+        w.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        return w
+
     def _build_ui(self) -> None:
         # A aba inteira ROLA. Numa janela baixa (ou num notebook 768p) o
         # layout antes espremia os campos até o texto não caber mais dentro
@@ -148,13 +178,23 @@ class AnalyzeTab(QWidget):
         # mantém o tamanho em que é legível e quem não coube desce.
         conteudo = QWidget()
         layout = QVBoxLayout(conteudo)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 16, 20, 16)
+        # 10 entre cabeçalho e conteúdo; as seções seguintes ganham +6
+        # (= 16 entre seções), porque o layout aplica o mesmo espaço
+        # entre todos os pares.
+        layout.setSpacing(10)
         self._conteudo = conteudo
 
-        # --- input group ---
-        inputs = QGroupBox("1. Episódio")
+        # --- 01 Episódio ---
+        # SUPERFÍCIE PLANA, não cartões: cada seção é só um cabeçalho com um
+        # traço e o conteúdo recuado embaixo. Três painéis com borda, fundo e
+        # canto arredondado empilhados viravam um "dashboard" — três caixas
+        # disputando a atenção numa tela cujo trabalho é preencher quatro
+        # campos e apertar um botão.
+        inputs = QWidget()
         form = QFormLayout(inputs)
+        form.setContentsMargins(20, 0, 0, 0)
+        layout.addWidget(self._cabecalho("01", "Episódio"))
 
         file_row = QHBoxLayout()
         self.video_edit = QLineEdit()
@@ -184,6 +224,25 @@ class AnalyzeTab(QWidget):
         se_row.addSpacing(12)
         se_row.addWidget(QLabel("E:"))
         se_row.addWidget(self.episode_spin)
+
+        # Temporada/Ep e OP/ED dividem a linha: são quatro campos curtos que
+        # sozinhos deixariam duas linhas quase vazias.
+        self.skip_head_edit = QLineEdit()
+        self.skip_head_edit.setPlaceholderText("1:30")
+        self.skip_head_edit.setFixedWidth(70)
+        self.skip_tail_edit = QLineEdit()
+        self.skip_tail_edit.setPlaceholderText("1:30")
+        self.skip_tail_edit.setFixedWidth(70)
+        rot_op = QLabel("OP/ED:")
+        rot_op.setStyleSheet(theme.label("dim"))
+        se_row.addSpacing(24)
+        se_row.addWidget(rot_op)
+        se_row.addSpacing(10)
+        se_row.addWidget(QLabel("início"))
+        se_row.addWidget(self.skip_head_edit)
+        se_row.addSpacing(10)
+        se_row.addWidget(QLabel("fim"))
+        se_row.addWidget(self.skip_tail_edit)
         se_row.addStretch(1)
         form.addRow("Temporada/Ep:", self._wrap(se_row))
 
@@ -195,41 +254,43 @@ class AnalyzeTab(QWidget):
         out_row.addWidget(btn_out)
         form.addRow("Saída:", self._wrap(out_row))
 
-        skip_row = QHBoxLayout()
-        self.skip_head_edit = QLineEdit()
-        self.skip_head_edit.setPlaceholderText("1:30")
-        self.skip_head_edit.setFixedWidth(80)
-        self.skip_tail_edit = QLineEdit()
-        self.skip_tail_edit.setPlaceholderText("1:30")
-        self.skip_tail_edit.setFixedWidth(80)
-        skip_row.addWidget(QLabel("Pular início até (MM:SS):"))
-        skip_row.addWidget(self.skip_head_edit)
-        skip_row.addSpacing(16)
-        skip_row.addWidget(QLabel("Pular fim após (MM:SS antes do final):"))
-        skip_row.addWidget(self.skip_tail_edit)
-        skip_row.addStretch(1)
-        form.addRow("OP/ED:", self._wrap(skip_row))
-
         self.anime_edit.editingFinished.connect(self._load_skip_for_anime)
 
+        # Coluna de rótulos FIXA em 98: com largura automática, cada rótulo
+        # termina numa posição e os campos começam em quatro lugares
+        # diferentes — a lista deixa de ler como coluna.
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(8)
+        for i in range(form.rowCount()):
+            item = form.itemAt(i, QFormLayout.ItemRole.LabelRole)
+            if item is not None and item.widget() is not None:
+                item.widget().setFixedWidth(98)
+
+        inputs.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(inputs)
 
-        # --- 2. Análise ---
+        # --- 02 Análise ---
         # O modo de reconhecimento (Muito Fiel / Auto / Pouco Fiel e os
         # valores manuais) mudou pras Configurações: é escolha que se faz
         # UMA vez e vale por dezenas de episódios; aqui ela pedia decisão a
         # cada arquivo aberto. Esta seção agora responde só a uma pergunta —
         # o que fazer com este episódio.
-        action_box = QGroupBox("2. Análise")
+        layout.addSpacing(6)
+        layout.addWidget(self._cabecalho("02", "Análise"))
+        action_box = QWidget()
         action_v = QVBoxLayout(action_box)
+        action_v.setContentsMargins(20, 0, 0, 0)
+        action_v.setSpacing(10)
 
-        self.cut_only_cb = QCheckBox("✂️  Só cortar as cenas (sem identificar personagens)")
+        # Tesoura sem cor de estado: vermelho neste app significa destrutivo,
+        # e cortar as cenas não destrói nada.
+        self.cut_only_cb = QCheckBox("✂  Só cortar as cenas (sem identificar personagens)")
         self.cut_only_cb.setToolTip(
             "Pica o episódio inteiro em cenas na pasta shots/ e para aí — "
             "sem internet, sem referências, sem pastas por personagem. "
             "Pra quando você só quer os cortes."
         )
-        action_v.addWidget(self.cut_only_cb)
 
         action_row = QHBoxLayout()
         self.preview_btn = QPushButton("Testar refs (preview)")
@@ -237,7 +298,8 @@ class AnalyzeTab(QWidget):
             "Só busca+baixa as imagens de referência e abre a pasta. "
             "Não corta shots nem roda CLIP. Útil pra inspecionar o que o sistema vai usar."
         )
-        self.preview_btn.setStyleSheet(theme.button())
+        # Controle secundário compacto: some no fundo até você precisar.
+        self.preview_btn.setStyleSheet(theme.button("ghost"))
         self.preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.preview_btn.clicked.connect(self._start_preview)
 
@@ -256,7 +318,9 @@ class AnalyzeTab(QWidget):
             "Gasta pouquíssima quota (~10-20% do modo IA antigo). "
             "Precisa de API key em ⚙ Configurações."
         )
-        self.run_ai_btn.setStyleSheet(theme.button("accent-outline"))
+        # Cinza: é uma variação do Analisar, não um segundo destaque. Duas
+        # bordas cianas na mesma linha fazem o olho escolher no par ou ímpar.
+        self.run_ai_btn.setStyleSheet(theme.button("alto"))
         self.run_ai_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.run_ai_btn.clicked.connect(lambda: self._start(ai_review=True))
 
@@ -268,7 +332,7 @@ class AnalyzeTab(QWidget):
             "de nenhum site\n"
             "• Anime conhecido: reforça as refs, com os nomes já sugeridos"
         )
-        self.discovery_btn.setStyleSheet(theme.button())
+        self.discovery_btn.setStyleSheet(theme.button("accent-outline"))
         self.discovery_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.discovery_btn.clicked.connect(lambda: self._start(discovery=True))
 
@@ -283,23 +347,36 @@ class AnalyzeTab(QWidget):
 
         # Ordem de leitura: o que é raro fica à esquerda e discreto; a ação
         # principal termina a linha, que é onde o olho para.
-        action_row.addWidget(self.preview_btn)
-        action_row.addSpacing(6)
-        action_row.addWidget(self.discovery_btn)
+        # Duas linhas: os controles secundários em cima, compactos, e a
+        # linha das ações embaixo. Tudo junto numa linha só, a fileira não
+        # cabia na janela mínima e o app ganhava barra de rolagem horizontal
+        # — que numa tela de formulário é sempre erro de layout.
+        secundarios = QHBoxLayout()
+        secundarios.setSpacing(10)
+        secundarios.addWidget(self.cut_only_cb)
+        secundarios.addWidget(self.preview_btn)
+        secundarios.addStretch(1)
+        action_v.addLayout(secundarios)
+
+        action_row.setSpacing(8)
         action_row.addStretch(1)
+        action_row.addWidget(self.discovery_btn)
         action_row.addWidget(self.run_ai_btn)
-        action_row.addSpacing(8)
         action_row.addWidget(self.run_btn)
         action_row.addWidget(self.cancel_btn)
         action_v.addLayout(action_row)
+        action_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(action_box)
 
         # --- progress ---
         # Sem animação disponível no Qt, o que prova que o app está VIVO é
         # número que anda: o que ele está fazendo, quanto já foi, o tempo
         # decorrido e o ritmo real. Barra quicando falsa não prova nada.
-        progress_box = QGroupBox("3. Progresso")
+        layout.addSpacing(6)
+        layout.addWidget(self._cabecalho("03", "Progresso"))
+        progress_box = QWidget()
         pv = QVBoxLayout(progress_box)
+        pv.setContentsMargins(20, 0, 0, 0)
         pv.setSpacing(10)
 
         linha_topo = QHBoxLayout()
@@ -354,9 +431,21 @@ class AnalyzeTab(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, stage_id)
             item.setForeground(QBrush(QColor(theme.TXT_FAINT)))
             self.stage_list.addItem(item)
-        pv.addWidget(self.stage_list, 1)
+        # Parada, a seção mostra só texto + barra + tempo. A lista de etapas
+        # aparece quando a análise começa: um painel alto e vazio esperando
+        # não informa nada e ainda empurra o resto da tela pra fora.
+        self.stage_list.setVisible(False)
+        self.stage_list.setFixedHeight(len(STAGES) * 30 + 6)
+        self.stage_list.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
+        pv.addWidget(self.stage_list)
 
-        layout.addWidget(progress_box, 1)
+        progress_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        layout.addWidget(progress_box)
+        # UM stretch, no fim: é o que segura as três seções coladas no topo
+        # em vez de deixá-las esticarem pra preencher a janela.
+        layout.addStretch(1)
 
         rolagem = QScrollArea()
         rolagem.setWidgetResizable(True)
@@ -673,6 +762,7 @@ class AnalyzeTab(QWidget):
         item.setFont(fonte)
 
     def _reset_stages(self) -> None:
+        self.stage_list.setVisible(True)
         for i in range(self.stage_list.count()):
             self._pinta_etapa(self.stage_list.item(i), "pendente", STAGES[i][1])
         self.count_label.setText("")
