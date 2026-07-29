@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="ada99a9b-a720-4577-961c-6934c17ddb5d"></script>
+
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  html, body { margin: 0; padding: 0; background: #0b0d11; }
+  body { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: #4cc9c0; text-decoration: none; }
+  a:hover { color: #7ddcd5; text-decoration: underline; }
+</style>
+</helmet>
+
+<div style="background:#0b0d11; color:#e6ebf2; min-height:100vh; padding:48px 56px 96px; display:flex; flex-direction:column; gap:64px; min-width:1712px; box-sizing:border-box">
+
+  <!-- ============ CAPA ============ -->
+  <header style="display:flex; flex-direction:column; gap:18px; max-width:1180px">
+    <div style="font-family:'Cascadia Mono',Consolas,ui-monospace,monospace; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:#6a7382">Corte Cenas · sistema visual v4 · tema escuro único</div>
+    <h1 style="font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif; font-size:40px; font-weight:600; line-height:1.1; margin:0; letter-spacing:-0.01em">Mesa de corte, não painel de app</h1>
+    <p style="font-size:15px; line-height:1.6; color:#9aa4b2; margin:0; text-wrap:pretty">A tela é uma bancada: a grade de miniaturas é a única coisa que brilha, o resto recua. Sem sombra, sem animação, sem gradiente decorativo — tudo que aparece aqui é desenhável em QSS puro, e o que exige QPainter está marcado <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">[painter]</span>. Três decisões novas em relação ao estado atual: a rampa de superfícies caiu de 4 para 3 degraus úteis, o âmbar virou <em>exclusivo</em> de número (nada mais pode usar), e a cor de seleção só existe onde há foco — nunca em dois lugares ao mesmo tempo.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px">
+      <a href="#tokens" style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2">01 · Tokens</a>
+      <a href="#componentes" style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2">02 · Componentes e estados</a>
+      <a href="#telas" style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2">03 · As três abas</a>
+      <a href="#layout" style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2">04 · Layout e medidas</a>
+      <a href="#qt" style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2">05 · Onde o Qt atrapalha</a>
+    </div>
+  </header>
+
+  <!-- ============ 01 TOKENS ============ -->
+  <section id="tokens" style="display:flex; flex-direction:column; gap:24px">
+    <div style="display:flex; align-items:baseline; gap:14px; border-bottom:1px solid #1e242c; padding-bottom:12px">
+      <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#4cc9c0">01</span>
+      <h2 style="font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif; font-size:24px; font-weight:600; margin:0">Tokens</h2>
+      <span style="font-size:13px; color:#6a7382">nome → valor → papel. Se um papel não está na lista, a cor não entra na tela.</span>
+    </div>
+
+    <div style="display:grid; grid-template-columns:minmax(560px,1fr) 380px; gap:32px; align-items:start">
+
+      <!-- cores -->
+      <div style="display:flex; flex-direction:column; gap:0; border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="display:grid; grid-template-columns:56px 150px 96px 1fr; gap:0; background:#14181f; border-bottom:1px solid #1e242c; padding:9px 14px; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">
+          <span></span><span>token</span><span>hex</span><span>papel</span>
+        </div>
+        <sc-for list="{{ colors }}" as="c" hint-placeholder-count="15">
+          <div style="display:grid; grid-template-columns:56px 150px 96px 1fr; gap:0; align-items:center; padding:8px 14px; border-bottom:1px solid #14181f; background:#0f1217">
+            <span style="width:34px; height:20px; border-radius:3px; border:1px solid #2a323d; background:{{ c.hex }}"></span>
+            <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e6ebf2">{{ c.token }}</span>
+            <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#9aa4b2">{{ c.hex }}</span>
+            <span style="font-size:12.5px; color:#9aa4b2; line-height:1.45">{{ c.role }}</span>
+          </div>
+        </sc-for>
+        <div style="padding:12px 14px; background:#14181f; font-size:12.5px; color:#6a7382; line-height:1.5">Mudanças em relação à paleta atual: fundo 2 pontos mais fundo (a miniatura ganha contraste), <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#9aa4b2">SURFACE_3</span> passa a ser só hover (era quase igual a SURFACE_2), <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#9aa4b2">LINE</span> sobe um pouco pra borda existir a 150% de escala.</div>
+      </div>
+
+      <!-- escalas -->
+      <div style="display:flex; flex-direction:column; gap:20px">
+
+        <div style="border:1px solid #1e242c; border-radius:6px; padding:16px; display:flex; flex-direction:column; gap:12px">
+          <div style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">Tipografia</div>
+          <div style="display:flex; flex-direction:column; gap:9px">
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px"><span style="font-family:'Segoe UI Variable Display','Segoe UI',sans-serif; font-size:22px; font-weight:600">Título de janela</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">Display 22/600</span></div>
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px"><span style="font-family:'Segoe UI Variable Display','Segoe UI',sans-serif; font-size:17px; font-weight:600">Título de seção</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">Display 17/600</span></div>
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px"><span style="font-size:14px; font-weight:600">Rótulo forte / botão</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">Text 14/600</span></div>
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px"><span style="font-size:13px">Corpo, campo, item de lista</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">Text 13/400</span></div>
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px"><span style="font-size:12px; color:#9aa4b2">Secundário, ajuda, rodapé de cartão</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">Text 12/400</span></div>
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px"><span style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">Rótulo de grupo</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">Text 11/600 +10%</span></div>
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#e8a15c">00:08:24.6 · 3.4s · 331</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">Mono 13 / 12 / 11</span></div>
+          </div>
+          <div style="font-size:12px; color:#6a7382; line-height:1.5; border-top:1px solid #14181f; padding-top:10px">Todo número — contagem, duração, timecode, ETA, valor de campo numérico — é mono. Texto nunca é mono.</div>
+        </div>
+
+        <div style="border:1px solid #1e242c; border-radius:6px; padding:16px; display:flex; flex-direction:column; gap:12px">
+          <div style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">Espaçamento · passo 4</div>
+          <div style="display:flex; align-items:flex-end; gap:8px">
+            <sc-for list="{{ spacing }}" as="s" hint-placeholder-count="7">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px">
+                <div style="width:{{ s.px }}; height:22px; background:#2a323d; border-radius:2px"></div>
+                <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:10.5px; color:#6a7382">{{ s.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-size:12px; color:#9aa4b2; line-height:1.6"><span style="color:#e6ebf2">4</span> dentro de um controle · <span style="color:#e6ebf2">8</span> entre controles irmãos · <span style="color:#e6ebf2">12</span> grade de cartões · <span style="color:#e6ebf2">16</span> padding de painel · <span style="color:#e6ebf2">24</span> entre blocos · <span style="color:#e6ebf2">32</span> entre seções numeradas.</div>
+        </div>
+
+        <div style="border:1px solid #1e242c; border-radius:6px; padding:16px; display:flex; flex-direction:column; gap:12px">
+          <div style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">Raio e altura de controle</div>
+          <div style="display:flex; flex-direction:column; gap:7px; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#9aa4b2">
+            <div style="display:flex; justify-content:space-between"><span>R_XS caixa de marcar</span><span style="color:#e6ebf2">3px</span></div>
+            <div style="display:flex; justify-content:space-between"><span>R_S campo, botão, aba</span><span style="color:#e6ebf2">4px</span></div>
+            <div style="display:flex; justify-content:space-between"><span>R_M cartão, painel</span><span style="color:#e6ebf2">6px</span></div>
+            <div style="display:flex; justify-content:space-between"><span>R_L diálogo, menu</span><span style="color:#e6ebf2">8px</span></div>
+            <div style="display:flex; justify-content:space-between"><span>pílula h34 / selo h26</span><span style="color:#e6ebf2">17px / 13px</span></div>
+          </div>
+          <div style="height:1px; background:#14181f"></div>
+          <div style="display:flex; flex-direction:column; gap:7px; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#9aa4b2">
+            <div style="display:flex; justify-content:space-between"><span>H_ROW linha de árvore/lista</span><span style="color:#e6ebf2">30px</span></div>
+            <div style="display:flex; justify-content:space-between"><span>H_CTRL campo, botão comum</span><span style="color:#e6ebf2">32px</span></div>
+            <div style="display:flex; justify-content:space-between"><span>H_PILL filtro</span><span style="color:#e6ebf2">34px</span></div>
+            <div style="display:flex; justify-content:space-between"><span>H_TAB aba</span><span style="color:#e6ebf2">36px</span></div>
+            <div style="display:flex; justify-content:space-between"><span>H_PRIMARY ação principal</span><span style="color:#e6ebf2">38px</span></div>
+          </div>
+          <div style="font-size:12px; color:#6a7382; line-height:1.5; border-top:1px solid #14181f; padding-top:10px">Nada usa <span style="font-family:'Cascadia Mono',Consolas,monospace">999px</span>: o raio de pílula é sempre metade da altura, em px, escrito à mão.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 COMPONENTES ============ -->
+  <section id="componentes" style="display:flex; flex-direction:column; gap:24px">
+    <div style="display:flex; align-items:baseline; gap:14px; border-bottom:1px solid #1e242c; padding-bottom:12px">
+      <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#4cc9c0">02</span>
+      <h2 style="font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif; font-size:24px; font-weight:600; margin:0">Componentes e estados</h2>
+      <span style="font-size:13px; color:#6a7382">cada peça em normal · hover · pressionado · selecionado · desabilitado</span>
+    </div>
+
+    <!-- BOTÕES -->
+    <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+      <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px; display:flex; align-items:baseline; gap:12px">
+        <span style="font-size:14px; font-weight:600">Botão · 5 variantes</span>
+        <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11.5px; color:#6a7382">h32 (principal h38) · padding 0 16 · raio 4 · texto 14/600</span>
+      </div>
+      <div style="padding:18px 16px; display:flex; flex-direction:column; gap:16px">
+        <div style="display:grid; grid-template-columns:132px repeat(5, minmax(140px,1fr)); gap:12px; align-items:center">
+          <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:#6a7382">estado →</span>
+          <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">normal</span>
+          <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">hover</span>
+          <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">pressionado</span>
+          <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">foco (teclado)</span>
+          <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">desabilitado</span>
+        </div>
+
+        <div style="display:grid; grid-template-columns:132px repeat(5, minmax(140px,1fr)); gap:12px; align-items:center">
+          <span style="font-size:12.5px; color:#9aa4b2">Principal</span>
+          <div style="display:flex; align-items:center; justify-content:center; height:38px; background:#4cc9c0; border:1px solid #4cc9c0; border-radius:4px; color:#08201e; font-size:14px; font-weight:600">Analisar episódio</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:38px; background:#5fd6cd; border:1px solid #5fd6cd; border-radius:4px; color:#08201e; font-size:14px; font-weight:600">Analisar episódio</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:38px; background:#35938c; border:1px solid #35938c; border-radius:4px; color:#08201e; font-size:14px; font-weight:600">Analisar episódio</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:38px; background:#4cc9c0; border:2px solid #e6ebf2; border-radius:4px; color:#08201e; font-size:14px; font-weight:600">Analisar episódio</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:38px; background:#1b2129; border:1px solid #232b35; border-radius:4px; color:#4b5462; font-size:14px; font-weight:600">Analisar episódio</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:132px repeat(5, minmax(140px,1fr)); gap:12px; align-items:center">
+          <span style="font-size:12.5px; color:#9aa4b2">Secundário</span>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; color:#e6ebf2; font-size:14px; font-weight:600">Selecionar...</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#232b35; border:1px solid #37414e; border-radius:4px; color:#e6ebf2; font-size:14px; font-weight:600">Selecionar...</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#161b22; border:1px solid #2a323d; border-radius:4px; color:#9aa4b2; font-size:14px; font-weight:600">Selecionar...</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#1b2129; border:2px solid #4cc9c0; border-radius:4px; color:#e6ebf2; font-size:14px; font-weight:600">Selecionar...</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#161b22; border:1px solid #1e242c; border-radius:4px; color:#4b5462; font-size:14px; font-weight:600">Selecionar...</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:132px repeat(5, minmax(140px,1fr)); gap:12px; align-items:center">
+          <span style="font-size:12.5px; color:#9aa4b2">Vazado (ação de destaque não-principal)</span>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#0e1014; border:1px solid #35938c; border-radius:4px; color:#4cc9c0; font-size:14px; font-weight:600">Modo Descoberta</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#0c2b29; border:1px solid #4cc9c0; border-radius:4px; color:#7ddcd5; font-size:14px; font-weight:600">Modo Descoberta</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#0a2321; border:1px solid #35938c; border-radius:4px; color:#4cc9c0; font-size:14px; font-weight:600">Modo Descoberta</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#0c2b29; border:2px solid #4cc9c0; border-radius:4px; color:#7ddcd5; font-size:14px; font-weight:600">Modo Descoberta</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#0e1014; border:1px solid #1e242c; border-radius:4px; color:#4b5462; font-size:14px; font-weight:600">Modo Descoberta</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:132px repeat(5, minmax(140px,1fr)); gap:12px; align-items:center">
+          <span style="font-size:12.5px; color:#9aa4b2">Fantasma (lista de ações)</span>
+          <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:transparent; border:1px solid transparent; border-radius:4px; color:#9aa4b2; font-size:13px">↻&nbsp;&nbsp;Atualizar lista</div>
+          <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:#1b2129; border:1px solid #232b35; border-radius:4px; color:#e6ebf2; font-size:13px">↻&nbsp;&nbsp;Atualizar lista</div>
+          <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:#14181f; border:1px solid #232b35; border-radius:4px; color:#9aa4b2; font-size:13px">↻&nbsp;&nbsp;Atualizar lista</div>
+          <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:#14181f; border:2px solid #4cc9c0; border-radius:4px; color:#e6ebf2; font-size:13px">↻&nbsp;&nbsp;Atualizar lista</div>
+          <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:transparent; border:1px solid transparent; border-radius:4px; color:#4b5462; font-size:13px">↻&nbsp;&nbsp;Atualizar lista</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:132px repeat(5, minmax(140px,1fr)); gap:12px; align-items:center">
+          <span style="font-size:12.5px; color:#9aa4b2">Destrutivo</span>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#1f1418; border:1px solid #5b2a30; border-radius:4px; color:#e5686f; font-size:14px; font-weight:600">⤫&nbsp;&nbsp;Remover desta pasta</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#2b171c; border:1px solid #8c3b43; border-radius:4px; color:#f08b91; font-size:14px; font-weight:600">⤫&nbsp;&nbsp;Remover desta pasta</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#e5686f; border:1px solid #e5686f; border-radius:4px; color:#1f0a0d; font-size:14px; font-weight:600">⤫&nbsp;&nbsp;Remover desta pasta</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#2b171c; border:2px solid #e5686f; border-radius:4px; color:#f08b91; font-size:14px; font-weight:600">⤫&nbsp;&nbsp;Remover desta pasta</div>
+          <div style="display:flex; align-items:center; justify-content:center; height:32px; background:#161b22; border:1px solid #1e242c; border-radius:4px; color:#4b5462; font-size:14px; font-weight:600">⤫&nbsp;&nbsp;Remover desta pasta</div>
+        </div>
+
+        <div style="font-size:12.5px; color:#6a7382; line-height:1.55; border-top:1px solid #14181f; padding-top:12px; display:{{ specDisplay }}">Foco de teclado = borda 2px substituindo a de 1px (o padding cai 1px pra não pular). Nunca <span style="font-family:'Cascadia Mono',Consolas,monospace">outline</span>, que o Qt desenha fora do widget e corta. Ícone é sempre caractere unicode + 2 espaços antes do texto, nunca sozinho num botão largo.</div>
+      </div>
+    </div>
+
+    <!-- CAMPOS -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px">
+      <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px; display:flex; align-items:baseline; gap:12px">
+          <span style="font-size:14px; font-weight:600">Campo de texto e numérico</span>
+          <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11.5px; color:#6a7382">h32 · padding 0 10 · raio 4</span>
+        </div>
+        <div style="padding:16px; display:flex; flex-direction:column; gap:12px">
+          <div style="display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center">
+            <span style="font-size:13px; color:#9aa4b2">normal</span>
+            <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px; color:#e6ebf2; font-size:13px">G:\App Corte Cenas\Output</div>
+          </div>
+          <div style="display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center">
+            <span style="font-size:13px; color:#9aa4b2">vazio</span>
+            <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px; color:#5b6473; font-size:13px">Arraste o episódio pra cá (.mp4/.mkv)…</div>
+          </div>
+          <div style="display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center">
+            <span style="font-size:13px; color:#9aa4b2">hover</span>
+            <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:#171c24; border:1px solid #37414e; border-radius:4px; color:#e6ebf2; font-size:13px">G:\App Corte Cenas\Output</div>
+          </div>
+          <div style="display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center">
+            <span style="font-size:13px; color:#9aa4b2">foco</span>
+            <div style="display:flex; align-items:center; height:32px; padding:0 9px; background:#0e1014; border:2px solid #4cc9c0; border-radius:4px; color:#e6ebf2; font-size:13px">G:\App Corte Cenas\Output<span style="width:1px; height:16px; background:#4cc9c0; margin-left:1px"></span></div>
+          </div>
+          <div style="display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center">
+            <span style="font-size:13px; color:#9aa4b2">arrastando</span>
+            <div style="display:flex; align-items:center; height:32px; padding:0 9px; background:#0c2b29; border:2px dashed #4cc9c0; border-radius:4px; color:#7ddcd5; font-size:13px">Solte pra usar este arquivo</div>
+          </div>
+          <div style="display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center">
+            <span style="font-size:13px; color:#9aa4b2">inválido</span>
+            <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:#1f1418; border:1px solid #e5686f; border-radius:4px; color:#f08b91; font-size:13px">C:\naoexiste\ep.mkv</div>
+          </div>
+          <div style="display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center">
+            <span style="font-size:13px; color:#9aa4b2">desabilitado</span>
+            <div style="display:flex; align-items:center; height:32px; padding:0 10px; background:#0f1217; border:1px solid #1e242c; border-radius:4px; color:#4b5462; font-size:13px">—</div>
+          </div>
+          <div style="display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center">
+            <span style="font-size:13px; color:#9aa4b2">numérico</span>
+            <div style="display:flex; align-items:center; height:32px; width:120px; padding:0 4px 0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px; justify-content:space-between">
+              <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#e8a15c">15</span>
+              <div style="display:flex; flex-direction:column; gap:1px">
+                <span style="display:flex; align-items:center; justify-content:center; width:20px; height:12px; background:#1b2129; border:1px solid #2a323d; border-radius:2px; font-size:8px; color:#9aa4b2">▲</span>
+                <span style="display:flex; align-items:center; justify-content:center; width:20px; height:12px; background:#1b2129; border:1px solid #2a323d; border-radius:2px; font-size:8px; color:#9aa4b2">▼</span>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:12.5px; color:#6a7382; line-height:1.55; border-top:1px solid #14181f; padding-top:10px; display:{{ specDisplay }}">Campo é mais escuro que o painel (poço), botão é mais claro (relevo). É a única pista de "clicável" que sobra sem sombra. Valor numérico em mono âmbar.</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px; display:flex; align-items:baseline; gap:12px">
+          <span style="font-size:14px; font-weight:600">Marcar, escolher, filtrar, selo</span>
+          <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11.5px; color:#6a7382">indicador 16px · pílula h34 r17 · selo h26 r13</span>
+        </div>
+        <div style="padding:16px; display:flex; flex-direction:column; gap:14px">
+          <div style="display:flex; flex-wrap:wrap; gap:18px">
+            <div style="display:flex; align-items:center; gap:8px"><span style="width:16px; height:16px; background:#14181f; border:1px solid #37414e; border-radius:3px"></span><span style="font-size:13px; color:#e6ebf2">Criar pastas de duplas</span></div>
+            <div style="display:flex; align-items:center; gap:8px"><span style="display:flex; align-items:center; justify-content:center; width:16px; height:16px; background:#4cc9c0; border:1px solid #4cc9c0; border-radius:3px; color:#08201e; font-size:11px; font-weight:700">✓</span><span style="font-size:13px; color:#e6ebf2">Criar pastas por personagem</span></div>
+            <div style="display:flex; align-items:center; gap:8px"><span style="width:16px; height:16px; background:#0f1217; border:1px solid #1e242c; border-radius:3px"></span><span style="font-size:13px; color:#4b5462">Usar Danbooru como fonte extra</span></div>
+          </div>
+          <div style="height:1px; background:#14181f"></div>
+          <div style="display:flex; flex-wrap:wrap; gap:18px">
+            <div style="display:flex; align-items:center; gap:8px"><span style="width:16px; height:16px; background:#14181f; border:1px solid #37414e; border-radius:8px"></span><span style="font-size:13px; color:#e6ebf2">Muito Fiel</span></div>
+            <div style="display:flex; align-items:center; gap:8px"><span style="display:flex; align-items:center; justify-content:center; width:16px; height:16px; background:#0c2b29; border:2px solid #4cc9c0; border-radius:8px"><span style="width:6px; height:6px; background:#4cc9c0; border-radius:3px"></span></span><span style="font-size:13px; color:#e6ebf2">Auto (recomendado)</span></div>
+            <div style="display:flex; align-items:center; gap:8px"><span style="width:16px; height:16px; background:#0f1217; border:1px solid #1e242c; border-radius:8px"></span><span style="font-size:13px; color:#4b5462">Pouco Fiel</span></div>
+          </div>
+          <div style="height:1px; background:#14181f"></div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px">
+            <div style="display:flex; align-items:center; gap:8px; height:34px; padding:0 15px; background:#0c2b29; border:1px solid #4cc9c0; border-radius:17px"><span style="font-size:13px">📼</span><span style="font-size:13px; font-weight:600; color:#e6ebf2">Todas</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">331</span></div>
+            <div style="display:flex; align-items:center; gap:8px; height:34px; padding:0 15px; background:#1b2129; border:1px solid #2a323d; border-radius:17px"><span style="font-size:13px; color:#e6ebf2">Farion, Nina</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">91</span></div>
+            <div style="display:flex; align-items:center; gap:8px; height:34px; padding:0 15px; background:#232b35; border:1px solid #37414e; border-radius:17px"><span style="font-size:13px; color:#e6ebf2">Greyrat, Eris Boreas</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">85</span></div>
+            <div style="display:flex; align-items:center; gap:8px; height:34px; padding:0 15px; background:#0f1217; border:1px solid #1e242c; border-radius:17px"><span style="font-size:13px; color:#4b5462">Greyrat, Rudeus</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#4b5462">0</span></div>
+          </div>
+          <div style="height:1px; background:#14181f"></div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px">
+            <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#132019; border:1px solid #2f5c3d; border-radius:13px"><span style="width:7px; height:7px; background:#6fcf8b; border-radius:4px"></span><span style="font-size:12.5px; color:#6fcf8b">RTX 5080</span></div>
+            <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#20190f; border:1px solid #5c4a2a; border-radius:13px"><span style="width:7px; height:7px; background:#e8a15c; border-radius:4px"></span><span style="font-size:12.5px; color:#e8a15c">CPU (lento)</span></div>
+            <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#1b2129; border:1px solid #2a323d; border-radius:13px"><span style="width:7px; height:7px; background:#6a7382; border-radius:4px"></span><span style="font-size:12.5px; color:#9aa4b2">detectando…</span></div>
+            <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#0c2b29; border:1px solid #35938c; border-radius:13px"><span style="font-size:11px; color:#4cc9c0">▸</span><span style="font-size:12.5px; color:#4cc9c0">em loop</span></div>
+            <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#1f1418; border:1px solid #5b2a30; border-radius:13px"><span style="font-size:11px; color:#e5686f">⚠</span><span style="font-size:12.5px; color:#e5686f">duvidosa</span></div>
+          </div>
+          <div style="font-size:12.5px; color:#6a7382; line-height:1.55; border-top:1px solid #14181f; padding-top:10px; display:{{ specDisplay }}">A pílula de filtro carrega o nome em texto e a contagem em mono âmbar — nunca os dois na mesma cor, é o que deixa a fileira legível de longe. Selo de GPU troca o emoji por um ponto de 7px pintado na cor do estado (emoji colorido não escala bem a 150%).</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CARTÃO DE CENA -->
+    <div style="border:1px solid #2a323d; border-radius:6px; overflow:hidden">
+      <div style="background:#14181f; border-bottom:1px solid #2a323d; padding:10px 16px; display:flex; align-items:baseline; gap:12px">
+        <span style="font-size:14px; font-weight:600; color:#4cc9c0">Cartão de cena</span>
+        <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11.5px; color:#6a7382">[painter] · miniatura 16:9 · rodapé h26 · raio 6 · borda 1px (2px quando selecionado)</span>
+      </div>
+      <div style="padding:20px 16px; display:flex; flex-direction:column; gap:20px">
+        <div style="display:grid; grid-template-columns:repeat(5, minmax(210px,1fr)); gap:16px">
+
+          <!-- normal -->
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="background:#1b2129; border:1px solid #232b35; border-radius:6px; overflow:hidden">
+              <div style="position:relative; aspect-ratio:16/9; background:linear-gradient(160deg,#2c3742,#1a222b)">
+                <div style="position:absolute; top:6px; left:6px; height:18px; padding:0 6px; background:#0b0e12; border-radius:3px; display:flex; align-items:center; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#9aa4b2">#0129</div>
+              </div>
+              <div style="height:26px; padding:0 8px; display:flex; align-items:center; justify-content:space-between; background:#1b2129">
+                <span style="font-size:12px; color:#9aa4b2">Nina</span>
+                <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">3.4s</span>
+              </div>
+            </div>
+            <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">normal · bg SURFACE_2 · borda LINE_SOFT</span>
+          </div>
+
+          <!-- hover com scrub -->
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="background:#232b35; border:1px solid #37414e; border-radius:6px; overflow:hidden">
+              <div style="position:relative; aspect-ratio:16/9; background:linear-gradient(160deg,#33404c,#1e2731)">
+                <div style="position:absolute; top:6px; left:6px; height:18px; padding:0 6px; background:#0b0e12; border-radius:3px; display:flex; align-items:center; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#e6ebf2">#0129</div>
+                <div style="position:absolute; bottom:6px; right:6px; height:18px; padding:0 6px; background:#0b0e12; border-radius:3px; display:flex; align-items:center; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#e8a15c">08:26.1</div>
+                <div style="position:absolute; left:0; right:0; bottom:0; height:3px; background:#0b0e12"><div style="width:62%; height:3px; background:#e8a15c"></div></div>
+              </div>
+              <div style="height:26px; padding:0 8px; display:flex; align-items:center; justify-content:space-between; background:#232b35">
+                <span style="font-size:12px; color:#e6ebf2">Nina</span>
+                <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">3.4s</span>
+              </div>
+            </div>
+            <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">hover · scrub: barra 3px âmbar + timecode</span>
+          </div>
+
+          <!-- selecionado -->
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="background:#0c2b29; border:2px solid #4cc9c0; border-radius:6px; overflow:hidden">
+              <div style="position:relative; aspect-ratio:16/9; background:linear-gradient(160deg,#2c3742,#1a222b)">
+                <div style="position:absolute; top:5px; left:5px; height:18px; padding:0 6px; background:#4cc9c0; border-radius:3px; display:flex; align-items:center; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; font-weight:600; color:#08201e">#0129</div>
+              </div>
+              <div style="height:25px; padding:0 7px; display:flex; align-items:center; justify-content:space-between; background:#0c2b29">
+                <span style="font-size:12px; color:#e6ebf2">Nina</span>
+                <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">3.4s</span>
+              </div>
+            </div>
+            <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">selecionada · borda 2px ACCENT · rodapé ACCENT_INK</span>
+          </div>
+
+          <!-- multi -->
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="background:#0c2b29; border:2px solid #4cc9c0; border-radius:6px; overflow:hidden">
+              <div style="position:relative; aspect-ratio:16/9; background:linear-gradient(160deg,#2c3742,#1a222b)">
+                <div style="position:absolute; top:5px; left:5px; height:18px; padding:0 6px; background:#4cc9c0; border-radius:3px; display:flex; align-items:center; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; font-weight:600; color:#08201e">#0130</div>
+                <div style="position:absolute; top:5px; right:5px; width:18px; height:18px; background:#4cc9c0; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#08201e">✓</div>
+              </div>
+              <div style="height:25px; padding:0 7px; display:flex; align-items:center; justify-content:space-between; background:#0c2b29">
+                <span style="font-size:12px; color:#e6ebf2">Nina, Eris</span>
+                <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">2.8s</span>
+              </div>
+            </div>
+            <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">seleção múltipla · marca ✓ 18px canto direito</span>
+          </div>
+
+          <!-- juntada / duvidosa -->
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="background:#1b2129; border:1px solid #232b35; border-radius:6px; overflow:hidden">
+              <div style="position:relative; aspect-ratio:16/9; background:linear-gradient(160deg,#2c3742,#1a222b)">
+                <div style="position:absolute; top:6px; left:6px; height:18px; padding:0 6px; background:#0b0e12; border-radius:3px; display:flex; align-items:center; gap:5px; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#9aa4b2"><span>#0131</span><span style="color:#4cc9c0">⛓</span></div>
+                <div style="position:absolute; top:6px; right:6px; height:18px; width:18px; background:#0b0e12; border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#e5686f">⚠</div>
+              </div>
+              <div style="height:26px; padding:0 8px; display:flex; align-items:center; justify-content:space-between; background:#1b2129">
+                <span style="font-size:12px; color:#5b6473">sem identificação</span>
+                <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">11.6s</span>
+              </div>
+            </div>
+            <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">juntada ⛓ + duvidosa ⚠ · rodapé vazio em TXT_FAINT</span>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; border-top:1px solid #1e242c; padding-top:16px; font-size:12.5px; color:#9aa4b2; line-height:1.6; display:{{ specDisplay }}">
+          <div><span style="color:#e6ebf2; font-weight:600">Medidas.</span> Largura do cartão é elástica entre 196 e 300px; abaixo de 196 a coluna some. Miniatura 16:9 recortada no centro, sem letterbox. Rodapé 26px fixo: nome à esquerda 12px, elipse no meio se não couber; duração à direita, mono 12px âmbar, nunca reticenciada. Selo do número tem 18px de altura e fundo <span style="font-family:'Cascadia Mono',Consolas,monospace">#0b0e12</span> a 82% (o cartão é QPainter, então alfa vale).</div>
+          <div><span style="color:#e6ebf2; font-weight:600">Por que assim.</span> A miniatura é a única imagem da tela; ela recebe 100% do brilho e nenhuma moldura clara. O cartão não usa cor pra dizer "aprovada" — só posição e ícone —, o que libera o ciano pra significar <em>uma</em> coisa: onde você está. A borda de seleção é interna (2px pra dentro), então a grade não reflui ao selecionar.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LISTAS, ÁRVORE, ABAS, PROGRESSO, ETAPAS, MENU -->
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:20px; align-items:start">
+
+      <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px"><span style="font-size:14px; font-weight:600">Linha de árvore · h30</span></div>
+        <div style="padding:12px 8px; display:flex; flex-direction:column; gap:2px; background:#14181f">
+          <div style="display:flex; align-items:center; height:30px; padding:0 10px; border-radius:4px; border:1px solid transparent; gap:6px"><span style="font-size:9px; color:#6a7382">▾</span><span style="font-size:13px; color:#e6ebf2; flex:1">Mushoku Tensei III</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">1</span></div>
+          <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 26px; border-radius:4px; background:#1b2129; border:1px solid #232b35; gap:6px"><span style="font-size:9px; color:#6a7382">▾</span><span style="font-size:13px; color:#e6ebf2; flex:1">Temporada 3</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">1</span></div>
+          <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 40px; border-radius:4px; background:#0c2b29; border:1px solid #35938c; gap:6px; border-left:3px solid #4cc9c0"><span style="font-size:13px; color:#e6ebf2; flex:1">Episódio 02</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">331</span></div>
+          <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 40px; border-radius:4px; border:1px solid transparent; gap:6px"><span style="font-size:13px; color:#9aa4b2; flex:1">Episódio 03</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">298</span></div>
+          <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 40px; border-radius:4px; border:1px solid transparent; gap:6px"><span style="font-size:13px; color:#5b6473; font-style:italic; flex:1">Episódio 15 (sumiu do disco)</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#5b6473">361</span></div>
+          <div style="font-size:12px; color:#6a7382; line-height:1.5; padding:8px 10px 0; display:{{ specDisplay }}">Selecionado leva borda-esquerda 3px ciano + fundo ACCENT_INK — a barra é o que sobrevive à falta de sombra. Pasta ausente = itálico TXT_FAINT, sem ícone de erro.</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px"><span style="font-size:14px; font-weight:600">Abas · h36 · barra 44</span></div>
+        <div style="padding:0; background:#0e1014">
+          <div style="display:flex; align-items:flex-end; gap:2px; height:44px; padding:0 12px; background:#14181f; border-bottom:1px solid #2a323d">
+            <div style="display:flex; align-items:center; height:36px; padding:0 16px; background:#0e1014; border:1px solid #2a323d; border-bottom:1px solid #0e1014; border-radius:4px 4px 0 0; font-size:14px; font-weight:600; color:#e6ebf2; border-top:2px solid #4cc9c0">Analisar</div>
+            <div style="display:flex; align-items:center; height:36px; padding:0 16px; border-radius:4px 4px 0 0; font-size:14px; color:#9aa4b2">Resultados</div>
+            <div style="display:flex; align-items:center; height:36px; padding:0 16px; background:#1b2129; border-radius:4px 4px 0 0; font-size:14px; color:#e6ebf2">Biblioteca</div>
+          </div>
+          <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
+            <div style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">ativa · inativa · hover</div>
+            <div style="font-size:12px; color:#6a7382; line-height:1.5; display:{{ specDisplay }}">A aba ativa se funde com o conteúdo: mesmo fundo, borda inferior apagada e traço ciano de 2px no topo. Sem gradiente, sem sublinhado embaixo (no Qt o QTabBar não deixa desenhar por baixo do conteúdo de forma confiável).</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px"><span style="font-size:14px; font-weight:600">Menu de contexto · r8</span></div>
+        <div style="padding:16px; background:#0e1014; display:flex; justify-content:center">
+          <div style="width:236px; background:#1b2129; border:1px solid #37414e; border-radius:8px; padding:6px">
+            <div style="display:flex; align-items:center; height:30px; padding:0 10px; border-radius:4px; font-size:13px; color:#e6ebf2; gap:8px"><span style="color:#6fcf8b">✓</span>Aprovar cena</div>
+            <div style="display:flex; align-items:center; height:30px; padding:0 10px; border-radius:4px; font-size:13px; color:#e6ebf2; gap:8px; background:#232b35"><span style="color:#4cc9c0">⛓</span>Juntar com a próxima</div>
+            <div style="display:flex; align-items:center; height:30px; padding:0 10px; border-radius:4px; font-size:13px; color:#e6ebf2; gap:8px"><span style="color:#9aa4b2">↗</span>Mover pra outro personagem</div>
+            <div style="display:flex; align-items:center; height:30px; padding:0 10px; border-radius:4px; font-size:13px; color:#4b5462; gap:8px"><span>⤺</span>Desfazer junção</div>
+            <div style="height:1px; background:#2a323d; margin:5px 8px"></div>
+            <div style="display:flex; align-items:center; height:30px; padding:0 10px; border-radius:4px; font-size:13px; color:#e5686f; gap:8px"><span>⤫</span>Remover desta pasta</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start">
+      <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px"><span style="font-size:14px; font-weight:600">Barra de progresso · h10 · r5</span></div>
+        <div style="padding:16px; display:flex; flex-direction:column; gap:14px">
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="height:10px; background:#14181f; border:1px solid #1e242c; border-radius:5px; overflow:hidden"><div style="width:0%; height:8px; background:#4cc9c0"></div></div>
+            <div style="display:flex; justify-content:space-between; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px"><span style="color:#6a7382">Aguardando…</span><span style="color:#6a7382">--:--</span></div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="height:10px; background:#14181f; border:1px solid #2a323d; border-radius:5px; overflow:hidden"><div style="width:64%; height:8px; background:#4cc9c0"></div></div>
+            <div style="display:flex; justify-content:space-between; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px"><span style="color:#e6ebf2">Cortando cena 214 de 331…</span><span style="color:#e8a15c">02:41 · resta ~01:29</span></div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="height:10px; background:#14181f; border:1px solid #5b2a30; border-radius:5px; overflow:hidden"><div style="width:38%; height:8px; background:#e5686f"></div></div>
+            <div style="display:flex; justify-content:space-between; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px"><span style="color:#e5686f">FFmpeg saiu com erro na cena 126</span><span style="color:#e5686f">01:12</span></div>
+          </div>
+          <div style="font-size:12.5px; color:#6a7382; line-height:1.55; display:{{ specDisplay }}">Sem animação disponível: a barra é atualizada por valor e o tempo decorrido em mono já prova que o app está vivo. Indeterminado = barra vazia + texto, nunca um bloco quicando falso.</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px"><span style="font-size:14px; font-weight:600">Item de etapa · h32 · 4 estados</span></div>
+        <div style="padding:12px 16px; display:flex; flex-direction:column; gap:3px">
+          <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 10px; border-radius:4px; border-left:3px solid transparent; background:#0f1217"><span style="width:14px; text-align:center; color:#6fcf8b; font-size:12px">✓</span><span style="font-size:13px; color:#9aa4b2; flex:1">Lendo arquivo</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#6a7382">0:04</span></div>
+          <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 10px; border-radius:4px; border-left:3px solid transparent; background:#0f1217"><span style="width:14px; text-align:center; color:#6fcf8b; font-size:12px">✓</span><span style="font-size:13px; color:#9aa4b2; flex:1">Detectando shots</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#6a7382">0:38</span></div>
+          <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 10px; border-radius:4px; border-left:3px solid #4cc9c0; background:#0c2b29"><span style="width:14px; text-align:center; color:#4cc9c0; font-size:12px">▸</span><span style="font-size:13px; color:#e6ebf2; font-weight:600; flex:1">Cortando</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">214/331</span></div>
+          <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 10px; border-radius:4px; border-left:3px solid transparent"><span style="width:14px; text-align:center; color:#5b6473; font-size:12px">○</span><span style="font-size:13px; color:#5b6473; flex:1">Extraindo keyframes</span></div>
+          <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 10px; border-radius:4px; border-left:3px solid #e5686f; background:#1f1418"><span style="width:14px; text-align:center; color:#e5686f; font-size:12px">✕</span><span style="font-size:13px; color:#f08b91; flex:1">Baixando referências</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e5686f">falhou</span></div>
+          <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 10px; border-radius:4px; border-left:3px solid transparent"><span style="width:14px; text-align:center; color:#5b6473; font-size:12px">○</span><span style="font-size:13px; color:#5b6473; flex:1">Reconhecendo</span></div>
+          <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 10px; border-radius:4px; border-left:3px solid transparent"><span style="width:14px; text-align:center; color:#5b6473; font-size:12px">○</span><span style="font-size:13px; color:#5b6473; flex:1">Organizando pastas</span></div>
+          <div style="font-size:12.5px; color:#6a7382; line-height:1.55; padding-top:8px; display:{{ specDisplay }}">Pendente não tem fundo (economiza contraste); feita tem fundo levíssimo e texto secundário; rodando é a única linha com barra ciano e negrito; falhou mantém a barra vermelha na tela até o usuário agir.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DIÁLOGO -->
+    <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+      <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px; display:flex; align-items:baseline; gap:12px">
+        <span style="font-size:14px; font-weight:600">Diálogo · r8 · cabeçalho 52 · rodapé 60</span>
+        <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11.5px; color:#6a7382">borda 1px LINE clara (sem sombra, a borda é o que separa da janela)</span>
+      </div>
+      <div style="padding:24px; background:#0b0d11; display:flex; gap:24px; flex-wrap:wrap">
+        <div style="width:440px; background:#14181f; border:1px solid #37414e; border-radius:8px; overflow:hidden">
+          <div style="height:52px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #2a323d"><span style="font-family:'Segoe UI Variable Display','Segoe UI',sans-serif; font-size:17px; font-weight:600">GPU NVIDIA não detectada</span><span style="font-size:14px; color:#6a7382">✕</span></div>
+          <div style="padding:18px; display:flex; flex-direction:column; gap:12px">
+            <p style="margin:0; font-size:13px; line-height:1.6; color:#9aa4b2; text-wrap:pretty">O app vai rodar na CPU. Um episódio de 23 minutos deve levar cerca de <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">40 min</span> em vez de <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">4 min</span>. Você pode continuar assim ou instalar o driver CUDA e reabrir.</p>
+            <div style="display:flex; align-items:center; gap:8px; height:26px; padding:0 12px; background:#20190f; border:1px solid #5c4a2a; border-radius:13px; align-self:flex-start"><span style="width:7px; height:7px; background:#e8a15c; border-radius:4px"></span><span style="font-size:12.5px; color:#e8a15c">CPU (lento)</span></div>
+          </div>
+          <div style="height:60px; padding:0 18px; display:flex; align-items:center; justify-content:flex-end; gap:8px; background:#0f1217; border-top:1px solid #2a323d">
+            <div style="display:flex; align-items:center; height:32px; padding:0 16px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:14px; font-weight:600; color:#e6ebf2">Como instalar</div>
+            <div style="display:flex; align-items:center; height:32px; padding:0 16px; background:#4cc9c0; border:1px solid #4cc9c0; border-radius:4px; font-size:14px; font-weight:600; color:#08201e">Continuar na CPU</div>
+          </div>
+        </div>
+
+        <div style="width:440px; background:#14181f; border:1px solid #37414e; border-radius:8px; overflow:hidden">
+          <div style="height:52px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #2a323d"><span style="font-family:'Segoe UI Variable Display','Segoe UI',sans-serif; font-size:17px; font-weight:600">Apagar TODO o cache</span><span style="font-size:14px; color:#6a7382">✕</span></div>
+          <div style="padding:18px; display:flex; flex-direction:column; gap:12px">
+            <p style="margin:0; font-size:13px; line-height:1.6; color:#9aa4b2; text-wrap:pretty">Isso remove <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">2,4 GB</span> de referências e keyframes de <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">7</span> animes. Os clipes já cortados ficam. A próxima análise vai baixar tudo de novo.</p>
+            <div style="display:flex; align-items:center; gap:8px"><span style="width:16px; height:16px; background:#14181f; border:1px solid #37414e; border-radius:3px"></span><span style="font-size:13px; color:#e6ebf2">Entendi, apagar mesmo assim</span></div>
+          </div>
+          <div style="height:60px; padding:0 18px; display:flex; align-items:center; justify-content:flex-end; gap:8px; background:#0f1217; border-top:1px solid #2a323d">
+            <div style="display:flex; align-items:center; height:32px; padding:0 16px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:14px; font-weight:600; color:#e6ebf2">Cancelar</div>
+            <div style="display:flex; align-items:center; height:32px; padding:0 16px; background:#1b2129; border:1px solid #1e242c; border-radius:4px; font-size:14px; font-weight:600; color:#4b5462">🗑&nbsp;&nbsp;Apagar cache</div>
+          </div>
+        </div>
+        <div style="flex:1; min-width:280px; font-size:12.5px; color:#6a7382; line-height:1.6; display:{{ specDisplay }}">Regra dos diálogos destrutivos: o botão perigoso nasce <em>desabilitado</em> e só acende (variante destrutiva) quando a caixa é marcada. Todo número dentro de um aviso é mono âmbar — é a informação que decide, e o usuário precisa achá-la sem ler a frase.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 03 AS TRÊS ABAS ============ -->
+  <section id="telas" style="display:flex; flex-direction:column; gap:24px">
+    <div style="display:flex; align-items:baseline; gap:14px; border-bottom:1px solid #1e242c; padding-bottom:12px">
+      <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#4cc9c0">03</span>
+      <h2 style="font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif; font-size:24px; font-weight:600; margin:0">As três abas, montadas</h2>
+      <span style="font-size:13px; color:#6a7382">dados reais do briefing · cada quadro no seu tamanho de janela</span>
+    </div>
+
+    <!-- BIBLIOTECA 1600x950 -->
+    <div style="display:flex; flex-direction:column; gap:10px">
+      <div style="display:flex; align-items:baseline; gap:12px"><span style="font-size:15px; font-weight:600">Biblioteca</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11.5px; color:#6a7382">1600 × 950 · árvore 248 fixa · cena 320 fixa · grade estica</span></div>
+      <div style="width:1600px; height:950px; background:#0e1014; border:1px solid #2a323d; border-radius:6px; overflow:hidden; display:flex; flex-direction:column">
+        <!-- barra de abas -->
+        <div style="height:44px; min-height:44px; padding:0 12px; background:#14181f; border-bottom:1px solid #2a323d; display:flex; align-items:flex-end; justify-content:space-between">
+          <div style="display:flex; align-items:flex-end; gap:2px">
+            <div style="display:flex; align-items:center; height:36px; padding:0 16px; font-size:14px; color:#9aa4b2">Analisar</div>
+            <div style="display:flex; align-items:center; height:36px; padding:0 16px; font-size:14px; color:#9aa4b2">Resultados</div>
+            <div style="display:flex; align-items:center; height:36px; padding:0 16px; background:#0e1014; border:1px solid #2a323d; border-top:2px solid #4cc9c0; border-bottom:1px solid #0e1014; border-radius:4px 4px 0 0; font-size:14px; font-weight:600; color:#e6ebf2">Biblioteca</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; padding-bottom:5px">
+            <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#132019; border:1px solid #2f5c3d; border-radius:13px"><span style="width:7px; height:7px; background:#6fcf8b; border-radius:4px"></span><span style="font-size:12.5px; color:#6fcf8b">RTX 5080</span></div>
+            <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#1b2129; border:1px solid #2a323d; border-radius:13px"><span style="font-size:12px; color:#9aa4b2">⚙</span><span style="font-size:12.5px; color:#e6ebf2">Configurações</span></div>
+          </div>
+        </div>
+
+        <div style="flex:1; display:flex; min-height:0">
+          <!-- ACERVO -->
+          <div style="width:248px; min-width:248px; background:#14181f; border-right:1px solid #1e242c; display:flex; flex-direction:column">
+            <div style="padding:14px 14px 8px; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">Acervo</div>
+            <div style="flex:1; padding:0 8px; display:flex; flex-direction:column; gap:2px; overflow:hidden">
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:6px; border-radius:4px"><span style="font-size:9px; color:#6a7382">▾</span><span style="font-size:13px; color:#e6ebf2; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Mushoku Tensei III</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">1</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 24px; gap:6px; border-radius:4px"><span style="font-size:9px; color:#6a7382">▾</span><span style="font-size:13px; color:#9aa4b2; flex:1">Temporada 3</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">1</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 38px; gap:6px; border-radius:4px; background:#0c2b29; border:1px solid #35938c; border-left:3px solid #4cc9c0"><span style="font-size:13px; color:#e6ebf2; flex:1">Episódio 02</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">331</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:6px; border-radius:4px; margin-top:6px"><span style="font-size:9px; color:#6a7382">▾</span><span style="font-size:13px; color:#e6ebf2; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Tensei Shitara Slime Datta Ken</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">2</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 24px; gap:6px; border-radius:4px"><span style="font-size:9px; color:#6a7382">▾</span><span style="font-size:13px; color:#9aa4b2; flex:1">Temporada 4</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">2</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 38px; gap:6px; border-radius:4px"><span style="font-size:13px; color:#9aa4b2; flex:1">Episódio 15</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">361</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px 0 38px; gap:6px; border-radius:4px"><span style="font-size:13px; color:#5b6473; font-style:italic; flex:1">Episódio 16 (sumiu)</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#5b6473">288</span></div>
+            </div>
+            <div style="border-top:1px solid #1e242c; padding:10px 8px 12px; display:flex; flex-direction:column; gap:2px">
+              <div style="padding:4px 10px 6px; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">Ações</div>
+              <div style="display:flex; align-items:center; height:32px; padding:0 10px; gap:8px; border-radius:4px; font-size:13px; color:#9aa4b2"><span>↻</span>Atualizar lista</div>
+              <div style="display:flex; align-items:center; height:32px; padding:0 10px; gap:8px; border-radius:4px; font-size:13px; color:#e6ebf2; background:#1b2129; border:1px solid #232b35"><span>📂</span>Abrir pasta do episódio</div>
+            </div>
+          </div>
+
+          <!-- CENAS -->
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; background:#0e1014">
+            <div style="padding:16px 20px 12px; display:flex; flex-direction:column; gap:12px; border-bottom:1px solid #1e242c">
+              <div style="display:flex; align-items:baseline; justify-content:space-between; gap:20px">
+                <span style="font-family:'Segoe UI Variable Display','Segoe UI',sans-serif; font-size:19px; font-weight:600; color:#e6ebf2">Mushoku Tensei III: Isekai Ittara Honki Dasu — S03E02</span>
+                <div style="display:flex; align-items:center; gap:10px">
+                  <span style="font-size:12px; color:#6a7382">ordem</span>
+                  <div style="display:flex; align-items:center; gap:2px; background:#14181f; border:1px solid #2a323d; border-radius:4px; padding:2px">
+                    <span style="display:flex; align-items:center; height:26px; padding:0 12px; background:#0c2b29; border-radius:3px; font-size:12.5px; color:#4cc9c0">⏱ cronológica</span>
+                    <span style="display:flex; align-items:center; height:26px; padding:0 12px; font-size:12.5px; color:#9aa4b2">⚠ duvidosas</span>
+                    <span style="display:flex; align-items:center; height:26px; padding:0 12px; font-size:12.5px; color:#9aa4b2">⏳ mais longas</span>
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:16px; font-family:'Cascadia Mono',Consolas,monospace; font-size:12.5px; color:#6a7382">
+                <span><span style="color:#e8a15c">331</span> cenas</span><span>·</span><span><span style="color:#e8a15c">6</span> personagens</span><span>·</span><span><span style="color:#e8a15c">23:40</span></span><span>·</span><span><span style="color:#e5686f">14</span> duvidosas</span>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:8px">
+                <div style="display:flex; align-items:center; gap:8px; height:34px; padding:0 15px; background:#0c2b29; border:1px solid #4cc9c0; border-radius:17px"><span style="font-size:13px">📼</span><span style="font-size:13px; font-weight:600; color:#e6ebf2">Todas</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">331</span></div>
+                <sc-for list="{{ chars }}" as="p" hint-placeholder-count="6">
+                  <div style="display:flex; align-items:center; gap:8px; height:34px; padding:0 15px; background:#1b2129; border:1px solid #2a323d; border-radius:17px"><span style="font-size:13px; color:#e6ebf2">{{ p.name }}</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">{{ p.n }}</span></div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="flex:1; min-height:0; overflow:hidden; padding:14px 20px">
+              <div style="display:grid; grid-template-columns:{{ gridCols }}; gap:12px">
+                <sc-for list="{{ scenes }}" as="s" hint-placeholder-count="20">
+                  <div style="background:{{ s.cardBg }}; border:{{ s.cardBorder }}; border-radius:6px; overflow:hidden">
+                    <div style="position:relative; aspect-ratio:16/9; background:{{ s.thumb }}">
+                      <div style="position:absolute; top:6px; left:6px; height:18px; padding:0 6px; background:{{ s.numBg }}; border-radius:3px; display:flex; align-items:center; gap:5px; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:{{ s.numFg }}">{{ s.id }}<span style="color:#4cc9c0; display:{{ s.joinDisplay }}">⛓</span></div>
+                      <div style="position:absolute; top:6px; right:6px; height:18px; width:18px; background:#0b0e12; border-radius:3px; align-items:center; justify-content:center; font-size:11px; color:#e5686f; display:{{ s.warnDisplay }}">⚠</div>
+                    </div>
+                    <div style="height:26px; padding:0 8px; display:flex; align-items:center; justify-content:space-between; background:{{ s.footBg }}">
+                      <span style="font-size:12px; color:{{ s.whoFg }}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ s.who }}</span>
+                      <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c; padding-left:6px">{{ s.dur }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <!-- A CENA -->
+          <div style="width:320px; min-width:320px; background:#14181f; border-left:1px solid #1e242c; display:flex; flex-direction:column">
+            <div style="padding:14px 16px 10px; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">A cena</div>
+            <div style="padding:0 16px; display:flex; flex-direction:column; gap:14px">
+              <div style="position:relative; aspect-ratio:16/9; background:linear-gradient(160deg,#2c3742,#161d25); border:1px solid #2a323d; border-radius:6px; overflow:hidden">
+                <div style="position:absolute; top:8px; right:8px; display:flex; align-items:center; gap:6px; height:24px; padding:0 10px; background:#0c2b29; border:1px solid #35938c; border-radius:12px"><span style="font-size:11px; color:#4cc9c0">▸</span><span style="font-size:12px; color:#4cc9c0">em loop</span></div>
+                <div style="position:absolute; left:0; right:0; bottom:0; height:3px; background:#0b0e12"><div style="width:44%; height:3px; background:#e8a15c"></div></div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:7px; font-family:'Cascadia Mono',Consolas,monospace; font-size:12.5px">
+                <div style="display:flex; gap:12px"><span style="width:66px; color:#6a7382">cena</span><span style="color:#e6ebf2">#0129</span></div>
+                <div style="display:flex; gap:12px"><span style="width:66px; color:#6a7382">tempo</span><span style="color:#e8a15c">08:24.6 → 08:28.0</span></div>
+                <div style="display:flex; gap:12px"><span style="width:66px; color:#6a7382">duração</span><span style="color:#e8a15c">3.4s</span></div>
+                <div style="display:flex; gap:12px"><span style="width:66px; color:#6a7382">quem</span><span style="color:#e6ebf2">Nina, Eris</span></div>
+                <div style="display:flex; gap:12px"><span style="width:66px; color:#6a7382">confiança</span><span style="color:#6fcf8b">0.91 / 0.78</span></div>
+              </div>
+              <div style="height:1px; background:#1e242c"></div>
+              <div style="display:flex; flex-direction:column; gap:8px">
+                <div style="display:flex; align-items:center; justify-content:center; gap:8px; height:38px; background:#4cc9c0; border:1px solid #4cc9c0; border-radius:4px; font-size:14px; font-weight:600; color:#08201e"><span>⛓</span>Juntar com a próxima</div>
+                <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 12px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2"><span style="color:#9aa4b2">↗</span>Mover pra outro personagem</div>
+                <div style="display:flex; align-items:center; gap:10px; height:32px; padding:0 12px; background:#1f1418; border:1px solid #5b2a30; border-radius:4px; font-size:13px; color:#e5686f"><span>⤫</span>Remover desta pasta</div>
+              </div>
+              <div style="font-size:12px; line-height:1.5; color:#6a7382; border-top:1px solid #1e242c; padding-top:12px">Atalhos: <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#9aa4b2">J</span> juntar · <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#9aa4b2">M</span> mover · <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#9aa4b2">Del</span> remover · <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#9aa4b2">←→</span> cena anterior/próxima</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANALISAR 980x640 + RESULTADOS -->
+    <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start">
+
+      <div style="display:flex; flex-direction:column; gap:10px">
+        <div style="display:flex; align-items:baseline; gap:12px"><span style="font-size:15px; font-weight:600">Analisar</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11.5px; color:#6a7382">980 × 640 · janela mínima · rótulo 108 fixo</span></div>
+        <div style="width:980px; height:640px; background:#0e1014; border:1px solid #2a323d; border-radius:6px; overflow:hidden; display:flex; flex-direction:column">
+          <div style="height:44px; min-height:44px; padding:0 12px; background:#14181f; border-bottom:1px solid #2a323d; display:flex; align-items:flex-end; justify-content:space-between">
+            <div style="display:flex; align-items:flex-end; gap:2px">
+              <div style="display:flex; align-items:center; height:36px; padding:0 16px; background:#0e1014; border:1px solid #2a323d; border-top:2px solid #4cc9c0; border-bottom:1px solid #0e1014; border-radius:4px 4px 0 0; font-size:14px; font-weight:600; color:#e6ebf2">Analisar</div>
+              <div style="display:flex; align-items:center; height:36px; padding:0 16px; font-size:14px; color:#9aa4b2">Resultados</div>
+              <div style="display:flex; align-items:center; height:36px; padding:0 16px; font-size:14px; color:#9aa4b2">Biblioteca</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; padding-bottom:5px">
+              <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#1b2129; border:1px solid #2a323d; border-radius:13px"><span style="width:7px; height:7px; background:#6a7382; border-radius:4px"></span><span style="font-size:12.5px; color:#9aa4b2">detectando…</span></div>
+              <div style="display:flex; align-items:center; gap:7px; height:26px; padding:0 12px; background:#1b2129; border:1px solid #2a323d; border-radius:13px"><span style="font-size:12px; color:#9aa4b2">⚙</span><span style="font-size:12.5px; color:#e6ebf2">Configurações</span></div>
+            </div>
+          </div>
+
+          <div style="flex:1; min-height:0; overflow:hidden; padding:16px 20px; display:flex; flex-direction:column; gap:16px">
+            <div style="display:flex; flex-direction:column; gap:10px">
+              <div style="display:flex; align-items:center; gap:10px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#4cc9c0">1</span><span style="font-size:13px; font-weight:600; color:#e6ebf2">Episódio</span><span style="flex:1; height:1px; background:#1e242c"></span></div>
+              <div style="display:flex; flex-direction:column; gap:8px; padding-left:20px">
+                <div style="display:flex; align-items:center; gap:10px">
+                  <span style="width:98px; font-size:13px; color:#9aa4b2">Arquivo</span>
+                  <div style="flex:1; display:flex; align-items:center; height:32px; padding:0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2">G:\Anime\Mushoku S03\[SubsPlease] S03E02.mkv</div>
+                  <div style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:14px; font-weight:600; color:#e6ebf2">Selecionar...</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px">
+                  <span style="width:98px; font-size:13px; color:#9aa4b2">Anime</span>
+                  <div style="flex:1; display:flex; align-items:center; height:32px; padding:0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2">Mushoku Tensei III: Isekai Ittara Honki Dasu</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px">
+                  <span style="width:98px; font-size:13px; color:#9aa4b2">Temporada/Ep</span>
+                  <div style="display:flex; align-items:center; gap:6px"><span style="font-size:12.5px; color:#6a7382">T</span>
+                    <div style="display:flex; align-items:center; justify-content:space-between; width:84px; height:32px; padding:0 4px 0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#e8a15c">3</span><div style="display:flex; flex-direction:column; gap:1px"><span style="display:flex; align-items:center; justify-content:center; width:20px; height:12px; background:#1b2129; border:1px solid #2a323d; border-radius:2px; font-size:7px; color:#9aa4b2">▲</span><span style="display:flex; align-items:center; justify-content:center; width:20px; height:12px; background:#1b2129; border:1px solid #2a323d; border-radius:2px; font-size:7px; color:#9aa4b2">▼</span></div></div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:6px"><span style="font-size:12.5px; color:#6a7382">E</span>
+                    <div style="display:flex; align-items:center; justify-content:space-between; width:84px; height:32px; padding:0 4px 0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#e8a15c">2</span><div style="display:flex; flex-direction:column; gap:1px"><span style="display:flex; align-items:center; justify-content:center; width:20px; height:12px; background:#1b2129; border:1px solid #2a323d; border-radius:2px; font-size:7px; color:#9aa4b2">▲</span><span style="display:flex; align-items:center; justify-content:center; width:20px; height:12px; background:#1b2129; border:1px solid #2a323d; border-radius:2px; font-size:7px; color:#9aa4b2">▼</span></div></div>
+                  </div>
+                  <span style="flex:1"></span>
+                  <span style="width:52px; font-size:13px; color:#9aa4b2">OP/ED</span>
+                  <div style="display:flex; align-items:center; width:78px; height:32px; padding:0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px; font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#e8a15c">1:30</div>
+                  <div style="display:flex; align-items:center; width:78px; height:32px; padding:0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px; font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#e8a15c">1:30</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px">
+                  <span style="width:98px; font-size:13px; color:#9aa4b2">Saída</span>
+                  <div style="flex:1; display:flex; align-items:center; height:32px; padding:0 10px; background:#14181f; border:1px solid #2a323d; border-radius:4px; font-size:13px; color:#e6ebf2">G:\App Corte Cenas\Output</div>
+                  <div style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:14px; font-weight:600; color:#e6ebf2">Escolher pasta...</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:10px">
+              <div style="display:flex; align-items:center; gap:10px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#4cc9c0">2</span><span style="font-size:13px; font-weight:600; color:#e6ebf2">Modo de reconhecimento</span><span style="flex:1; height:1px; background:#1e242c"></span></div>
+              <div style="padding-left:20px; display:flex; align-items:center; gap:22px; flex-wrap:wrap">
+                <div style="display:flex; align-items:center; gap:8px"><span style="width:16px; height:16px; background:#14181f; border:1px solid #37414e; border-radius:8px"></span><span style="font-size:13px; color:#e6ebf2">Muito Fiel</span></div>
+                <div style="display:flex; align-items:center; gap:8px"><span style="display:flex; align-items:center; justify-content:center; width:16px; height:16px; background:#0c2b29; border:2px solid #4cc9c0; border-radius:8px"><span style="width:6px; height:6px; background:#4cc9c0; border-radius:3px"></span></span><span style="font-size:13px; color:#e6ebf2">Auto (recomendado)</span></div>
+                <div style="display:flex; align-items:center; gap:8px"><span style="width:16px; height:16px; background:#14181f; border:1px solid #37414e; border-radius:8px"></span><span style="font-size:13px; color:#e6ebf2">Pouco Fiel</span></div>
+                <span style="font-size:13px; color:#4cc9c0">Mostrar valores manuais ⌄</span>
+              </div>
+              <div style="padding-left:20px; display:flex; gap:8px; align-items:center">
+                <div style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:14px; font-weight:600; color:#e6ebf2">Testar refs (preview)</div>
+                <div style="display:flex; align-items:center; height:32px; padding:0 14px; background:#0e1014; border:1px solid #35938c; border-radius:4px; font-size:14px; font-weight:600; color:#4cc9c0">🔍&nbsp;&nbsp;Modo Descoberta</div>
+                <span style="flex:1"></span>
+                <div style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1b2129; border:1px solid #2a323d; border-radius:4px; font-size:14px; font-weight:600; color:#e6ebf2">Analisar + IA nos duvidosos</div>
+                <div style="display:flex; align-items:center; height:38px; padding:0 18px; background:#4cc9c0; border:1px solid #4cc9c0; border-radius:4px; font-size:14px; font-weight:600; color:#08201e">Analisar episódio</div>
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:10px; min-height:0">
+              <div style="display:flex; align-items:center; gap:10px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#4cc9c0">3</span><span style="font-size:13px; font-weight:600; color:#e6ebf2">Progresso</span><span style="flex:1; height:1px; background:#1e242c"></span></div>
+              <div style="padding-left:20px; display:flex; gap:20px; min-height:0">
+                <div style="flex:1; display:flex; flex-direction:column; gap:8px">
+                  <div style="height:10px; background:#14181f; border:1px solid #2a323d; border-radius:5px; overflow:hidden"><div style="width:64%; height:8px; background:#4cc9c0"></div></div>
+                  <div style="display:flex; justify-content:space-between; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px"><span style="color:#e6ebf2">Cortando cena 214 de 331…</span><span style="color:#e8a15c">02:41 · resta ~01:29</span></div>
+                  <div style="display:flex; align-items:center; height:32px; padding:0 14px; background:#1f1418; border:1px solid #5b2a30; border-radius:4px; font-size:13px; font-weight:600; color:#e5686f; align-self:flex-start; margin-top:2px">✕&nbsp;&nbsp;Cancelar análise</div>
+                </div>
+                <div style="width:300px; display:flex; flex-direction:column; gap:2px">
+                  <div style="display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border-left:3px solid transparent; background:#0f1217"><span style="width:12px; text-align:center; color:#6fcf8b; font-size:11px">✓</span><span style="font-size:12px; color:#9aa4b2; flex:1">Lendo arquivo</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">0:04</span></div>
+                  <div style="display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border-left:3px solid transparent; background:#0f1217"><span style="width:12px; text-align:center; color:#6fcf8b; font-size:11px">✓</span><span style="font-size:12px; color:#9aa4b2; flex:1">Detectando shots</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#6a7382">0:38</span></div>
+                  <div style="display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border-left:3px solid #4cc9c0; background:#0c2b29"><span style="width:12px; text-align:center; color:#4cc9c0; font-size:11px">▸</span><span style="font-size:12px; font-weight:600; color:#e6ebf2; flex:1">Cortando</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:#e8a15c">214/331</span></div>
+                  <div style="display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border-left:3px solid transparent"><span style="width:12px; text-align:center; color:#5b6473; font-size:11px">○</span><span style="font-size:12px; color:#5b6473; flex:1">Extraindo keyframes</span></div>
+                  <div style="display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border-left:3px solid transparent"><span style="width:12px; text-align:center; color:#5b6473; font-size:11px">○</span><span style="font-size:12px; color:#5b6473; flex:1">Baixando referências</span></div>
+                  <div style="display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border-left:3px solid transparent"><span style="width:12px; text-align:center; color:#5b6473; font-size:11px">○</span><span style="font-size:12px; color:#5b6473; flex:1">Reconhecendo</span></div>
+                  <div style="display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border-left:3px solid transparent"><span style="width:12px; text-align:center; color:#5b6473; font-size:11px">○</span><span style="font-size:12px; color:#5b6473; flex:1">Organizando pastas</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:10px">
+        <div style="display:flex; align-items:baseline; gap:12px"><span style="font-size:15px; font-weight:600">Resultados</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11.5px; color:#6a7382">596 × 640 (recorte) · coluna esquerda 268 fixa</span></div>
+        <div style="width:596px; height:640px; background:#0e1014; border:1px solid #2a323d; border-radius:6px; overflow:hidden; display:flex">
+          <div style="width:268px; min-width:268px; background:#14181f; border-right:1px solid #1e242c; display:flex; flex-direction:column">
+            <div style="padding:16px 16px 12px; display:flex; flex-direction:column; gap:8px; border-bottom:1px solid #1e242c">
+              <span style="font-family:'Segoe UI Variable Display','Segoe UI',sans-serif; font-size:15px; font-weight:600; line-height:1.3">Mushoku Tensei III — S03E02</span>
+              <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#6a7382"><span style="color:#e8a15c">331</span> shots · <span style="color:#e8a15c">6</span> personagens · <span style="color:#e8a15c">04:12</span></span>
+              <span style="font-size:12px; color:#6a7382; line-height:1.5">top duplas: Nina+Eris <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">37</span> · Eris+Gull <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">12</span></span>
+            </div>
+            <div style="flex:1; padding:10px 8px; display:flex; flex-direction:column; gap:2px">
+              <div style="padding:4px 10px 6px; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6a7382">Elenco</div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:8px; border-radius:4px; background:#0c2b29; border:1px solid #35938c; border-left:3px solid #4cc9c0"><span style="font-size:13px; color:#e6ebf2; flex:1">Farion, Nina</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">91</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:8px; border-radius:4px"><span style="font-size:13px; color:#e6ebf2; flex:1">Greyrat, Eris Boreas</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">85</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:8px; border-radius:4px"><span style="font-size:13px; color:#e6ebf2; flex:1">Cruel, Isolte</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">39</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:8px; border-radius:4px"><span style="font-size:13px; color:#e6ebf2; flex:1">Farion, Gull</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">18</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:8px; border-radius:4px"><span style="font-size:13px; color:#e6ebf2; flex:1">Ryia, Reida</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">17</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:8px; border-radius:4px"><span style="font-size:13px; color:#e6ebf2; flex:1">Greyrat, Rudeus</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">8</span></div>
+              <div style="display:flex; align-items:center; height:30px; padding:0 10px; gap:8px; border-radius:4px"><span style="font-size:13px; color:#5b6473; flex:1">sem identificação</span><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e5686f">14</span></div>
+            </div>
+            <div style="border-top:1px solid #1e242c; padding:10px 8px 12px; display:flex; flex-direction:column; gap:3px">
+              <div style="display:flex; align-items:center; height:32px; padding:0 10px; gap:8px; border-radius:4px; background:#0e1014; border:1px solid #35938c; font-size:13px; font-weight:600; color:#4cc9c0"><span>🔄</span>Sincronizar pastas</div>
+              <div style="display:flex; align-items:center; height:32px; padding:0 10px; gap:8px; border-radius:4px; font-size:13px; color:#9aa4b2"><span>📂</span>Abrir pasta do episódio</div>
+              <div style="display:flex; align-items:center; height:32px; padding:0 10px; gap:8px; border-radius:4px; font-size:13px; color:#9aa4b2"><span>⤓</span>Exportar refs (.zip)</div>
+              <div style="display:flex; align-items:center; height:32px; padding:0 10px; gap:8px; border-radius:4px; font-size:13px; color:#9aa4b2"><span>✚</span>Reforçar refs com este ep</div>
+              <div style="display:flex; align-items:center; height:32px; padding:0 10px; gap:8px; border-radius:4px; font-size:13px; color:#9aa4b2"><span>▯</span>Exportar vertical 1080×1920</div>
+            </div>
+          </div>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column">
+            <div style="padding:14px 16px 12px; border-bottom:1px solid #1e242c; display:flex; align-items:baseline; justify-content:space-between; gap:10px">
+              <span style="font-size:14px; font-weight:600">Farion, Nina</span>
+              <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#6a7382"><span style="color:#e8a15c">91</span> cenas · <span style="color:#e8a15c">04:52</span></span>
+            </div>
+            <div style="flex:1; min-height:0; overflow:hidden; padding:12px 16px">
+              <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:12px">
+                <sc-for list="{{ resultScenes }}" as="s" hint-placeholder-count="8">
+                  <div style="background:{{ s.cardBg }}; border:{{ s.cardBorder }}; border-radius:6px; overflow:hidden">
+                    <div style="position:relative; aspect-ratio:16/9; background:{{ s.thumb }}">
+                      <div style="position:absolute; top:6px; left:6px; height:18px; padding:0 6px; background:{{ s.numBg }}; border-radius:3px; display:flex; align-items:center; font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:{{ s.numFg }}">{{ s.id }}</div>
+                    </div>
+                    <div style="height:26px; padding:0 8px; display:flex; align-items:center; justify-content:space-between; background:{{ s.footBg }}">
+                      <span style="font-size:12px; color:{{ s.whoFg }}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ s.who }}</span>
+                      <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c; padding-left:6px">{{ s.dur }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 04 LAYOUT ============ -->
+  <section id="layout" style="display:flex; flex-direction:column; gap:24px">
+    <div style="display:flex; align-items:baseline; gap:14px; border-bottom:1px solid #1e242c; padding-bottom:12px">
+      <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#4cc9c0">04</span>
+      <h2 style="font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif; font-size:24px; font-weight:600; margin:0">Layout e medidas</h2>
+      <span style="font-size:13px; color:#6a7382">o que estica, o que fica parado, de 980 a 2560px</span>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start">
+      <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+        <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px"><span style="font-size:14px; font-weight:600">Colunas</span></div>
+        <div style="padding:0">
+          <sc-for list="{{ layout }}" as="l" hint-placeholder-count="8">
+            <div style="display:grid; grid-template-columns:1fr 116px 1fr; gap:12px; align-items:center; padding:9px 16px; border-bottom:1px solid #14181f">
+              <span style="font-size:13px; color:#e6ebf2">{{ l.what }}</span>
+              <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#e8a15c">{{ l.size }}</span>
+              <span style="font-size:12px; color:#6a7382; line-height:1.45">{{ l.note }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:20px">
+        <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+          <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px"><span style="font-size:14px; font-weight:600">Colunas da grade por largura de janela</span></div>
+          <div style="padding:16px; display:flex; flex-direction:column; gap:10px">
+            <div style="display:flex; align-items:center; gap:12px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#9aa4b2; width:120px">980–1180</span><div style="display:flex; gap:4px"><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span></div><span style="font-size:12px; color:#6a7382">2 colunas · cartão ~196px</span></div>
+            <div style="display:flex; align-items:center; gap:12px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#9aa4b2; width:120px">1180–1440</span><div style="display:flex; gap:4px"><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span></div><span style="font-size:12px; color:#6a7382">3 colunas</span></div>
+            <div style="display:flex; align-items:center; gap:12px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#9aa4b2; width:120px">1440–1760</span><div style="display:flex; gap:4px"><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span></div><span style="font-size:12px; color:#6a7382">4 colunas</span></div>
+            <div style="display:flex; align-items:center; gap:12px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#9aa4b2; width:120px">1760+</span><div style="display:flex; gap:4px"><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span><span style="width:44px; height:26px; background:#1b2129; border:1px solid #232b35; border-radius:3px"></span></div><span style="font-size:12px; color:#6a7382">5 colunas · trava aqui; acima disso o cartão cresce até 300px</span></div>
+            <div style="font-size:12.5px; color:#6a7382; line-height:1.55; border-top:1px solid #14181f; padding-top:10px">Regra em uma linha: <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#9aa4b2">colunas = clamp(2, floor((largura_da_grade + 12) / 232), 5)</span>. As duas colunas laterais nunca mudam de largura — o editor decora a posição delas em 4 horas de uso.</div>
+          </div>
+        </div>
+
+        <div style="border:1px solid #1e242c; border-radius:6px; overflow:hidden">
+          <div style="background:#14181f; border-bottom:1px solid #1e242c; padding:10px 16px"><span style="font-size:14px; font-weight:600">Ritmo vertical</span></div>
+          <div style="padding:16px; display:flex; flex-direction:column; gap:8px; font-size:12.5px; color:#9aa4b2; line-height:1.6">
+            <div>Barra de abas <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">44</span> · cabeçalho de painel <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">52</span> (título + linha de dados) · faixa de pílulas <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">34</span> por fileira + <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">8</span> de respiro.</div>
+            <div>Painel: padding <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">16</span> nas laterais, <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">14</span> no topo. Grade: padding <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">20</span> horizontal (a barra de rolagem mora nesses 20).</div>
+            <div>Entre seções numeradas da aba Analisar: <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">16</span> em 640px de altura, <span style="font-family:'Cascadia Mono',Consolas,monospace; color:#e8a15c">24</span> acima de 800px. É o único lugar onde o espaçamento responde à altura.</div>
+            <div>A 150% de escala tudo continua válido porque nenhuma medida depende de fonte: alturas são <span style="font-family:'Cascadia Mono',Consolas,monospace">min-height</span> e o texto cresce dentro do padding.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 QT ============ -->
+  <section id="qt" style="display:flex; flex-direction:column; gap:24px">
+    <div style="display:flex; align-items:baseline; gap:14px; border-bottom:1px solid #1e242c; padding-bottom:12px">
+      <span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:13px; color:#4cc9c0">05</span>
+      <h2 style="font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif; font-size:24px; font-weight:600; margin:0">Onde o Qt atrapalha — e o que eu faria</h2>
+      <span style="font-size:13px; color:#6a7382">as cinco decisões que mudariam se houvesse CSS de verdade</span>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(420px,1fr)); gap:16px">
+      <sc-for list="{{ notes }}" as="n" hint-placeholder-count="6">
+        <div style="border:1px solid #1e242c; border-radius:6px; padding:16px; display:flex; flex-direction:column; gap:8px; background:#0f1217">
+          <div style="display:flex; align-items:center; gap:8px"><span style="font-family:'Cascadia Mono',Consolas,monospace; font-size:11px; color:{{ n.tagColor }}">{{ n.tag }}</span><span style="font-size:14px; font-weight:600; color:#e6ebf2">{{ n.title }}</span></div>
+          <p style="margin:0; font-size:12.5px; color:#9aa4b2; line-height:1.6; text-wrap:pretty">{{ n.body }}</p>
+        </div>
+      </sc-for>
+    </div>
+    <div style="border:1px solid #35938c; border-radius:6px; padding:18px; background:#0c2b29; display:flex; flex-direction:column; gap:8px; max-width:1180px">
+      <span style="font-size:14px; font-weight:600; color:#7ddcd5">O único lugar onde eu gastaria QPainter além do cartão</span>
+      <p style="margin:0; font-size:13px; line-height:1.6; color:#c7e6e3; text-wrap:pretty">A faixa de pílulas de filtro. Com 10 personagens em 2 fileiras ela come 84px de altura útil da grade em janela pequena. Pintada à mão, viraria uma faixa de 34px com rolagem horizontal e uma miniatura de rosto de 20px por personagem — o editor reconhece o rosto antes de ler o nome, e você recupera uma fileira inteira de cenas. Se não valer o esforço, o plano B em QSS puro é cortar o nome em "Nina · 91" e manter uma fileira só.</p>
+    </div>
+  </section>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;gridCols&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:5,&quot;min&quot;:2,&quot;max&quot;:5,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Grade&quot;,&quot;unit&quot;:&quot; col&quot;},&quot;showSpecs&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Documento&quot;}}">
+const T = {
+  bg:'#0e1014', surface:'#14181f', s2:'#1b2129', s3:'#232b35',
+  line:'#2a323d', lineSoft:'#1e242c', txt:'#e6ebf2', dim:'#9aa4b2', faint:'#6a7382',
+  accent:'#4cc9c0', accentDim:'#35938c', ink:'#0c2b29', time:'#e8a15c', ok:'#6fcf8b', danger:'#e5686f'
+};
+
+const THUMBS = [
+  'linear-gradient(160deg,#2f3b46,#1a222b)','linear-gradient(160deg,#3a3f4a,#1e232b)',
+  'linear-gradient(160deg,#463a3a,#231d20)','linear-gradient(160deg,#2b3a46,#182028)',
+  'linear-gradient(160deg,#3e4450,#20262e)','linear-gradient(160deg,#4a3f3a,#241e1c)',
+  'linear-gradient(160deg,#33424e,#1b232b)','linear-gradient(160deg,#3d3746,#1f1c26)'
+];
+
+const WHO = ['Nina','Nina','Eris','Eris','Nina, Eris','','Nina','Eris','Isolte','Nina, Gull'];
+const DUR = ['2.4s','1.9s','3.5s','4.8s','6.4s','11.6s','2.0s','3.9s','1.5s','0.9s','4.3s','2.8s','5.0s','6.5s','1.4s'];
+
+class Component extends DCLogic {
+  build(count, startIndex, selectedIndex) {
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const sel = i === selectedIndex;
+      const who = WHO[(i + startIndex) % WHO.length];
+      out.push({
+        id: '#' + String(startIndex + i).padStart(4, '0'),
+        who: who || 'sem identificação',
+        whoFg: who ? (sel ? T.txt : T.dim) : '#5b6473',
+        dur: DUR[(i * 3 + startIndex) % DUR.length],
+        thumb: THUMBS[(i + startIndex) % THUMBS.length],
+        cardBg: sel ? T.ink : T.s2,
+        cardBorder: sel ? '2px solid ' + T.accent : '1px solid ' + T.s3,
+        footBg: sel ? T.ink : T.s2,
+        numBg: sel ? T.accent : '#0b0e12',
+        numFg: sel ? '#08201e' : T.dim,
+        joinDisplay: (i + startIndex) % 11 === 5 ? 'inline' : 'none',
+        warnDisplay: (i + startIndex) % 13 === 7 ? 'flex' : 'none'
+      });
+    }
+    return out;
+  }
+
+  renderVals() {
+    const cols = this.props.gridCols ?? 5;
+    return {
+      gridCols: 'repeat(' + cols + ', 1fr)',
+      specDisplay: (this.props.showSpecs ?? true) ? 'block' : 'none',
+      scenes: this.build(cols * 4, 0, 0),
+      resultScenes: this.build(8, 129, 2),
+      chars: [
+        { name: 'Farion, Nina', n: 91 },
+        { name: 'Greyrat, Eris Boreas', n: 85 },
+        { name: 'Cruel, Isolte', n: 39 },
+        { name: 'Farion, Gull', n: 18 },
+        { name: 'Ryia, Reida', n: 17 },
+        { name: 'Greyrat, Rudeus', n: 8 }
+      ],
+      colors: [
+        { token: 'BG', hex: '#0e1014', role: 'Fundo da janela e da área de grade. Mais fundo que hoje pra a miniatura ser o objeto mais claro da tela.' },
+        { token: 'SURFACE', hex: '#14181f', role: 'Painéis laterais, barra de abas, cabeçalho de diálogo. Tudo que emoldura.' },
+        { token: 'SURFACE_2', hex: '#1b2129', role: 'Cartão, botão secundário, menu. O objeto que você clica.' },
+        { token: 'SURFACE_3', hex: '#232b35', role: 'Só hover. Nada nasce nesta cor.' },
+        { token: 'WELL', hex: '#14181f', role: 'Fundo de campo editável — mesmo valor de SURFACE, papel oposto: campo é poço, painel é chão.' },
+        { token: 'LINE', hex: '#2a323d', role: 'Borda de controle e divisor forte. Precisa sobreviver a 150% de escala.' },
+        { token: 'LINE_SOFT', hex: '#1e242c', role: 'Divisor interno, borda de cartão em repouso.' },
+        { token: 'TXT', hex: '#e6ebf2', role: 'Texto primário e valor de campo.' },
+        { token: 'TXT_DIM', hex: '#9aa4b2', role: 'Rótulo de campo, nome no rodapé do cartão, item não selecionado.' },
+        { token: 'TXT_FAINT', hex: '#6a7382', role: 'Rótulo de grupo, unidade, ajuda, pasta ausente.' },
+        { token: 'TXT_OFF', hex: '#4b5462', role: 'Desabilitado. Existe porque o Qt não tem opacity em widget.' },
+        { token: 'ACCENT', hex: '#4cc9c0', role: 'Onde você está: selecionado, ativo, etapa rodando, ação principal. Nunca decoração, nunca dois focos ao mesmo tempo.' },
+        { token: 'ACCENT_DIM', hex: '#35938c', role: 'Borda de superfície de destaque e estado pressionado do principal.' },
+        { token: 'ACCENT_INK', hex: '#0c2b29', role: 'Fundo de item selecionado e de botão vazado em hover.' },
+        { token: 'TIME', hex: '#e8a15c', role: 'Exclusiva de número: duração, timecode, contagem, ETA, valor numérico. Nenhum outro elemento pode usar.' },
+        { token: 'OK', hex: '#6fcf8b', role: 'Estado bom verificado: GPU ativa, etapa concluída, confiança alta.' },
+        { token: 'DANGER', hex: '#e5686f', role: 'Destrutivo, erro, cena duvidosa. Nunca decoração.' },
+        { token: 'DANGER_INK', hex: '#1f1418', role: 'Fundo de botão destrutivo em repouso e de linha de etapa que falhou.' }
+      ],
+      spacing: [
+        { v: '4', px: '4px' }, { v: '8', px: '8px' }, { v: '12', px: '12px' },
+        { v: '16', px: '16px' }, { v: '20', px: '20px' }, { v: '24', px: '24px' }, { v: '32', px: '32px' }
+      ],
+      layout: [
+        { what: 'Coluna ACERVO (árvore)', size: '248 fixa', note: 'Não estica nem encolhe. Nome longo elipsa; a contagem nunca.' },
+        { what: 'Coluna A CENA (player)', size: '320 fixa', note: 'Largura escolhida pra o player 16:9 dar 180px de altura e os 3 botões caberem sem quebrar linha.' },
+        { what: 'Grade de cenas', size: 'estica', note: 'Único elemento elástico da janela, na horizontal e na vertical.' },
+        { what: 'Cartão de cena', size: '196–300', note: 'Elástico dentro da grade; a contagem de colunas é derivada dele.' },
+        { what: 'Rótulo de campo (Analisar)', size: '98 fixa', note: 'Coluna de rótulos alinhada; a 150% de escala vai pra 118.' },
+        { what: 'Coluna esquerda (Resultados)', size: '268 fixa', note: 'Um pouco mais larga que o ACERVO por causa dos 5 botões de ação.' },
+        { what: 'Diálogo comum', size: '440 × auto', note: 'Configurações é a exceção: 720 × 640 com rolagem interna.' },
+        { what: 'Janela', size: '980–2560', note: 'Mínimo 980×640. Abaixo de 1180 a coluna A CENA vira um painel colapsável por atalho.' }
+      ],
+      notes: [
+        { tag: '[sem sombra]', tagColor: T.time, title: 'Hierarquia por borda e por valor', body: 'Sem box-shadow, a única forma de dizer "isto flutua" é borda mais clara: painel usa LINE_SOFT, menu e diálogo usam LINE em #37414e. Diálogo sem sombra sobre janela escura precisa de borda 1px clara, senão o olho não acha a beirada.' },
+        { tag: '[sem animação]', tagColor: T.time, title: 'Nada pisca, nada desliza', body: 'Progresso indeterminado é texto + tempo decorrido em mono, não um bloco quicando. Etapa rodando se anuncia por barra ciano e negrito, não por spinner. A troca de hover é instantânea e por isso a diferença de cor entre SURFACE_2 e SURFACE_3 é grande de propósito.' },
+        { tag: '[sem opacity]', tagColor: T.time, title: 'Desabilitado é um token, não 50%', body: 'TXT_OFF #4b5462 sobre SURFACE_2, borda LINE_SOFT. Todo estado desabilitado usa esse par — nada de calcular transparência.' },
+        { tag: '[sem ::before]', tagColor: T.time, title: 'Ícone é caractere, e por isso é pouco', body: 'Só ⛓ ↗ ⤫ ↻ 📂 ⚙ 🗑 ⏱ ⚠ ▸ ▾ ✓ ✕ ○ 🔍 📼 🔄. Emoji colorido (📂 ⚙ 🔍 📼) fica só nas ações de baixa frequência; nos estados eu troquei emoji por forma pintada (ponto de 7px no selo de GPU) porque emoji não aceita cor de token.' },
+        { tag: '[sem raio 999]', tagColor: T.time, title: 'Pílula é metade da altura, em px', body: 'Filtro h34 → 17px. Selo h26 → 13px. Marca de seleção 18px → 9px. Se a altura mudar, o raio muda junto — está anotado ao lado de cada componente.' },
+        { tag: '[QPainter]', tagColor: T.accent, title: 'O que só o cartão pode ter', body: 'Alfa no selo do número, recorte 16:9 sem letterbox, barra de scrub de 3px sobre a imagem, timecode que segue o mouse, borda de seleção desenhada pra dentro (a grade não reflui). Nada disso sai em QSS — e nada disso é imitado por outro widget da tela, pra não criar expectativa falsa.' }
+      ]
+    };
+  }
+}
+</script>
+
+
+</body></html>

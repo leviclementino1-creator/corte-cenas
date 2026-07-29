@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QBrush, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -38,26 +38,25 @@ def _fmt_clock(seconds: float) -> str:
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
 
 
-PRESETS = {
-    "strict": {
-        "label": "Muito Fiel",
-        "tooltip": "Menos falsos positivos. Pode perder cenas rápidas ou ambíguas.",
-        "threshold": 0.86, "margin": 0.05, "min_shots": 8,
-        "padding": 0.25, "credit": 0.50,
-    },
-    "auto": {
-        "label": "Auto (recomendado)",
-        "tooltip": "Bom equilíbrio entre captura e precisão. Começa aqui.",
-        "threshold": 0.80, "margin": 0.03, "min_shots": 3,
-        "padding": 0.25, "credit": 0.55,
-    },
-    "loose": {
-        "label": "Pouco Fiel",
-        "tooltip": "Captura mais cenas. Aceita mais erros pra não perder nada.",
-        "threshold": 0.74, "margin": 0.02, "min_shots": 2,
-        "padding": 0.30, "credit": 0.70,
-    },
-}
+import re
+
+_RE_CONTA = re.compile(r"(\d+)\s*(?:/|de)\s*(\d+)")
+
+
+def _parte_contagem(msg: str) -> tuple[str, str, int | None]:
+    """Separa "Cortando cena 214 de 331" em ("Cortando cena", "214 de 331").
+
+    O texto vira título e a CONTAGEM sai dele pra ganhar cor de número —
+    é o que a pessoa acompanha de longe enquanto o app trabalha.
+    """
+    m = _RE_CONTA.search(msg or "")
+    if not m:
+        return (msg or "", "", None)
+    titulo = (msg[: m.start()] + " " + msg[m.end():]).strip(" .:—-·")
+    return (titulo or "Processando", f"{m.group(1)} de {m.group(2)}", int(m.group(1)))
+
+
+from .presets import PRESETS   # noqa: F401 (ainda importado por outras telas)
 
 from ..config import Config
 from . import theme
@@ -132,6 +131,9 @@ class AnalyzeTab(QWidget):
         self._clock = QElapsedTimer()
         self._overall = 0.0
         self._eta_smooth: float | None = None
+        self._ritmo = ""                      # "1.3 cena/s"
+        self._ritmo_etapa: str | None = None
+        self._ritmo_base: tuple[int, float] | None = None
         self._tick = QTimer(self)
         self._tick.setInterval(1000)
         self._tick.timeout.connect(self._update_clock)
@@ -212,93 +214,14 @@ class AnalyzeTab(QWidget):
 
         layout.addWidget(inputs)
 
-        # --- matching mode (presets) ---
-        mode_box = QGroupBox("Modo de reconhecimento")
-        mode_v = QVBoxLayout(mode_box)
-
-        preset_row = QHBoxLayout()
-        self.preset_group = QButtonGroup(self)
-        self.preset_buttons: dict[str, QRadioButton] = {}
-        for key, p in PRESETS.items():
-            rb = QRadioButton(p["label"])
-            rb.setToolTip(p["tooltip"])
-            self.preset_buttons[key] = rb
-            self.preset_group.addButton(rb)
-            preset_row.addWidget(rb)
-        preset_row.addStretch(1)
-        mode_v.addLayout(preset_row)
-
-        self.show_adv_btn = QPushButton("Mostrar valores manuais ⌄")
-        self.show_adv_btn.setCheckable(True)
-        self.show_adv_btn.setFlat(True)
-        self.show_adv_btn.setStyleSheet(theme.button("ghost"))
-        mode_v.addWidget(self.show_adv_btn)
-
-        layout.addWidget(mode_box)
-
-        # --- advanced filters (hidden by default) ---
-        adv = QGroupBox("Valores manuais")
-        adv.setVisible(False)
-        adv_form = QFormLayout(adv)
-        self._adv_box = adv
-        self.show_adv_btn.toggled.connect(self._toggle_advanced)
-
-        self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(0.60, 0.98)
-        self.threshold_spin.setSingleStep(0.01)
-        self.threshold_spin.setDecimals(2)
-        self.threshold_spin.setValue(self.config.default_threshold)
-        self.threshold_spin.setToolTip("Score mínimo pra casar (cosine). Mais alto = mais exigente.")
-        adv_form.addRow("Confiança mínima:", self.threshold_spin)
-
-        self.margin_spin = QDoubleSpinBox()
-        self.margin_spin.setRange(0.00, 0.20)
-        self.margin_spin.setSingleStep(0.01)
-        self.margin_spin.setDecimals(2)
-        self.margin_spin.setValue(self.config.argmax_margin)
-        self.margin_spin.setToolTip("O personagem vencedor precisa ganhar do 2º por esta margem. Mais alto = menos falso positivo.")
-        adv_form.addRow("Margem do top-1:", self.margin_spin)
-
-        self.min_shots_spin = QSpinBox()
-        self.min_shots_spin.setRange(1, 50)
-        self.min_shots_spin.setValue(self.config.min_shots_per_character)
-        self.min_shots_spin.setToolTip("Personagens com menos shots que isso são considerados ruído e removidos.")
-        adv_form.addRow("Mín. shots por personagem:", self.min_shots_spin)
-
-        self.pad_spin = QDoubleSpinBox()
-        self.pad_spin.setRange(0.00, 0.60)
-        self.pad_spin.setSingleStep(0.05)
-        self.pad_spin.setDecimals(2)
-        self.pad_spin.setValue(self.config.face_crop_padding)
-        self.pad_spin.setToolTip("Margem ao redor do rosto detectado. Mais alto inclui cabelo/roupa (bom pra distinguir personagens). Muito alto traz fundo demais.")
-        adv_form.addRow("Padding do rosto:", self.pad_spin)
-
-        self.credit_spin = QDoubleSpinBox()
-        self.credit_spin.setRange(0.10, 1.00)
-        self.credit_spin.setSingleStep(0.05)
-        self.credit_spin.setDecimals(2)
-        self.credit_spin.setValue(self.config.credit_edge_threshold)
-        self.credit_spin.setToolTip("Score mínimo pra flagar um keyframe como 'créditos/texto'. Mais alto = menos shots pulados.")
-        adv_form.addRow("Limiar de créditos:", self.credit_spin)
-
-        self.credit_enable_cb = QCheckBox("Detectar shots de créditos/texto automaticamente")
-        self.credit_enable_cb.setChecked(self.config.skip_credit_shots)
-        self.credit_enable_cb.setToolTip(
-            "Desligado por padrão — o detector costuma marcar cenas normais "
-            "como créditos em animes com traço rico (Witch Hat, Dr. Stone). "
-            "Pra remover OP/ED de verdade, use o campo 'Pular início até' / "
-            "'Pular fim após' (tempo manual, 100% confiável)."
-        )
-        adv_form.addRow("", self.credit_enable_cb)
-
-        self.danbooru_cb = QCheckBox("Usar Danbooru como fonte extra de refs")
-        self.danbooru_cb.setChecked(self.config.use_danbooru)
-        self.danbooru_cb.setToolTip(
-            "Danbooru tem mais imagens, mas muita fan art com múltiplos personagens "
-            "que contamina o centroide. Deixe ligado só se souber que o anime tem "
-            "tag Danbooru boa e pouca fan art coletiva."
-        )
-        adv_form.addRow("", self.danbooru_cb)
+        # --- 2. Análise ---
+        # O modo de reconhecimento (Muito Fiel / Auto / Pouco Fiel e os
+        # valores manuais) mudou pras Configurações: é escolha que se faz
+        # UMA vez e vale por dezenas de episódios; aqui ela pedia decisão a
+        # cada arquivo aberto. Esta seção agora responde só a uma pergunta —
+        # o que fazer com este episódio.
+        action_box = QGroupBox("2. Análise")
+        action_v = QVBoxLayout(action_box)
 
         self.cut_only_cb = QCheckBox("✂️  Só cortar as cenas (sem identificar personagens)")
         self.cut_only_cb.setToolTip(
@@ -306,16 +229,8 @@ class AnalyzeTab(QWidget):
             "sem internet, sem referências, sem pastas por personagem. "
             "Pra quando você só quer os cortes."
         )
-        adv_form.addRow("", self.cut_only_cb)
+        action_v.addWidget(self.cut_only_cb)
 
-        layout.addWidget(adv)
-
-        # Hook preset clicks and select initial preset based on current config
-        for key, rb in self.preset_buttons.items():
-            rb.toggled.connect(lambda checked, k=key: self._apply_preset(k) if checked else None)
-        self._select_matching_preset()
-
-        # --- action ---
         action_row = QHBoxLayout()
         self.preview_btn = QPushButton("Testar refs (preview)")
         self.preview_btn.setToolTip(
@@ -366,47 +281,78 @@ class AnalyzeTab(QWidget):
         self.cancel_btn.clicked.connect(self._cancel_analysis)
         self.cancel_btn.setVisible(False)
 
-        action_row.addStretch(1)
+        # Ordem de leitura: o que é raro fica à esquerda e discreto; a ação
+        # principal termina a linha, que é onde o olho para.
         action_row.addWidget(self.preview_btn)
         action_row.addSpacing(6)
         action_row.addWidget(self.discovery_btn)
-        action_row.addSpacing(16)
-        action_row.addWidget(self.run_btn)
-        action_row.addSpacing(8)
+        action_row.addStretch(1)
         action_row.addWidget(self.run_ai_btn)
         action_row.addSpacing(8)
+        action_row.addWidget(self.run_btn)
         action_row.addWidget(self.cancel_btn)
-        action_row.addStretch(1)
-        layout.addLayout(action_row)
+        action_v.addLayout(action_row)
+        layout.addWidget(action_box)
 
         # --- progress ---
-        progress_box = QGroupBox("2. Progresso")
+        # Sem animação disponível no Qt, o que prova que o app está VIVO é
+        # número que anda: o que ele está fazendo, quanto já foi, o tempo
+        # decorrido e o ritmo real. Barra quicando falsa não prova nada.
+        progress_box = QGroupBox("3. Progresso")
         pv = QVBoxLayout(progress_box)
+        pv.setSpacing(10)
+
+        linha_topo = QHBoxLayout()
+        linha_topo.setSpacing(10)
+        self.status_label = QLabel("Aguardando…")
+        self.status_label.setStyleSheet(
+            f"font-family:{theme.DISP};font-size:15px;font-weight:600;color:{theme.TXT};"
+        )
+        linha_topo.addWidget(self.status_label)
+        self.count_label = QLabel("")
+        self.count_label.setStyleSheet(theme.label("time"))
+        linha_topo.addWidget(self.count_label)
+        linha_topo.addStretch(1)
+        self.pct_label = QLabel("")
+        self.pct_label.setStyleSheet(
+            f"font-family:{theme.MONO};font-size:15px;font-weight:600;color:{theme.ACCENT};"
+        )
+        linha_topo.addWidget(self.pct_label)
+        pv.addLayout(linha_topo)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        prow = QHBoxLayout()
-        prow.addWidget(self.progress, 1)
+        self.progress.setTextVisible(False)
+        pv.addWidget(self.progress)
+
+        linha_medida = QHBoxLayout()
+        linha_medida.setSpacing(18)
         self.clock_label = QLabel("")
-        self.clock_label.setStyleSheet(
-            theme.label("mono")
-        )
+        self.clock_label.setTextFormat(Qt.TextFormat.RichText)
+        self.clock_label.setStyleSheet(theme.label("mono"))
         self.clock_label.setToolTip(
             "Tempo decorrido · estimativa de término (calculada pelo ritmo "
             "real das etapas — fica mais precisa conforme avança)"
         )
-        prow.addWidget(self.clock_label)
-        pv.addLayout(prow)
-
-        self.status_label = QLabel("Aguardando...")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.status_label.setStyleSheet(theme.label("dim"))
-        pv.addWidget(self.status_label)
+        linha_medida.addWidget(self.clock_label)
+        linha_medida.addStretch(1)
+        self.file_label = QLabel("")
+        self.file_label.setStyleSheet(theme.label("faint"))
+        self.file_label.setToolTip("O arquivo que está sendo escrito agora.")
+        linha_medida.addWidget(self.file_label)
+        pv.addLayout(linha_medida)
 
         self.stage_list = QListWidget()
+        self.stage_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.stage_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.stage_list.setStyleSheet(
+            f"QListWidget{{background:transparent;border:none;}}"
+            f"QListWidget::item{{border:none;padding:5px 8px;}}"
+        )
         for stage_id, label in STAGES:
-            item = QListWidgetItem(f"○  {label}")
+            item = QListWidgetItem(f"○   {label}")
             item.setData(Qt.ItemDataRole.UserRole, stage_id)
+            item.setForeground(QBrush(QColor(theme.TXT_FAINT)))
             self.stage_list.addItem(item)
         pv.addWidget(self.stage_list, 1)
 
@@ -453,37 +399,6 @@ class AnalyzeTab(QWidget):
         self.skip_head_edit.setText(format_mmss(head))
         self.skip_tail_edit.setText(format_mmss(tail))
 
-    def _apply_preset(self, key: str) -> None:
-        p = PRESETS[key]
-        self.threshold_spin.setValue(p["threshold"])
-        self.margin_spin.setValue(p["margin"])
-        self.min_shots_spin.setValue(p["min_shots"])
-        self.pad_spin.setValue(p["padding"])
-        self.credit_spin.setValue(p["credit"])
-
-    def _select_matching_preset(self) -> None:
-        """Pick the preset that matches the current config values, or Auto."""
-        current = (
-            round(self.threshold_spin.value(), 2),
-            round(self.margin_spin.value(), 2),
-            int(self.min_shots_spin.value()),
-            round(self.pad_spin.value(), 2),
-            round(self.credit_spin.value(), 2),
-        )
-        for key, p in PRESETS.items():
-            ref = (p["threshold"], p["margin"], p["min_shots"], p["padding"], p["credit"])
-            if current == ref:
-                self.preset_buttons[key].setChecked(True)
-                return
-        # No exact match — default to Auto without overwriting values
-        self.preset_buttons["auto"].blockSignals(True)
-        self.preset_buttons["auto"].setChecked(True)
-        self.preset_buttons["auto"].blockSignals(False)
-
-    def _toggle_advanced(self, checked: bool) -> None:
-        self._adv_box.setVisible(checked)
-        self.show_adv_btn.setText("Esconder valores manuais ⌃" if checked else "Mostrar valores manuais ⌄")
-
     def _pick_output(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Pasta de saída", self.output_edit.text())
         if path:
@@ -521,13 +436,8 @@ class AnalyzeTab(QWidget):
         self.config.last_anime = anime
         self.config.last_season = int(self.season_spin.value())
         self.config.last_episode = int(self.episode_spin.value())
-        self.config.default_threshold = float(self.threshold_spin.value())
-        self.config.argmax_margin = float(self.margin_spin.value())
-        self.config.min_shots_per_character = int(self.min_shots_spin.value())
-        self.config.face_crop_padding = float(self.pad_spin.value())
-        self.config.credit_edge_threshold = float(self.credit_spin.value())
-        self.config.skip_credit_shots = self.credit_enable_cb.isChecked()
-        self.config.use_danbooru = self.danbooru_cb.isChecked()
+        # Os valores de reconhecimento (confiança, margem, padding…) vêm da
+        # config, escritos em ⚙ Configurações — esta aba não os edita mais.
         self.config.save()
 
         head_s = parse_mmss(self.skip_head_edit.text())
@@ -604,7 +514,10 @@ class AnalyzeTab(QWidget):
         self._clock.start()
         self._overall = 0.0
         self._eta_smooth = None
-        self.clock_label.setText("⏱ 0:00")
+        self._ritmo = ""
+        self._ritmo_etapa = None
+        self._ritmo_base = None
+        self.clock_label.setText(self._medida("decorrido", "0:00"))
         self._tick.start()
         if discovery:
             suffix = " (Modo Descoberta)"
@@ -735,11 +648,36 @@ class AnalyzeTab(QWidget):
             "rodar de novo continua de onde parou."
         )
 
+    # Estado da etapa → (marca, cor do texto, fundo da linha). Pendente não
+    # tem fundo (economiza contraste); feita fica discreta; a que RODA é a
+    # única em ciano e negrito; a que falhou fica vermelha na tela até o
+    # usuário agir.
+    def _pinta_etapa(self, item, estado: str, texto: str) -> None:
+        marcas = {"feita": "✓", "rodando": "▸", "pendente": "○", "falhou": "✕"}
+        cores = {
+            "feita": theme.TXT_DIM, "rodando": theme.ACCENT,
+            "pendente": theme.TXT_FAINT, "falhou": theme.DANGER,
+        }
+        fundos = {
+            "feita": theme.WELL_OFF, "rodando": theme.ACCENT_INK,
+            "pendente": "transparent", "falhou": theme.DANGER_INK,
+        }
+        item.setText(f"{marcas[estado]}   {texto}")
+        item.setForeground(QBrush(QColor(cores[estado])))
+        if fundos[estado] == "transparent":
+            item.setBackground(QBrush(Qt.GlobalColor.transparent))
+        else:
+            item.setBackground(QBrush(QColor(fundos[estado])))
+        fonte = item.font()
+        fonte.setBold(estado == "rodando")
+        item.setFont(fonte)
+
     def _reset_stages(self) -> None:
         for i in range(self.stage_list.count()):
-            it = self.stage_list.item(i)
-            label = STAGES[i][1]
-            it.setText(f"○  {label}")
+            self._pinta_etapa(self.stage_list.item(i), "pendente", STAGES[i][1])
+        self.count_label.setText("")
+        self.pct_label.setText("")
+        self.file_label.setText("")
 
     def _on_stage(self, stage_id: str, fraction: float, msg: str) -> None:
         stage_labels = dict(STAGES)
@@ -751,28 +689,55 @@ class AnalyzeTab(QWidget):
             overall = (idx + frac) / len(STAGES)
             self._overall = overall
             self.progress.setValue(int(overall * 100))
+            self.pct_label.setText(f"{int(overall * 100)}%")
             for i in range(self.stage_list.count()):
                 it = self.stage_list.item(i)
                 if i < idx:
-                    it.setText(f"●  {STAGES[i][1]}")
+                    self._pinta_etapa(it, "feita", STAGES[i][1])
                 elif i == idx:
-                    marker = "▸" if fraction < 1.0 else "●"
-                    it.setText(f"{marker}  {label}  —  {msg}")
+                    self._pinta_etapa(
+                        it, "feita" if fraction >= 1.0 else "rodando", label
+                    )
                 else:
-                    it.setText(f"○  {STAGES[i][1]}")
-        self.status_label.setText(msg)
+                    self._pinta_etapa(it, "pendente", STAGES[i][1])
+        # "Cortando cena 214 de 331" → título limpo à esquerda e a CONTAGEM
+        # em âmbar do lado, que é o que a pessoa olha de longe.
+        titulo, contagem, n = _parte_contagem(msg)
+        self.status_label.setText(titulo)
+        self.count_label.setText(contagem)
+        self._mede_ritmo(stage_id, n)
+
+    def _mede_ritmo(self, stage_id: str, n: int | None) -> None:
+        """Ritmo REAL da etapa (itens por segundo), medido entre duas
+        contagens da mesma etapa. Zerado a cada troca de etapa: cortar e
+        reconhecer têm ritmos diferentes, e misturar os dois mente."""
+        agora = self._clock.elapsed() / 1000.0 if self._clock.isValid() else 0.0
+        if n is None or stage_id != self._ritmo_etapa:
+            self._ritmo_etapa = stage_id
+            self._ritmo_base = (n, agora) if n is not None else None
+            self._ritmo = ""
+            return
+        if self._ritmo_base is None:
+            self._ritmo_base = (n, agora)
+            return
+        n0, t0 = self._ritmo_base
+        dn, dt = n - n0, agora - t0
+        if dt >= 3.0 and dn > 0:
+            self._ritmo = f"{dn / dt:.1f} cena/s"
 
     def _on_finished(self, result: PipelineResult) -> None:
         self.progress.setValue(100)
+        self.pct_label.setText("100%")
+        self.count_label.setText("")
         for i in range(self.stage_list.count()):
-            self.stage_list.item(i).setText(f"●  {STAGES[i][1]}")
+            self._pinta_etapa(self.stage_list.item(i), "feita", STAGES[i][1])
         secs = self._stop_clock()
         tempo = f" em {_fmt_clock(secs)}" if secs >= 1 else ""
         self.status_label.setText(
             f"Concluído{tempo}: {result.total_shots} shots · "
             f"{result.total_characters} personagens identificados."
         )
-        self.clock_label.setText(f"✅ {_fmt_clock(secs)}")
+        self.clock_label.setText(self._medida("levou", _fmt_clock(secs)))
         self._notify(
             "Corte Cenas — Análise concluída",
             f"{result.anime_title} {result.season}x{result.episode:02d}: "
@@ -933,11 +898,17 @@ class AnalyzeTab(QWidget):
 
     # --- cronômetro + notificação ---
 
+    def _medida(self, rotulo: str, valor: str) -> str:
+        return (
+            f"<span style='color:{theme.TXT_FAINT}'>{rotulo}</span>&nbsp;&nbsp;"
+            f"<span style='color:{theme.TIME}'>{valor}</span>"
+        )
+
     def _update_clock(self) -> None:
         if not self._clock.isValid():
             return
         secs = self._clock.elapsed() / 1000.0
-        txt = f"⏱ {_fmt_clock(secs)}"
+        partes = [self._medida("decorrido", _fmt_clock(secs))]
         # Estimativa só depois de progresso real (antes disso seria chute):
         # extrapola pelo ritmo global e suaviza pra não ficar pulando.
         if self._overall >= 0.06 and secs > 12:
@@ -946,15 +917,18 @@ class AnalyzeTab(QWidget):
                 self._eta_smooth = remaining
             else:
                 self._eta_smooth = 0.85 * self._eta_smooth + 0.15 * remaining
-            txt += f"  ·  resta ~{_fmt_clock(self._eta_smooth)}"
-        self.clock_label.setText(txt)
+            partes.append(self._medida("resta ~", _fmt_clock(self._eta_smooth)))
+        if self._ritmo:
+            partes.append(self._medida("ritmo", self._ritmo))
+        self.clock_label.setText("&nbsp;&nbsp;&nbsp;&nbsp;".join(partes))
 
     def _stop_clock(self, final_text: str | None = None) -> float:
         """Para o tique e devolve o total em segundos."""
         secs = self._clock.elapsed() / 1000.0 if self._clock.isValid() else 0.0
         self._tick.stop()
         self.clock_label.setText(
-            final_text if final_text is not None else f"⏱ {_fmt_clock(secs)}"
+            final_text if final_text is not None
+            else self._medida("levou", _fmt_clock(secs))
         )
         return secs
 

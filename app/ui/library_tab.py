@@ -21,12 +21,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThreadPool, QTimer, QRunnable, QObject, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QFont, QImage, QPixmap
+from PySide6.QtCore import Qt, QRectF, QThreadPool, QTimer, QRunnable, QObject, Signal
+from PySide6.QtGui import QAction, QColor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QListWidget,
@@ -35,6 +34,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStyledItemDelegate,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -73,6 +73,14 @@ def _mmss_curto(segundos: float) -> str:
     return f"{s // 60}:{s % 60:02d}"
 
 
+# As famílias sem as aspas do CSS — QFont quer o nome puro.
+_FAMILIA_SANS = "Segoe UI Variable Text"
+_FAMILIA_MONO = "Cascadia Mono"
+
+# Papéis guardados no item da árvore (o Qt reserva UserRole pro nosso uso).
+_NIVEL = Qt.ItemDataRole.UserRole + 2    # 0 anime · 1 temporada · 2 episódio
+_CONTA = Qt.ItemDataRole.UserRole + 3    # número à direita
+
 _PREVIEW_W = 320          # largura do player lateral
 _PREVIEW_FPS = 12         # suave o bastante pra leitura, leve pra UI
 _MAX_FRAMES = 96          # teto de memória por clipe (~8s a 12 fps)
@@ -80,6 +88,83 @@ _MAX_FRAMES = 96          # teto de memória por clipe (~8s a 12 fps)
 
 class _Bridge(QObject):
     ready = Signal(str, list)   # (caminho do clipe, frames já em QImage)
+
+
+class _LinhaAcervo(QStyledItemDelegate):
+    """Pinta a linha da árvore inteira: rótulo à esquerda, contagem à
+    direita, e a barra ciano de 3px quando selecionada.
+
+    Por que um delegate em vez de duas colunas com QSS: numa QTreeWidget o
+    `::item` do QSS vale POR CÉLULA, então a linha selecionada virava dois
+    retângulos arredondados separados, cada um com a sua barra à esquerda —
+    e a coluna da contagem ainda era espremida pela borda. Uma coluna só,
+    pintada à mão, resolve os dois de uma vez.
+    """
+
+    ALTURA = theme.H_ROW
+
+    def paint(self, painter, option, index) -> None:  # noqa: N802 (API Qt)
+        from PySide6.QtWidgets import QStyle as _S
+        sel = bool(option.state & _S.StateFlag.State_Selected)
+        hov = bool(option.state & _S.StateFlag.State_MouseOver)
+        r = option.rect.adjusted(2, 1, -2, -1)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if sel or hov:
+            painter.setPen(QPen(QColor(theme.ACCENT_DIM if sel else theme.SURFACE_3), 1))
+            painter.setBrush(QColor(theme.ACCENT_INK if sel else theme.SURFACE_2))
+            painter.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5),
+                                    theme.R_S, theme.R_S)
+        if sel:
+            # A barra é o que sobrevive à falta de sombra: fundo sozinho
+            # some contra a superfície vizinha.
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.ACCENT))
+            painter.drawRoundedRect(QRectF(r.left(), r.top() + 1, 3, r.height() - 2),
+                                    1.5, 1.5)
+
+        dados = index.data(Qt.ItemDataRole.UserRole) or {}
+        recuo = 10 + int(index.data(_NIVEL) or 0) * 14
+        conta = index.data(_CONTA)
+        fonte = QFont(_FAMILIA_SANS, 8)
+        fonte.setItalic(bool(dados) and not dados.get("ok", True))
+        painter.setFont(fonte)
+
+        larg_conta = 0
+        if conta is not None:
+            painter.setFont(QFont(_FAMILIA_MONO, 8))
+            txt = str(conta)
+            larg_conta = painter.fontMetrics().horizontalAdvance(txt) + 12
+            painter.setPen(QColor(theme.ACCENT if sel else theme.TXT_FAINT))
+            painter.drawText(
+                r.adjusted(0, 0, -8, 0),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, txt,
+            )
+            painter.setFont(fonte)
+
+        if sel:
+            cor = theme.ACCENT
+        elif dados and not dados.get("ok", True):
+            cor = theme.TXT_FAINT
+        else:
+            cor = theme.TXT if hov else theme.TXT_DIM
+        painter.setPen(QColor(cor))
+        caixa = r.adjusted(recuo, 0, -larg_conta, 0)
+        painter.drawText(
+            caixa,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            painter.fontMetrics().elidedText(
+                str(index.data(Qt.ItemDataRole.DisplayRole) or ""),
+                Qt.TextElideMode.ElideRight, caixa.width(),
+            ),
+        )
+        painter.restore()
+
+    def sizeHint(self, option, index):  # noqa: N802 (API Qt)
+        s = super().sizeHint(option, index)
+        s.setHeight(self.ALTURA)
+        return s
 
 
 class _Tela(QLabel):
@@ -191,29 +276,18 @@ class LibraryTab(QWidget):
         lv.addWidget(lbl_acervo)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        # DUAS colunas: nome à esquerda, CONTAGEM à direita — episódio mostra
-        # quantas cenas tem, anime/temporada quantos episódios. Era a
-        # informação que a referência trazia e que aqui vinha empurrada pro
-        # meio do rótulo, entre parênteses, competindo com o nome.
-        self.tree.setColumnCount(2)
         self.tree.setFrameShape(QTreeWidget.Shape.NoFrame)
-        # Sem coluna de ramo: era ali que o Qt desenhava as guias da
-        # hierarquia na cor de destaque (as barras cianas). O triângulo de
-        # abrir/fechar vira TEXTO no próprio rótulo (▾/▸) — mesma affordance,
-        # desenhada por nós, sem a coluna que sujava a seleção.
+        # UMA coluna, pintada pelo delegate: o rótulo à esquerda e a
+        # contagem à direita na mesma linha (ver _LinhaAcervo). O recuo é
+        # desenhado por nós, então a árvore não precisa nem de coluna de
+        # ramo — que era onde o Qt pintava as guias na cor de destaque.
         self.tree.setRootIsDecorated(False)
-        self.tree.setIndentation(14)
+        self.tree.setIndentation(0)
         self.tree.setUniformRowHeights(True)
-        cab = self.tree.header()
-        cab.setStretchLastSection(False)
-        cab.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        cab.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        # A árvore não é um "campo": ela É o painel. Sem caixa em volta, como
-        # na referência — a divisória vertical do painel já separa.
-        self.tree.setStyleSheet(
-            f"QTreeWidget{{background:transparent;border:none;}}"
-            f"QTreeWidget::item{{padding:6px 6px;border-radius:5px;}}"
-        )
+        self.tree.setItemDelegate(_LinhaAcervo(self.tree))
+        # A árvore não é um "campo": ela É o painel. Sem caixa em volta —
+        # a divisória vertical já separa.
+        self.tree.setStyleSheet("QTreeWidget{background:transparent;border:none;}")
         self.tree.itemSelectionChanged.connect(self._on_tree_selection)
         self.tree.itemExpanded.connect(lambda it: self._marcar_seta(it, True))
         self.tree.itemCollapsed.connect(lambda it: self._marcar_seta(it, False))
@@ -288,15 +362,17 @@ class LibraryTab(QWidget):
         # PÍLULAS, como na referência: filtro de personagem é uma escolha
         # rápida entre poucos, não uma lista pra percorrer. Arredondado e
         # espaçado lê como "botão"; item de lista lê como "linha".
+        # Pílula h34 → raio 17, metade da altura (raio 999 não vira cápsula
+        # no Qt: ele não clampa, a borda degenera e volta a ser retângulo).
         self.chars.setStyleSheet(
             f"QListWidget{{background:transparent;border:none;}}"
             f"QListWidget::item{{background:{theme.SURFACE_2};"
-            f"border:1px solid {theme.LINE};border-radius:13px;"
-            f"padding:5px 13px;margin:2px;color:{theme.TXT_DIM};}}"
-            f"QListWidget::item:hover{{border-color:{theme.ACCENT_DARK};"
-            f"color:{theme.TXT};}}"
+            f"border:1px solid {theme.LINE};border-radius:17px;"
+            f"min-height:32px;padding:0 15px;margin:2px;color:{theme.TXT_DIM};}}"
+            f"QListWidget::item:hover{{background:{theme.SURFACE_3};"
+            f"border-color:{theme.LINE_BRIGHT};color:{theme.TXT};}}"
             f"QListWidget::item:selected{{background:{theme.ACCENT_INK};"
-            f"border-color:{theme.ACCENT_DARK};color:{theme.ACCENT};}}"
+            f"border-color:{theme.ACCENT};color:{theme.ACCENT};}}"
         )
         self.chars.itemSelectionChanged.connect(self._on_char_filter)
         self.chars.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -375,14 +451,16 @@ class LibraryTab(QWidget):
         # Esticar a janela dá espaço PRA GRADE (mais cenas por fileira); as
         # laterais têm largura de leitura e ficam onde estão. Os limites
         # existem pra ninguém arrastar a divisória até a grade sumir.
+        # As duas colunas laterais têm largura FIXA — elas não ganham nada
+        # com mais espaço (a árvore tem largura de leitura; o painel da cena
+        # é do tamanho do player 16:9 + os três botões sem quebrar linha).
+        # Quem estica é a GRADE, o único elástico da janela.
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
         split.setStretchFactor(2, 0)
-        left.setMinimumWidth(150)
-        left.setMaximumWidth(320)
-        right.setMinimumWidth(_PREVIEW_W - 40)
-        right.setMaximumWidth(520)
-        split.setSizes([196, 900, _PREVIEW_W + 24])
+        left.setFixedWidth(theme.W_ACERVO)
+        right.setFixedWidth(theme.W_CENA)
+        split.setSizes([theme.W_ACERVO, 900, theme.W_CENA])
         split.setCollapsible(1, False)
 
         root = QVBoxLayout(self)
@@ -400,15 +478,12 @@ class LibraryTab(QWidget):
         if base:
             item.setText(0, ("▾  " if aberto else "▸  ") + base)
 
-    def _no_ramo(self, rotulo: str, contagem: int) -> QTreeWidgetItem:
-        """Nó que abre e fecha: triângulo + rótulo na coluna 0, contagem
-        discreta na 1."""
-        item = QTreeWidgetItem(["▾  " + rotulo, str(contagem)])
+    def _no_ramo(self, rotulo: str, contagem: int, nivel: int) -> QTreeWidgetItem:
+        """Nó que abre e fecha: triângulo no rótulo, contagem à direita."""
+        item = QTreeWidgetItem(["▾  " + rotulo])
         item.setData(0, self._ROTULO, rotulo)
-        item.setTextAlignment(
-            1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        item.setForeground(1, QBrush(QColor(theme.TXT_FAINT)))
+        item.setData(0, _NIVEL, nivel)
+        item.setData(0, _CONTA, contagem)
         item.setToolTip(0, rotulo)
         return item
 
@@ -435,37 +510,30 @@ class LibraryTab(QWidget):
 
         for titulo, temporadas in por_anime.items():
             n_eps = sum(len(v) for v in temporadas.values())
-            no_anime = self._no_ramo(titulo, n_eps)
+            no_anime = self._no_ramo(titulo, n_eps, 0)
             for temp, eps in sorted(temporadas.items()):
-                no_temp = self._no_ramo(f"Temporada {temp}", len(eps))
+                no_temp = self._no_ramo(f"Temporada {temp}", len(eps), 1)
                 for r in sorted(eps, key=lambda x: x["episode"]):
                     root = self._episode_root(r["title"], r["season"], r["episode"])
                     existe = root is not None and (root / "shots").exists()
                     label = f"Episódio {r['episode']:02d}"
+                    # Pasta ausente: itálico apagado (o delegate cuida), sem
+                    # ícone de erro — e continua na lista, porque quem apagou
+                    # merece ver que apagou.
                     no_ep = QTreeWidgetItem([
-                        label if existe else f"{label}  (sumiu)",
-                        str(n_cenas.get(int(r["id"]), 0)),
+                        label if existe else f"{label}  (sumiu do disco)"
                     ])
+                    no_ep.setData(0, _NIVEL, 2)
+                    no_ep.setData(0, _CONTA, n_cenas.get(int(r["id"]), 0))
                     if not existe:
                         no_ep.setToolTip(
                             0, "A pasta deste episódio não está mais no disco."
                         )
-                    no_ep.setTextAlignment(
-                        1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                    )
-                    no_ep.setForeground(1, QBrush(QColor(theme.TXT_FAINT)))
                     no_ep.setData(0, Qt.ItemDataRole.UserRole, {
                         "id": int(r["id"]), "title": r["title"],
                         "season": int(r["season"]), "episode": int(r["episode"]),
                         "root": str(root) if root else "", "ok": existe,
                     })
-                    if not existe:
-                        # Itálico apagado, não some da lista: quem apagou a
-                        # pasta merece ver que apagou.
-                        fonte = QFont()
-                        fonte.setItalic(True)
-                        no_ep.setFont(0, fonte)
-                        no_ep.setForeground(0, QBrush(QColor(theme.TXT_FAINT)))
                     no_temp.addChild(no_ep)
                 no_anime.addChild(no_temp)
             self.tree.addTopLevelItem(no_anime)

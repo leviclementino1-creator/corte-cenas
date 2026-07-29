@@ -1,67 +1,111 @@
 """O sistema visual do app, num lugar só.
 
-Antes disto a aparência vinha de trinta linhas de QSS escritas na v0.1 pra
-"não ficar branco", mais uma dúzia de `setStyleSheet` com cores soltas
-espalhadas pelas telas — cada uma com o seu cinza. O resultado era um app
-que funciona muito bem e parece um protótipo.
+Base: "Mesa de corte, não painel de app" — a tela é uma bancada, a grade de
+miniaturas é a única coisa que brilha, o resto recua. Sem sombra, sem
+animação, sem gradiente: nada disso existe em QSS, então a hierarquia é
+feita por VALOR (o quanto uma superfície é mais clara) e por BORDA.
 
-Aqui as decisões ficam explícitas e com significado:
+As três regras que sustentam tudo:
 
-- CIANO (ACCENT) = selecionado, ativo, acontecendo agora. É o verde-água
-  dos monitores de forma de onda; num app de vídeo ele lê como "isto está
-  ligado" sem precisar de legenda.
-- ÂMBAR (TIME) = tempo e quantidade: duração, timecode, contagem de cenas.
-  Ter uma cor SÓ pra isso é o que faz a grade ser lida de relance.
-- VERDE (OK) e VERMELHO (DANGER) ficam reservados pra estado real (GPU
-  ativa, erro) — nunca de enfeite, senão perdem o sentido.
+- CIANO (ACCENT) = onde você está. Selecionado, ativo, etapa rodando, ação
+  principal. Nunca decoração, e nunca dois focos na mesma tela.
+- ÂMBAR (TIME) = número. Duração, timecode, contagem, ETA, valor de campo
+  numérico. Nenhum outro elemento pode usar — é ter uma cor SÓ pra isso que
+  faz a grade ser lida sem ler.
+- VERDE (OK) e VERMELHO (DANGER) = estado real (GPU ativa, erro, destrutivo).
+  Gastar em enfeite é perder o sentido.
 
-Números sempre em monoespaçada com dígitos de largura fixa: é o que impede
-as colunas de duração e confiança de dançarem a cada item.
+Duas armadilhas do Qt que estão embutidas aqui, com o porquê:
+
+- `border-radius: 999px` é idioma de navegador. O navegador clampa em metade
+  da altura; o Qt NÃO clampa — a borda degenera e a cápsula vira retângulo.
+  Todo raio de pílula aqui é metade da altura, escrito à mão.
+- cor de fundo em `QWidget` pinta TUDO (etiqueta, caixa de marcar e os
+  widgets-embrulho de linha de formulário), tapando o painel de baixo com a
+  cor da janela. Só a janela e o diálogo pintam fundo.
 """
 from __future__ import annotations
 
-# ---------- cores ----------
-BG = "#0f1115"          # fundo da janela
-SURFACE = "#161a21"     # painéis, barras laterais
-SURFACE_2 = "#1d222b"   # cartões, campos, botões
-SURFACE_3 = "#252c37"   # hover
-LINE = "#272d38"
-LINE_SOFT = "#1f242d"
+# ---------- superfícies ----------
+BG = "#0e1014"          # fundo da janela e da área de grade
+SURFACE = "#14181f"     # painéis, barra de abas, cabeçalho de diálogo
+SURFACE_2 = "#1b2129"   # cartão, botão secundário, menu — o que se clica
+SURFACE_3 = "#232b35"   # SÓ hover; nada nasce nesta cor
+WELL = "#14181f"        # fundo de campo: campo é poço, painel é chão
+WELL_OFF = "#0f1217"    # campo/etapa desabilitados
+PRESSED = "#161b22"     # botão comum apertado
 
-TXT = "#e7ecf3"
-TXT_DIM = "#98a2b3"
-TXT_FAINT = "#6b7484"
+LINE = "#2a323d"        # borda de controle (sobrevive a 150% de escala)
+LINE_SOFT = "#1e242c"   # divisor interno, borda de cartão em repouso
+LINE_BRIGHT = "#37414e" # borda de menu/diálogo e de controle em hover
 
+# ---------- texto ----------
+TXT = "#e6ebf2"
+TXT_DIM = "#9aa4b2"
+TXT_FAINT = "#6a7382"
+TXT_OFF = "#4b5462"     # desabilitado — existe porque o Qt não tem opacity
+TXT_GHOST = "#5b6473"   # placeholder, "sem identificação"
+
+# ---------- destaque e estado ----------
 ACCENT = "#4cc9c0"
-ACCENT_DARK = "#2a6f68"
-ACCENT_INK = "#0c2b29"
+ACCENT_HOVER = "#5fd6cd"
+ACCENT_DIM = "#35938c"    # borda de superfície de destaque / principal apertado
+ACCENT_LIGHT = "#7ddcd5"  # texto sobre fundo de destaque
+ACCENT_INK = "#0c2b29"    # fundo de item selecionado
+ACCENT_INK_2 = "#0a2321"  # vazado apertado
+ON_ACCENT = "#08201e"     # texto sobre ciano chapado
+ACCENT_DARK = ACCENT_DIM  # nome antigo, ainda usado em telas
+
 TIME = "#e8a15c"
+TIME_INK = "#20190f"
+TIME_LINE = "#5c4a2a"
+
 OK = "#6fcf8b"
+OK_INK = "#132019"
+OK_LINE = "#2f5c3d"
+
 DANGER = "#e5686f"
+DANGER_INK = "#1f1418"
+DANGER_INK_2 = "#2b171c"
+DANGER_LINE = "#5b2a30"
+DANGER_LINE_2 = "#8c3b43"
+DANGER_LIGHT = "#f08b91"
+ON_DANGER = "#1f0a0d"
 
 # ---------- fontes ----------
 MONO = '"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,monospace'
 SANS = '"Segoe UI Variable Text","Segoe UI","system-ui",sans-serif'
 DISP = '"Segoe UI Variable Display","Segoe UI Semibold","Segoe UI",sans-serif'
 
+# ---------- medidas ----------
+# Espaçamento em passo de 4: 4 dentro de um controle · 8 entre irmãos ·
+# 12 grade de cartões · 16 padding de painel · 24 entre blocos · 32 entre
+# seções numeradas.
+R_XS, R_S, R_M, R_L = 3, 4, 6, 8     # marcar · campo/botão/aba · cartão · menu
+H_ROW, H_CTRL, H_PILL, H_TAB, H_PRIMARY = 30, 32, 34, 36, 38
+W_ACERVO, W_CENA = 248, 320          # colunas fixas da Biblioteca
+CARD_MIN, CARD_MAX = 196, 300        # o cartão é o único elástico
+
 
 def label(kind: str) -> str:
     """Estilos de texto avulso, pra não repetir cor solta nas telas.
 
-    kind: title | subtitle | dim | faint | mono | eyebrow | time | ok |
-          warn | danger
+    kind: title | section | subtitle | dim | faint | mono | eyebrow | time |
+          ok | warn | danger
     """
     estilos = {
-        "title": f"font-family:{DISP};font-size:16px;font-weight:620;color:{TXT};",
+        "title": f"font-family:{DISP};font-size:22px;font-weight:600;color:{TXT};",
+        "section": f"font-family:{DISP};font-size:17px;font-weight:600;color:{TXT};",
         "subtitle": f"font-size:13px;color:{TXT_DIM};",
-        "dim": f"color:{TXT_DIM};",
-        "faint": f"color:{TXT_FAINT};font-size:12px;",
-        "mono": f"font-family:{MONO};font-size:12px;color:{TXT_DIM};",
+        "dim": f"font-size:13px;color:{TXT_DIM};",
+        "faint": f"font-size:12px;color:{TXT_FAINT};",
+        "mono": f"font-family:{MONO};font-size:13px;color:{TXT_DIM};",
+        # Rótulo de grupo: 11/600 com letra espaçada — é etiqueta, não título.
         "eyebrow": (
-            f"font-family:{MONO};font-size:10px;letter-spacing:1.6px;"
-            f"color:{TXT_FAINT};"
+            f"font-family:{MONO};font-size:11px;font-weight:600;"
+            f"letter-spacing:1.2px;color:{TXT_FAINT};"
         ),
-        "time": f"font-family:{MONO};font-size:12px;color:{TIME};",
+        "time": f"font-family:{MONO};font-size:13px;color:{TIME};",
         "ok": f"color:{OK};font-weight:600;",
         "warn": f"color:{TIME};font-weight:600;",
         "danger": f"color:{DANGER};font-weight:600;",
@@ -70,81 +114,131 @@ def label(kind: str) -> str:
 
 
 def chip(tone: str = "neutral") -> str:
-    """Selo arredondado (GPU, contagem, estado)."""
+    """Selo h26 — raio 13, metade da altura, escrito à mão (ver o cabeçalho
+    sobre o 999px). Use com `chip_dot()` no texto: o ponto pintado substitui
+    o emoji, que não aceita cor de token e fica sujo a 150% de escala."""
     cores = {
         "neutral": (SURFACE_2, LINE, TXT_DIM),
-        "accent": (ACCENT_INK, ACCENT_DARK, ACCENT),
-        "ok": ("#10201a", "#1f4a30", OK),
-        "time": ("#1e1810", "#4a3a24", TIME),
-        "danger": ("#201114", "#4a2429", DANGER),
+        "accent": (ACCENT_INK, ACCENT_DIM, ACCENT),
+        "ok": (OK_INK, OK_LINE, OK),
+        "time": (TIME_INK, TIME_LINE, TIME),
+        "danger": (DANGER_INK, DANGER_LINE, DANGER),
     }
     bg, br, fg = cores.get(tone, cores["neutral"])
-    # RAIO CONCRETO, não 999px. Na web "raio maior que a caixa" vira cápsula
-    # porque o navegador clampa em metade da altura; o Qt NÃO clampa — a
-    # borda degenera e o selo volta a ser um RETÂNGULO. Era por isso que o
-    # selo da GPU aparecia quadrado. 13px ≈ metade da altura real (~26px).
     return (
         f"QLabel{{background:{bg};border:1px solid {br};color:{fg};"
-        f"border-radius:13px;padding:5px 12px;font-family:{MONO};"
-        f"font-size:11px;font-weight:600;}}"
+        f"border-radius:13px;padding:0 12px;min-height:24px;max-height:24px;"
+        f"font-family:{MONO};font-size:11px;font-weight:600;}}"
+    )
+
+
+_DOT = {"ok": OK, "time": TIME, "accent": ACCENT, "danger": DANGER, "neutral": TXT_FAINT}
+
+
+def chip_dot(tone: str, texto: str) -> str:
+    """Texto do selo com o ponto de estado na frente, em rich text."""
+    return (
+        f"<span style='color:{_DOT.get(tone, TXT_FAINT)};font-size:15px'>●</span>"
+        f"&nbsp;&nbsp;{texto}"
     )
 
 
 def button(tone: str = "normal") -> str:
-    """normal | primary | ghost | danger"""
+    """normal | primary | accent-outline | ghost | danger
+
+    Foco de teclado = borda de 2px SUBSTITUINDO a de 1px (o padding cai 1px
+    pra o texto não pular). Nunca `outline`: o Qt desenha fora do widget e o
+    corte do pai come o traço.
+    """
     if tone == "primary":
         return (
-            f"QPushButton{{background:{ACCENT};color:#06231f;border:none;"
-            f"border-radius:6px;padding:9px 16px;font-size:13px;font-weight:650;}}"
-            f"QPushButton:hover{{background:#5fd8cf;}}"
-            f"QPushButton:pressed{{background:#3fb3ab;}}"
-            f"QPushButton:disabled{{background:{SURFACE_2};color:{TXT_FAINT};}}"
+            f"QPushButton{{background:{ACCENT};color:{ON_ACCENT};"
+            f"border:1px solid {ACCENT};border-radius:{R_S}px;"
+            f"min-height:{H_PRIMARY - 2}px;padding:0 16px;"
+            f"font-size:14px;font-weight:600;}}"
+            f"QPushButton:hover{{background:{ACCENT_HOVER};border-color:{ACCENT_HOVER};}}"
+            f"QPushButton:pressed{{background:{ACCENT_DIM};border-color:{ACCENT_DIM};}}"
+            f"QPushButton:focus{{border:2px solid {TXT};padding:0 15px;}}"
+            f"QPushButton:disabled{{background:{SURFACE_2};border-color:{SURFACE_3};"
+            f"color:{TXT_OFF};}}"
         )
     if tone == "accent-outline":
-        # Irmã da ação principal, não rival dela: mesmo destaque, mas vazada.
-        # (Era um azul chapado que brigava com o verde do lado — dois botões
-        # gritando "clique em mim" e nenhuma hierarquia entre eles.)
+        # Irmã da ação principal, não rival dela: mesmo destaque, vazada.
         return (
-            f"QPushButton{{background:transparent;color:{ACCENT};"
-            f"border:1px solid {ACCENT_DARK};border-radius:6px;"
-            f"padding:9px 16px;font-size:13px;font-weight:600;}}"
-            f"QPushButton:hover{{background:{ACCENT_INK};border-color:{ACCENT};}}"
-            f"QPushButton:disabled{{color:{TXT_FAINT};border-color:{LINE_SOFT};}}"
+            f"QPushButton{{background:{BG};color:{ACCENT};"
+            f"border:1px solid {ACCENT_DIM};border-radius:{R_S}px;"
+            f"min-height:{H_CTRL - 2}px;padding:0 16px;"
+            f"font-size:14px;font-weight:600;}}"
+            f"QPushButton:hover{{background:{ACCENT_INK};border-color:{ACCENT};"
+            f"color:{ACCENT_LIGHT};}}"
+            f"QPushButton:pressed{{background:{ACCENT_INK_2};border-color:{ACCENT_DIM};"
+            f"color:{ACCENT};}}"
+            f"QPushButton:focus{{background:{ACCENT_INK};border:2px solid {ACCENT};"
+            f"padding:0 15px;color:{ACCENT_LIGHT};}}"
+            f"QPushButton:disabled{{background:{BG};border-color:{LINE_SOFT};"
+            f"color:{TXT_OFF};}}"
         )
     if tone == "ghost":
+        # Lista de ações (barra lateral): em repouso é só texto; o fundo
+        # aparece no hover. Alinhado à esquerda, como um item de lista.
         return (
-            f"QPushButton{{background:transparent;color:{TXT_DIM};border:none;"
-            f"border-radius:6px;padding:6px 10px;font-size:12.5px;text-align:left;}}"
-            f"QPushButton:hover{{background:{SURFACE_2};color:{TXT};}}"
+            f"QPushButton{{background:transparent;color:{TXT_DIM};"
+            f"border:1px solid transparent;border-radius:{R_S}px;"
+            f"min-height:{H_CTRL - 2}px;padding:0 10px;"
+            f"font-size:13px;text-align:left;}}"
+            f"QPushButton:hover{{background:{SURFACE_2};border-color:{SURFACE_3};"
+            f"color:{TXT};}}"
+            f"QPushButton:pressed{{background:{SURFACE};border-color:{SURFACE_3};}}"
+            f"QPushButton:focus{{background:{SURFACE};border:2px solid {ACCENT};"
+            f"padding:0 9px;color:{TXT};}}"
+            f"QPushButton:disabled{{background:transparent;border-color:transparent;"
+            f"color:{TXT_OFF};}}"
         )
     if tone == "danger":
+        # Nasce apagado (fundo escuro, texto vermelho) e só fica CHAPADO ao
+        # ser apertado: destrutivo não deve gritar antes da hora.
         return (
-            f"QPushButton{{background:#201517;color:{DANGER};"
-            f"border:1px solid #4a2429;border-radius:6px;padding:7px 13px;"
-            f"font-size:12.5px;}}"
-            f"QPushButton:hover{{background:#2b1a1d;}}"
+            f"QPushButton{{background:{DANGER_INK};color:{DANGER};"
+            f"border:1px solid {DANGER_LINE};border-radius:{R_S}px;"
+            f"min-height:{H_CTRL - 2}px;padding:0 16px;"
+            f"font-size:14px;font-weight:600;}}"
+            f"QPushButton:hover{{background:{DANGER_INK_2};border-color:{DANGER_LINE_2};"
+            f"color:{DANGER_LIGHT};}}"
+            f"QPushButton:pressed{{background:{DANGER};border-color:{DANGER};"
+            f"color:{ON_DANGER};}}"
+            f"QPushButton:focus{{background:{DANGER_INK_2};border:2px solid {DANGER};"
+            f"padding:0 15px;color:{DANGER_LIGHT};}}"
+            f"QPushButton:disabled{{background:{PRESSED};border-color:{LINE_SOFT};"
+            f"color:{TXT_OFF};}}"
         )
     return (
-        f"QPushButton{{background:{SURFACE_2};color:{TXT_DIM};"
-        f"border:1px solid {LINE};border-radius:6px;padding:7px 13px;"
-        f"font-size:12.5px;}}"
-        f"QPushButton:hover{{background:{SURFACE_3};color:{TXT};"
-        f"border-color:{ACCENT_DARK};}}"
-        f"QPushButton:disabled{{color:{TXT_FAINT};border-color:{LINE_SOFT};"
-        f"background:{SURFACE};}}"
+        f"QPushButton{{background:{SURFACE_2};color:{TXT};"
+        f"border:1px solid {LINE};border-radius:{R_S}px;"
+        f"min-height:{H_CTRL - 2}px;padding:0 16px;font-size:14px;font-weight:600;}}"
+        f"QPushButton:hover{{background:{SURFACE_3};border-color:{LINE_BRIGHT};}}"
+        f"QPushButton:pressed{{background:{PRESSED};color:{TXT_DIM};}}"
+        f"QPushButton:focus{{border:2px solid {ACCENT};padding:0 15px;}}"
+        f"QPushButton:disabled{{background:{PRESSED};border-color:{LINE_SOFT};"
+        f"color:{TXT_OFF};}}"
+    )
+
+
+def pill(selected: bool = False) -> str:
+    """Pílula de filtro h34 / raio 17 (metade da altura)."""
+    if selected:
+        return (
+            f"background:{ACCENT_INK};border:1px solid {ACCENT};"
+            f"border-radius:17px;color:{ACCENT};"
+        )
+    return (
+        f"background:{SURFACE_2};border:1px solid {LINE};"
+        f"border-radius:17px;color:{TXT_DIM};"
     )
 
 
 QSS = f"""
-/* SÓ A JANELA (e o diálogo) pinta o fundo. Cor de fundo em `QWidget` é a
-   armadilha central desta folha: TUDO é um QWidget — a etiqueta, a caixa de
-   marcar e, principalmente, os widgets-embrulho que seguram uma linha de
-   formulário. Cada um deles passava a pintar um retângulo OPACO da cor do
-   FUNDO DA JANELA por cima do painel, que é mais claro. Era isso, e não o
-   texto, que desenhava as faixas escuras atrás de "T:/E:" e de "Pular
-   início/Pular fim": o embrulho da linha, não a etiqueta.
-   Quem precisa de fundo próprio pede explicitamente (painéis, cartões,
-   campos) — o resto deixa o painel de baixo aparecer. */
+/* Só a janela e o diálogo pintam fundo — ver a armadilha do QWidget no
+   cabeçalho deste arquivo. */
 QMainWindow, QDialog {{ background: {BG}; }}
 QWidget {{
     color: {TXT};
@@ -154,204 +248,211 @@ QWidget {{
 QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
 
 /* ---- abas ---- */
+/* A aba ativa se FUNDE com o conteúdo: mesmo fundo, borda de baixo apagada
+   e um traço ciano de 2px no topo. Sem sublinhado por baixo — o QTabBar não
+   deixa desenhar sob o conteúdo de forma confiável. */
 QTabWidget::pane {{ border: none; background: {BG}; }}
-/* A faixa das abas leva o selo de GPU e o botão de Configurações no canto
-   direito (corner widget), então ela precisa ser uma barra de verdade —
-   fundo próprio de ponta a ponta e uma linha embaixo separando do
-   conteúdo. */
-QTabWidget::tab-bar {{ left: 8px; }}
+QTabWidget::tab-bar {{ left: 12px; }}
 QTabBar {{ background: transparent; }}
-QWidget#faixaAbas {{
-    background: #0c0e12;
-    border-bottom: 1px solid {LINE};
-}}
 QTabBar::tab {{
-    background: transparent; color: {TXT_FAINT};
-    padding: 10px 18px; margin: 0; border: none;
-    font-size: 13px; font-weight: 500;
-    outline: none;   /* senão o Qt desenha um retângulo de foco na aba ativa */
+    background: transparent; color: {TXT_DIM};
+    min-height: {H_TAB - 2}px; padding: 0 16px; margin: 0 1px;
+    border: 1px solid transparent;
+    border-top-left-radius: {R_S}px; border-top-right-radius: {R_S}px;
+    font-size: 14px; font-weight: 500;
+    outline: none;
 }}
-QTabBar::tab:focus {{ outline: none; border: none; }}
-QTabBar::tab:hover {{ color: {TXT_DIM}; }}
+QTabBar::tab:focus {{ outline: none; }}
+QTabBar::tab:hover {{ background: {SURFACE_2}; color: {TXT}; }}
 QTabBar::tab:selected {{
-    color: {TXT};
-    border-bottom: 2px solid {ACCENT};
+    background: {BG}; color: {TXT}; font-weight: 600;
+    border: 1px solid {LINE}; border-bottom-color: {BG};
+    border-top: 2px solid {ACCENT};
 }}
 
 /* ---- agrupadores ---- */
-/* O título fica ACIMA do cartão, não montado na borda dele. Encaixado na
-   linha, ele precisa de um retalho de fundo pra "furar" a borda — e o
-   retalho nunca casa com o painel de trás, o que deixava "1. Episódio" e
-   "2. Progresso" parecendo colados torto no traço. Fora do cartão o título
-   vira o que ele é: um CABEÇALHO de seção, alinhado com a borda esquerda do
-   cartão e com respiro entre ele e o conteúdo.
-   O margin-top reserva essa faixa: precisa ser maior que a altura do texto,
-   senão a borda de cima volta a passar por dentro dele. */
+/* O título fica ACIMA do cartão, não montado na borda: encaixado na linha
+   ele precisa de um retalho de fundo pra furar a borda, e o retalho nunca
+   casa com o painel de trás. O margin-top reserva essa faixa. */
 QGroupBox {{
-    border: 1px solid {LINE}; border-radius: 10px;
-    margin-top: 28px; padding: 16px 14px 14px;
+    border: 1px solid {LINE_SOFT}; border-radius: {R_M}px;
+    margin-top: 28px; padding: 16px;
     background: {SURFACE};
 }}
 QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
     left: 2px; top: 0px; padding: 0 2px;
-    color: {TXT}; font-family: {SANS}; font-size: 13px; font-weight: 600;
+    color: {TXT}; font-family: {DISP}; font-size: 17px; font-weight: 600;
     background: transparent;
 }}
 
 /* ---- campos ---- */
-/* min-height é o que impede a janela baixa de ESMAGAR os campos: sem ele o
-   layout comprime cada caixa até o texto ficar cortado dentro dela (o campo
-   do arquivo virava um risco de 20px com meia linha de placeholder). Com
-   piso, quem não couber empurra a rolagem da aba — que é o certo. */
+/* Campo é mais ESCURO que o painel (poço) e botão é mais CLARO (relevo):
+   sem sombra, essa é a única pista de "clicável" que sobra. */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTextEdit {{
-    background: {SURFACE_2}; color: {TXT};
-    border: 1px solid {LINE}; border-radius: 6px;
-    padding: 6px 9px; min-height: 19px;
-    selection-background-color: {ACCENT_DARK};
+    background: {WELL}; color: {TXT};
+    border: 1px solid {LINE}; border-radius: {R_S}px;
+    padding: 0 10px; min-height: {H_CTRL - 2}px;
+    selection-background-color: {ACCENT_DIM}; selection-color: {ON_ACCENT};
 }}
-QPlainTextEdit, QTextEdit {{ min-height: 40px; }}
+QPlainTextEdit, QTextEdit {{ min-height: 60px; padding: 6px 10px; }}
+QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {{
+    background: #171c24; border-color: {LINE_BRIGHT};
+}}
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus,
 QPlainTextEdit:focus, QTextEdit:focus {{
-    border-color: {ACCENT_DARK};
+    background: {BG}; border: 2px solid {ACCENT}; padding: 0 9px;
 }}
-QLineEdit:disabled, QComboBox:disabled {{ color: {TXT_FAINT}; background: {SURFACE}; }}
-QComboBox::drop-down {{ border: none; width: 20px; }}
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
+QDoubleSpinBox:disabled {{
+    background: {WELL_OFF}; border-color: {LINE_SOFT}; color: {TXT_OFF};
+}}
+/* Valor numérico é NÚMERO: mono e âmbar, como toda medida no app. */
+QSpinBox, QDoubleSpinBox {{
+    font-family: {MONO}; color: {TIME}; padding-right: 2px;
+}}
+QComboBox::drop-down {{ border: none; width: 22px; }}
 QComboBox QAbstractItemView {{
-    background: {SURFACE_2}; color: {TXT}; border: 1px solid {LINE};
+    background: {SURFACE_2}; color: {TXT}; border: 1px solid {LINE_BRIGHT};
+    border-radius: {R_L}px; padding: 4px;
     selection-background-color: {ACCENT_INK}; selection-color: {ACCENT};
     outline: none;
 }}
+/* BOTÕES DO SPIN: NÃO ESTILIZAR. Já foi tentado duas vezes.
+   (1) desenhar o triângulo com o truque de bordas (largura 0 + borda grossa)
+       vira um QUADRADO BRANCO — sem `image:` o Qt não tem o que pintar;
+   (2) estilizar só a CAIXINHA (fundo/borda) apaga a seta nativa junto: ao
+       assumir o subcontrole, o Qt para de desenhar a primitiva dele e o
+       resultado são duas caixas vazias.
+   Sem um arquivo de imagem pra apontar — e o app é um exe sem recursos
+   gráficos —, a seta nativa é a única que existe de verdade. O campo em
+   volta continua tematizado pelas regras de QLineEdit/QSpinBox acima. */
 
 /* ---- botões (padrão; os de destaque usam theme.button) ---- */
 QPushButton {{
-    background: {SURFACE_2}; color: {TXT_DIM};
-    border: 1px solid {LINE}; border-radius: 6px;
-    padding: 7px 13px; font-size: 12.5px;
+    background: {SURFACE_2}; color: {TXT};
+    border: 1px solid {LINE}; border-radius: {R_S}px;
+    min-height: {H_CTRL - 2}px; padding: 0 16px;
+    font-size: 14px; font-weight: 600;
 }}
-QPushButton:hover {{ background: {SURFACE_3}; color: {TXT}; border-color: {ACCENT_DARK}; }}
-QPushButton:pressed {{ background: {SURFACE}; }}
-QPushButton:disabled {{ color: {TXT_FAINT}; border-color: {LINE_SOFT}; background: {SURFACE}; }}
+QPushButton:hover {{ background: {SURFACE_3}; border-color: {LINE_BRIGHT}; }}
+QPushButton:pressed {{ background: {PRESSED}; color: {TXT_DIM}; }}
+QPushButton:focus {{ border: 2px solid {ACCENT}; padding: 0 15px; }}
+QPushButton:disabled {{
+    background: {PRESSED}; border-color: {LINE_SOFT}; color: {TXT_OFF};
+}}
 
 /* ---- listas e árvores ---- */
 QListWidget, QTreeWidget, QTableWidget {{
     background: {SURFACE}; color: {TXT};
-    border: 1px solid {LINE}; border-radius: 8px;
+    border: 1px solid {LINE_SOFT}; border-radius: {R_M}px;
     outline: none;
-    /* sem isto, o azul-padrão do sistema vaza nas áreas que o QSS não
-       cobre (ramo da árvore, margem do item) */
     selection-background-color: {ACCENT_INK};
     selection-color: {ACCENT};
 }}
 QListWidget::item, QTreeWidget::item {{
-    padding: 5px 7px; border-radius: 5px; color: {TXT_DIM};
+    min-height: {H_ROW - 8}px; padding: 4px 10px;
+    border: 1px solid transparent; border-radius: {R_S}px;
+    color: {TXT_DIM};
 }}
 QListWidget::item:hover, QTreeWidget::item:hover {{
-    background: {SURFACE_2}; color: {TXT};
+    background: {SURFACE_2}; border-color: {SURFACE_3}; color: {TXT};
 }}
+/* Selecionado leva uma BARRA de 3px à esquerda: sem sombra, é a barra que
+   sobrevive — cor de fundo sozinha some contra a superfície vizinha. */
 QListWidget::item:selected, QTreeWidget::item:selected {{
     background: {ACCENT_INK}; color: {ACCENT};
+    border: 1px solid {ACCENT_DIM}; border-left: 3px solid {ACCENT};
 }}
-/* A área do ramo herdava o fundo da seleção e o Qt ainda desenhava ali as
-   LINHAS-GUIA da hierarquia — que, pintadas na cor de destaque, viravam
-   três barras cianas verticais coladas no item selecionado. A hierarquia
-   aqui já é óbvia pela indentação e pelos rótulos ("Temporada 3",
-   "Episódio 02"); linha-guia não acrescenta nada e só suja.
-   Detalhe: o Qt pinta isso pela CLASSE BASE (QTreeView), então estilizar
-   só QTreeWidget não resolve. */
-QTreeView::branch, QTreeWidget::branch {{
-    background: transparent; border: none;
-}}
+/* A área do ramo herdava o fundo da seleção e o Qt desenhava ali as guias da
+   hierarquia na cor de destaque — três barras cianas coladas no item. O Qt
+   pinta isso pela CLASSE BASE, então estilizar só QTreeWidget não resolve. */
+QTreeView::branch, QTreeWidget::branch {{ background: transparent; border: none; }}
 QTreeView::branch:has-siblings:!adjoins-item,
 QTreeView::branch:has-siblings:adjoins-item,
-QTreeView::branch:!has-children:!has-siblings:adjoins-item {{
-    border-image: none; image: none; background: transparent;
-}}
+QTreeView::branch:!has-children:!has-siblings:adjoins-item,
 QTreeView::branch:has-children:closed,
 QTreeView::branch:has-children:open {{
     border-image: none; image: none; background: transparent;
 }}
-/* show-decoration-selected FICA DESLIGADO: com ele ligado a seleção invade
-   a coluna do ramo e o Qt pinta as guias por cima na cor de destaque —
-   foi exatamente o que produziu as barras cianas. A árvore da Biblioteca
-   também desliga a decoração (setRootIsDecorated(False)) e vive só de
-   indentação, que é o que a referência aprovada mostrava. */
 QTreeView {{ show-decoration-selected: 0; }}
 QHeaderView::section {{
     background: {SURFACE_2}; color: {TXT_FAINT}; border: none;
     border-bottom: 1px solid {LINE}; padding: 6px;
-    font-family: {MONO}; font-size: 10px; letter-spacing: 1.2px;
+    font-family: {MONO}; font-size: 11px; font-weight: 600; letter-spacing: 1.2px;
 }}
 
 /* ---- caixas e opções ---- */
-QCheckBox, QRadioButton {{ color: {TXT_DIM}; spacing: 9px; padding: 3px 0; }}
+QCheckBox, QRadioButton {{ color: {TXT_DIM}; spacing: 10px; padding: 4px 0; }}
 QCheckBox:hover, QRadioButton:hover {{ color: {TXT}; }}
 QCheckBox:checked, QRadioButton:checked {{ color: {TXT}; font-weight: 600; }}
+QCheckBox:disabled, QRadioButton:disabled {{ color: {TXT_OFF}; }}
 QCheckBox::indicator, QRadioButton::indicator {{
     width: 16px; height: 16px;
-    border: 2px solid #3d4652; background: {SURFACE_2};
+    border: 1px solid {LINE_BRIGHT}; background: {WELL};
 }}
-QCheckBox::indicator:hover, QRadioButton::indicator:hover {{ border-color: {TXT_FAINT}; }}
-QCheckBox::indicator {{ border-radius: 4px; }}
-QRadioButton::indicator {{ border-radius: 10px; }}
+QCheckBox::indicator {{ border-radius: {R_XS}px; }}
+QRadioButton::indicator {{ border-radius: 8px; }}
+QCheckBox::indicator:hover, QRadioButton::indicator:hover {{ border-color: {ACCENT_DIM}; }}
 QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
-/* Anel: miolo cheio com folga, em vez de um círculo chapado que, pequeno,
-   lê como quadrado arredondado. */
+/* Anel: miolo cheio com folga. Círculo chapado, pequeno, lê como quadrado. */
 QRadioButton::indicator:checked {{
     background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-        stop:0 {ACCENT}, stop:0.5 {ACCENT},
-        stop:0.56 {SURFACE_2}, stop:1 {SURFACE_2});
-    border-color: {ACCENT};
+        stop:0 {ACCENT}, stop:0.38 {ACCENT},
+        stop:0.42 {ACCENT_INK}, stop:1 {ACCENT_INK});
+    border: 2px solid {ACCENT};
 }}
-
-/* SETA DO SPIN: nada de estilizar.
-   Tentei desenhar as setas com o truque de bordas (largura/altura 0 + borda
-   grossa formando triângulo). No papel funciona; na tela virou um QUADRADO
-   BRANCO em cada spin — sem um `image:`, o Qt não tem o que pintar ali e o
-   truque não sobrevive ao subcontrole. Setinha desenhada à mão vale menos
-   que setinha que funciona: o estilo nativo fica, e só o campo é tematizado
-   (a borda e o fundo já vêm da regra de QLineEdit/QSpinBox acima). */
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
+    background: {WELL_OFF}; border-color: {LINE_SOFT};
+}}
 
 /* ---- progresso ---- */
+/* Sem animação: a barra é atualizada por valor e o tempo decorrido em mono
+   é o que prova que o app está vivo. Indeterminado = barra vazia + texto,
+   nunca um bloco quicando falso. */
 QProgressBar {{
-    background: {SURFACE_2}; border: 1px solid {LINE};
-    border-radius: 6px; height: 8px; text-align: center;
-    color: {TXT_DIM}; font-family: {MONO}; font-size: 11px;
+    background: {WELL}; border: 1px solid {LINE};
+    border-radius: 5px; max-height: 10px; min-height: 10px;
+    text-align: center; color: transparent;
 }}
-QProgressBar::chunk {{ background: {ACCENT}; border-radius: 5px; }}
+QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
 
 /* ---- separadores e divisórias ---- */
 QSplitter::handle {{ background: {LINE_SOFT}; }}
-QSplitter::handle:hover {{ background: {ACCENT_DARK}; }}
-QFrame[frameShape="4"], QFrame[frameShape="5"] {{ color: {LINE}; }}
+QSplitter::handle:hover {{ background: {ACCENT_DIM}; }}
+QFrame[frameShape="4"], QFrame[frameShape="5"] {{ color: {LINE_SOFT}; }}
 
 /* ---- barras de rolagem ---- */
-QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
-QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
+QScrollBar:vertical {{ background: transparent; width: 11px; margin: 2px; }}
+QScrollBar:horizontal {{ background: transparent; height: 11px; margin: 2px; }}
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
-    background: {SURFACE_3}; border-radius: 5px; min-height: 28px; min-width: 28px;
+    background: {SURFACE_3}; border-radius: 5px; min-height: 32px; min-width: 32px;
 }}
-QScrollBar::handle:hover {{ background: #333c4a; }}
+QScrollBar::handle:hover {{ background: {LINE_BRIGHT}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
 /* ---- menus ---- */
+/* Sem sombra, a borda CLARA é o que separa o menu do fundo. */
 QMenu {{
     background: {SURFACE_2}; color: {TXT};
-    border: 1px solid {LINE}; border-radius: 8px; padding: 5px;
+    border: 1px solid {LINE_BRIGHT}; border-radius: {R_L}px; padding: 6px;
 }}
-QMenu::item {{ padding: 7px 16px; border-radius: 5px; }}
-QMenu::item:selected {{ background: {ACCENT_INK}; color: {ACCENT}; }}
-QMenu::item:disabled {{ color: {TXT_FAINT}; }}
+QMenu::item {{
+    padding: 6px 12px; border-radius: {R_S}px; min-height: 18px;
+}}
+QMenu::item:selected {{ background: {SURFACE_3}; color: {TXT}; }}
+QMenu::item:disabled {{ color: {TXT_OFF}; }}
 QMenu::separator {{ height: 1px; background: {LINE}; margin: 5px 8px; }}
 
 /* ---- dicas ---- */
 QToolTip {{
     background: {SURFACE_2}; color: {TXT};
-    border: 1px solid {LINE}; border-radius: 6px; padding: 7px 9px;
+    border: 1px solid {LINE_BRIGHT}; border-radius: {R_M}px; padding: 7px 10px;
 }}
 
 /* ---- diálogos ---- */
 QMessageBox {{ background: {SURFACE}; }}
 QMessageBox QLabel {{ color: {TXT}; }}
+QDialogButtonBox {{ button-layout: 3; }}
 """

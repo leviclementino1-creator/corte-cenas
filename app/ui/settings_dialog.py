@@ -3,8 +3,11 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -14,13 +17,16 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QScrollArea,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from .. import __version__
 from . import theme
+from .presets import PRESETS
 from ..config import Config
 from ..deps_check import cuda_available, gpu_name
 from ..updater import check_and_offer_update
@@ -56,6 +62,119 @@ class SettingsDialog(QDialog):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
+        # --- Modo de reconhecimento ---
+        # Mora AQUI, e não na aba Analisar: é uma decisão que a pessoa toma
+        # UMA vez e mantém por dezenas de episódios. Ocupando espaço na tela
+        # de análise, ela pedia uma escolha a cada arquivo aberto — e a
+        # escolha é sempre a mesma.
+        modo_group = QGroupBox("Modo de reconhecimento")
+        modo_v = QVBoxLayout(modo_group)
+
+        preset_row = QHBoxLayout()
+        self.preset_group = QButtonGroup(self)
+        self.preset_buttons: dict[str, QRadioButton] = {}
+        for key, p in PRESETS.items():
+            rb = QRadioButton(p["label"])
+            rb.setToolTip(p["tooltip"])
+            self.preset_buttons[key] = rb
+            self.preset_group.addButton(rb)
+            preset_row.addWidget(rb)
+        preset_row.addStretch(1)
+        modo_v.addLayout(preset_row)
+
+        self.show_adv_btn = QPushButton("Mostrar valores manuais ⌄")
+        self.show_adv_btn.setCheckable(True)
+        self.show_adv_btn.setFlat(True)
+        self.show_adv_btn.setStyleSheet(theme.button("ghost"))
+        modo_v.addWidget(self.show_adv_btn, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self._adv_box = QWidget()
+        self._adv_box.setVisible(False)
+        adv_form = QFormLayout(self._adv_box)
+        adv_form.setContentsMargins(0, 6, 0, 0)
+        self.show_adv_btn.toggled.connect(self._toggle_advanced)
+        modo_v.addWidget(self._adv_box)
+
+        self.threshold_spin = QDoubleSpinBox()
+        self.threshold_spin.setRange(0.60, 0.98)
+        self.threshold_spin.setSingleStep(0.01)
+        self.threshold_spin.setDecimals(2)
+        self.threshold_spin.setValue(self.config.default_threshold)
+        self.threshold_spin.setToolTip(
+            "Score mínimo pra casar (cosine). Mais alto = mais exigente."
+        )
+        adv_form.addRow("Confiança mínima:", self.threshold_spin)
+
+        self.margin_spin = QDoubleSpinBox()
+        self.margin_spin.setRange(0.00, 0.20)
+        self.margin_spin.setSingleStep(0.01)
+        self.margin_spin.setDecimals(2)
+        self.margin_spin.setValue(self.config.argmax_margin)
+        self.margin_spin.setToolTip(
+            "O personagem vencedor precisa ganhar do 2º por esta margem. "
+            "Mais alto = menos falso positivo."
+        )
+        adv_form.addRow("Margem do top-1:", self.margin_spin)
+
+        self.min_shots_spin = QSpinBox()
+        self.min_shots_spin.setRange(1, 50)
+        self.min_shots_spin.setValue(self.config.min_shots_per_character)
+        self.min_shots_spin.setToolTip(
+            "Personagens com menos shots que isso são considerados ruído e "
+            "removidos."
+        )
+        adv_form.addRow("Mín. shots por personagem:", self.min_shots_spin)
+
+        self.pad_spin = QDoubleSpinBox()
+        self.pad_spin.setRange(0.00, 0.60)
+        self.pad_spin.setSingleStep(0.05)
+        self.pad_spin.setDecimals(2)
+        self.pad_spin.setValue(self.config.face_crop_padding)
+        self.pad_spin.setToolTip(
+            "Margem ao redor do rosto detectado. Mais alto inclui cabelo/roupa "
+            "(bom pra distinguir personagens). Muito alto traz fundo demais."
+        )
+        adv_form.addRow("Padding do rosto:", self.pad_spin)
+
+        self.credit_spin = QDoubleSpinBox()
+        self.credit_spin.setRange(0.10, 1.00)
+        self.credit_spin.setSingleStep(0.05)
+        self.credit_spin.setDecimals(2)
+        self.credit_spin.setValue(self.config.credit_edge_threshold)
+        self.credit_spin.setToolTip(
+            "Score mínimo pra flagar um keyframe como 'créditos/texto'. "
+            "Mais alto = menos shots pulados."
+        )
+        adv_form.addRow("Limiar de créditos:", self.credit_spin)
+
+        self.credit_enable_cb = QCheckBox(
+            "Detectar shots de créditos/texto automaticamente"
+        )
+        self.credit_enable_cb.setChecked(self.config.skip_credit_shots)
+        self.credit_enable_cb.setToolTip(
+            "Desligado por padrão — o detector costuma marcar cenas normais "
+            "como créditos em animes com traço rico (Witch Hat, Dr. Stone). "
+            "Pra remover OP/ED de verdade, use o campo 'Pular início até' / "
+            "'Pular fim após' (tempo manual, 100% confiável)."
+        )
+        adv_form.addRow("", self.credit_enable_cb)
+
+        self.danbooru_cb = QCheckBox("Usar Danbooru como fonte extra de refs")
+        self.danbooru_cb.setChecked(self.config.use_danbooru)
+        self.danbooru_cb.setToolTip(
+            "Danbooru tem mais imagens, mas muita fan art com múltiplos "
+            "personagens que contamina o centroide. Deixe ligado só se souber "
+            "que o anime tem tag Danbooru boa e pouca fan art coletiva."
+        )
+        adv_form.addRow("", self.danbooru_cb)
+
+        for key, rb in self.preset_buttons.items():
+            rb.toggled.connect(
+                lambda checked, k=key: self._apply_preset(k) if checked else None
+            )
+        self._select_matching_preset()
+        root.addWidget(modo_group)
+
         # --- Output folder ---
         out_group = QGroupBox("Pasta de saída dos clipes")
         out_form = QFormLayout(out_group)
@@ -85,7 +204,6 @@ class SettingsDialog(QDialog):
         info_out.setStyleSheet(theme.label("faint"))
         out_form.addRow("", info_out)
 
-        from PySide6.QtWidgets import QCheckBox
         self.chk_by_char = QCheckBox("Criar pastas por personagem (by_character)")
         self.chk_by_char.setChecked(self.config.organize_by_character_enabled)
         out_form.addRow("", self.chk_by_char)
@@ -343,6 +461,40 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(btns)
         outer.addLayout(btn_row)
 
+    def _apply_preset(self, key: str) -> None:
+        p = PRESETS[key]
+        self.threshold_spin.setValue(p["threshold"])
+        self.margin_spin.setValue(p["margin"])
+        self.min_shots_spin.setValue(p["min_shots"])
+        self.pad_spin.setValue(p["padding"])
+        self.credit_spin.setValue(p["credit"])
+
+    def _select_matching_preset(self) -> None:
+        """Marca o modo que bate com os valores atuais, ou Auto."""
+        atual = (
+            round(self.threshold_spin.value(), 2),
+            round(self.margin_spin.value(), 2),
+            int(self.min_shots_spin.value()),
+            round(self.pad_spin.value(), 2),
+            round(self.credit_spin.value(), 2),
+        )
+        for key, p in PRESETS.items():
+            ref = (p["threshold"], p["margin"], p["min_shots"], p["padding"], p["credit"])
+            if atual == ref:
+                self.preset_buttons[key].setChecked(True)
+                return
+        # Sem correspondência exata (o usuário mexeu na mão): fica em Auto,
+        # SEM reescrever os valores dele.
+        self.preset_buttons["auto"].blockSignals(True)
+        self.preset_buttons["auto"].setChecked(True)
+        self.preset_buttons["auto"].blockSignals(False)
+
+    def _toggle_advanced(self, checked: bool) -> None:
+        self._adv_box.setVisible(checked)
+        self.show_adv_btn.setText(
+            "Esconder valores manuais ⌃" if checked else "Mostrar valores manuais ⌄"
+        )
+
     def _pick_output_dir(self) -> None:
         path = QFileDialog.getExistingDirectory(
             self, "Pasta de saída", self.output_edit.text()
@@ -475,6 +627,14 @@ class SettingsDialog(QDialog):
         for f in fields:
             setattr(self.config, f, getattr(defaults, f))
         self.config.save()
+        # Os campos estão NESTA tela agora: sem isto eles continuariam
+        # mostrando os valores antigos e o Salvar os gravaria de volta.
+        self.threshold_spin.setValue(self.config.default_threshold)
+        self.margin_spin.setValue(self.config.argmax_margin)
+        self.min_shots_spin.setValue(self.config.min_shots_per_character)
+        self.pad_spin.setValue(self.config.face_crop_padding)
+        self.credit_spin.setValue(self.config.credit_edge_threshold)
+        self._select_matching_preset()
         QMessageBox.information(
             self, "Padrões restaurados",
             "Parâmetros de análise de volta ao padrão — valem já na "
@@ -536,6 +696,13 @@ class SettingsDialog(QDialog):
         out_path = self.output_edit.text().strip()
         if out_path:
             self.config.output_dir = out_path
+        self.config.default_threshold = float(self.threshold_spin.value())
+        self.config.argmax_margin = float(self.margin_spin.value())
+        self.config.min_shots_per_character = int(self.min_shots_spin.value())
+        self.config.face_crop_padding = float(self.pad_spin.value())
+        self.config.credit_edge_threshold = float(self.credit_spin.value())
+        self.config.skip_credit_shots = self.credit_enable_cb.isChecked()
+        self.config.use_danbooru = self.danbooru_cb.isChecked()
         self.config.organize_by_character_enabled = self.chk_by_char.isChecked()
         self.config.organize_by_pair_enabled = self.chk_by_pair.isChecked()
         self.config.ccip_enabled = self.chk_ccip.isChecked()

@@ -22,27 +22,34 @@ from .results_tab import ResultsTab
 from .settings_dialog import SettingsDialog
 
 
-def _device_badge_text() -> str:
-    # Enquanto a detecção (que carrega o torch) não terminou lá no fundo, o
-    # selo mostra "detectando" em vez de segurar a janela fechada.
-    if not cuda_known():
-        return "⏳  detectando…"
-    if cuda_available():
-        # Shorten "NVIDIA GeForce RTX 5080" -> "RTX 5080" so the badge stays
-        # narrow. Fallback to "GPU" if the name doesn't fit the pattern.
-        name = gpu_name() or "GPU"
-        for token in ("GeForce ", "NVIDIA ", "Nvidia "):
-            name = name.replace(token, "")
-        return f"🟢  {name.strip()}"
-    return "🟡  CPU (lento)"
-
-
-def _device_badge_style() -> str:
+def _device_tone() -> str:
     # Verde só quando a GPU está REALMENTE ativa: cor de estado não se gasta
     # com enfeite, senão para de significar alguma coisa.
     if not cuda_known():
-        return theme.chip("neutral")
-    return theme.chip("ok" if cuda_available() else "time")
+        return "neutral"
+    return "ok" if cuda_available() else "time"
+
+
+def _device_badge_text() -> str:
+    # Enquanto a detecção (que carrega o torch) não terminou lá no fundo, o
+    # selo mostra "detectando" em vez de segurar a janela fechada.
+    # O estado é um PONTO pintado na cor do token, não um emoji: emoji
+    # colorido não aceita cor de tema e fica sujo a 150% de escala.
+    if not cuda_known():
+        texto = "detectando…"
+    elif cuda_available():
+        # "NVIDIA GeForce RTX 5080" -> "RTX 5080", pra o selo ficar estreito.
+        name = gpu_name() or "GPU"
+        for token in ("GeForce ", "NVIDIA ", "Nvidia "):
+            name = name.replace(token, "")
+        texto = name.strip()
+    else:
+        texto = "CPU (lento)"
+    return theme.chip_dot(_device_tone(), texto)
+
+
+def _device_badge_style() -> str:
+    return theme.chip(_device_tone())
 
 
 # A folha de estilo inteira vem de app/ui/theme.py — as decisões de cor,
@@ -94,6 +101,7 @@ class MainWindow(QMainWindow):
         top_bar.setSpacing(8)
 
         self.device_label = QLabel(_device_badge_text())
+        self.device_label.setTextFormat(Qt.TextFormat.RichText)
         self.device_label.setStyleSheet(_device_badge_style())
         self.device_label.setToolTip(
             "Verde: rodando em GPU NVIDIA (rápido).\n"
