@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtCore import QSettings, Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -58,7 +58,15 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = config
         self.setWindowTitle("Corte Cenas — Analisador de Anime")
-        self.resize(1100, 720)
+        # Mínimo real da janela: abaixo disto a Biblioteca (três colunas) e o
+        # formulário de análise deixam de caber e a tela vira sopa. E o
+        # tamanho que a pessoa escolheu VOLTA na próxima abertura — quem
+        # arrasta a janela pro tamanho certo uma vez não deve fazer de novo.
+        self.setMinimumSize(980, 640)
+        self._settings = QSettings("CorteCenas", "CorteCenas")
+        geo = self._settings.value("janela/geometria")
+        if not (geo and self.restoreGeometry(geo)):
+            self.resize(1180, 760)
         self.setStyleSheet(_DARK_QSS)
         # Drop an episode file anywhere on the window to load it in Analisar.
         self.setAcceptDrops(True)
@@ -188,6 +196,10 @@ class MainWindow(QMainWindow):
         """Stop any background workers before letting Qt destroy the window,
         so we don't get 'QThread: Destroyed while thread is still running'.
         """
+        try:
+            self._settings.setValue("janela/geometria", self.saveGeometry())
+        except Exception:
+            pass
         running: list[QThread] = []
         for t in (
             getattr(self.analyze, "_thread", None),

@@ -515,6 +515,37 @@ class Database:
                 return True
         return False
 
+    def delete_episode(self, episode_id: int) -> None:
+        """Tira o episódio do acervo: cenas, atribuições, junções e a
+        curadoria manual dele.
+
+        Apaga em cascata NA MÃO de propósito: as chaves estrangeiras do
+        schema só cascateiam com `PRAGMA foreign_keys=ON`, que nem toda
+        conexão liga — confiar nisso deixaria cenas órfãs apontando pra um
+        episódio que não existe mais. O que NÃO é tocado: o personagem, as
+        fotos de referência dele e o que o app aprendeu — isso é caro de
+        refazer e não pertence a um episódio só.
+        """
+        with self.connect() as c:
+            c.execute(
+                "DELETE FROM shot_character WHERE shot_id IN "
+                "(SELECT id FROM shot WHERE episode_id = ?)",
+                (episode_id,),
+            )
+            c.execute("DELETE FROM shot WHERE episode_id = ?", (episode_id,))
+            c.execute("DELETE FROM shot_merge WHERE episode_id = ?", (episode_id,))
+            c.execute("DELETE FROM manual_override WHERE episode_id = ?", (episode_id,))
+            c.execute("DELETE FROM episode WHERE id = ?", (episode_id,))
+
+    def episodes_of_anime(self, anime_id: int) -> list[dict]:
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT id, season, episode FROM episode WHERE anime_id = ? "
+                "ORDER BY season, episode",
+                (anime_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def delete_shot(self, shot_id: int) -> None:
         """Some com a cena e com as atribuições dela (usado ao juntar)."""
         with self.connect() as c:

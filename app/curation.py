@@ -183,6 +183,40 @@ def merge_shots(
             "start": float(alvo["start"]), "end": novo_fim, "n": len(rows)}
 
 
+def enviar_para_lixeira(pasta: Path, output_root: Path) -> Path | None:
+    """MOVE a pasta pra uma lixeira dentro do Output em vez de destruí-la.
+
+    Mesma lição de produção do apagão de cache: um clique errado não pode
+    custar horas de corte, e `shutil.rmtree` numa pasta com milhares de
+    clipes não tem volta (nem passa pela Lixeira do Windows). Quem quiser o
+    espaço de volta apaga `Output/_lixeira` na mão.
+
+    Devolve pra onde foi, ou None se não havia nada pra mover.
+    """
+    import shutil
+    from datetime import datetime
+
+    pasta = Path(pasta)
+    if not pasta.exists():
+        return None
+    destino = Path(output_root) / "_lixeira" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    destino.mkdir(parents=True, exist_ok=True)
+    # Nome achatado (Anime_S03E02) pra a lixeira não parecer um Output de
+    # verdade — e pra a Biblioteca nunca reencontrar isso como episódio.
+    alvo = destino / f"{pasta.parent.name}_{pasta.name}"
+    if alvo.exists():
+        alvo = destino / f"{pasta.parent.name}_{pasta.name}_2"
+    shutil.move(str(pasta), str(alvo))
+    # Pasta do anime que ficou vazia some junto.
+    try:
+        pai = pasta.parent
+        if pai.exists() and not any(pai.iterdir()):
+            pai.rmdir()
+    except OSError:
+        pass
+    return alvo
+
+
 def remove_character_from_episode(
     db: Database,
     episode_id: int,

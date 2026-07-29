@@ -153,8 +153,17 @@ class ResultsTab(QWidget):
         self._grid_layout.addWidget(placeholder)
         right_v.addWidget(self._grid_container, 1)
         split.addWidget(right)
+        # Quem cresce ao esticar a janela é a GRADE — a lista de personagens
+        # tem largura de leitura e não ganha nada com mais espaço. Os limites
+        # impedem os dois vícios do splitter solto: a lista comendo metade da
+        # janela num monitor grande, e a grade espremida a uma coluna quando
+        # alguém arrasta a divisória pra direita.
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
+        left.setMinimumWidth(180)
+        left.setMaximumWidth(340)
+        right.setMinimumWidth(360)
+        split.setCollapsible(1, False)
         split.setSizes([220, 700])
 
         root.addWidget(split, 1)

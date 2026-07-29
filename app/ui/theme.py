@@ -79,9 +79,13 @@ def chip(tone: str = "neutral") -> str:
         "danger": ("#201114", "#4a2429", DANGER),
     }
     bg, br, fg = cores.get(tone, cores["neutral"])
+    # RAIO CONCRETO, não 999px. Na web "raio maior que a caixa" vira cápsula
+    # porque o navegador clampa em metade da altura; o Qt NÃO clampa — a
+    # borda degenera e o selo volta a ser um RETÂNGULO. Era por isso que o
+    # selo da GPU aparecia quadrado. 13px ≈ metade da altura real (~26px).
     return (
         f"QLabel{{background:{bg};border:1px solid {br};color:{fg};"
-        f"border-radius:999px;padding:4px 11px;font-family:{MONO};"
+        f"border-radius:13px;padding:5px 12px;font-family:{MONO};"
         f"font-size:11px;font-weight:600;}}"
     )
 
@@ -132,18 +136,21 @@ def button(tone: str = "normal") -> str:
 
 
 QSS = f"""
-QMainWindow, QWidget, QDialog {{
-    background: {BG};
+/* SÓ A JANELA (e o diálogo) pinta o fundo. Cor de fundo em `QWidget` é a
+   armadilha central desta folha: TUDO é um QWidget — a etiqueta, a caixa de
+   marcar e, principalmente, os widgets-embrulho que seguram uma linha de
+   formulário. Cada um deles passava a pintar um retângulo OPACO da cor do
+   FUNDO DA JANELA por cima do painel, que é mais claro. Era isso, e não o
+   texto, que desenhava as faixas escuras atrás de "T:/E:" e de "Pular
+   início/Pular fim": o embrulho da linha, não a etiqueta.
+   Quem precisa de fundo próprio pede explicitamente (painéis, cartões,
+   campos) — o resto deixa o painel de baixo aparecer. */
+QMainWindow, QDialog {{ background: {BG}; }}
+QWidget {{
     color: {TXT};
     font-family: {SANS};
     font-size: 13px;
 }}
-
-/* ARMADILHA DO QSS: QLabel (e caixa/rádio) É um QWidget, então a regra
-   acima pintava um retângulo OPACO da cor do FUNDO DA JANELA atrás de cada
-   texto. Dentro de um painel — que é mais claro — isso vira uma caixinha
-   escura em volta de cada etiqueta: "Arquivo:", "OP/ED:", todas emolduradas
-   sem ninguém ter pedido. Texto tem que deixar o painel aparecer. */
 QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
 
 /* ---- abas ---- */
@@ -172,31 +179,38 @@ QTabBar::tab:selected {{
 }}
 
 /* ---- agrupadores ---- */
-/* margin-top PRECISA ser maior que a altura do título, senão a borda de
-   cima do painel passa POR DENTRO do texto — era o traço cortando
-   "1. Episódio" ao meio. 13px de fonte pedem ~22px de folga. */
+/* O título fica ACIMA do cartão, não montado na borda dele. Encaixado na
+   linha, ele precisa de um retalho de fundo pra "furar" a borda — e o
+   retalho nunca casa com o painel de trás, o que deixava "1. Episódio" e
+   "2. Progresso" parecendo colados torto no traço. Fora do cartão o título
+   vira o que ele é: um CABEÇALHO de seção, alinhado com a borda esquerda do
+   cartão e com respiro entre ele e o conteúdo.
+   O margin-top reserva essa faixa: precisa ser maior que a altura do texto,
+   senão a borda de cima volta a passar por dentro dele. */
 QGroupBox {{
-    border: 1px solid {LINE}; border-radius: 8px;
-    margin-top: 22px; padding: 16px 14px 14px;
+    border: 1px solid {LINE}; border-radius: 10px;
+    margin-top: 28px; padding: 16px 14px 14px;
     background: {SURFACE};
 }}
-/* Título de grupo em fonte NORMAL e tamanho legível. A primeira versão usou
-   monoespaçada minúscula com letras espaçadas, que fica bonito como rótulo
-   de dado mas péssimo como título de seção: sumia contra a borda. Mono é
-   pra NÚMERO, não pra texto que a pessoa lê. */
 QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
-    left: 12px; top: 2px; padding: 0 8px;
+    left: 2px; top: 0px; padding: 0 2px;
     color: {TXT}; font-family: {SANS}; font-size: 13px; font-weight: 600;
-    background: {BG};   /* corta a borda limpo se ainda encostar */
+    background: transparent;
 }}
 
 /* ---- campos ---- */
+/* min-height é o que impede a janela baixa de ESMAGAR os campos: sem ele o
+   layout comprime cada caixa até o texto ficar cortado dentro dela (o campo
+   do arquivo virava um risco de 20px com meia linha de placeholder). Com
+   piso, quem não couber empurra a rolagem da aba — que é o certo. */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTextEdit {{
     background: {SURFACE_2}; color: {TXT};
     border: 1px solid {LINE}; border-radius: 6px;
-    padding: 6px 9px; selection-background-color: {ACCENT_DARK};
+    padding: 6px 9px; min-height: 19px;
+    selection-background-color: {ACCENT_DARK};
 }}
+QPlainTextEdit, QTextEdit {{ min-height: 40px; }}
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus,
 QPlainTextEdit:focus, QTextEdit:focus {{
     border-color: {ACCENT_DARK};

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -138,9 +139,16 @@ class AnalyzeTab(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        # A aba inteira ROLA. Numa janela baixa (ou num notebook 768p) o
+        # layout antes espremia os campos até o texto não caber mais dentro
+        # deles — a caixa do arquivo virava um risco de 20px com meia linha
+        # de texto cortada. Rolar é o comportamento honesto: cada coisa
+        # mantém o tamanho em que é legível e quem não coube desce.
+        conteudo = QWidget()
+        layout = QVBoxLayout(conteudo)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
+        self._conteudo = conteudo
 
         # --- input group ---
         inputs = QGroupBox("1. Episódio")
@@ -403,6 +411,14 @@ class AnalyzeTab(QWidget):
         pv.addWidget(self.stage_list, 1)
 
         layout.addWidget(progress_box, 1)
+
+        rolagem = QScrollArea()
+        rolagem.setWidgetResizable(True)
+        rolagem.setFrameShape(QScrollArea.Shape.NoFrame)
+        rolagem.setWidget(conteudo)
+        fora = QVBoxLayout(self)
+        fora.setContentsMargins(0, 0, 0, 0)
+        fora.addWidget(rolagem)
 
     @staticmethod
     def _wrap(inner):

@@ -50,6 +50,28 @@ _SANS_FAMILY = "Segoe UI Variable Text"
 _THUMB = QSize(192, 108)
 _CACHE_SIZED = False
 
+# Uma fonte só pra ordem das cenas: a grade usa, e a Biblioteca (que mostra o
+# seletor no seu próprio cabeçalho) usa a mesma lista em vez de repetir os
+# rótulos e correr o risco de as duas telas discordarem.
+SORT_MODES: list[tuple[str, str]] = [
+    ("⏱  cronológica", "idx"),
+    ("⚠  duvidosas primeiro", "confidence"),
+    ("⏳  mais longas primeiro", "duration"),
+]
+SORT_TIP = (
+    "Cronológica: na ordem do episódio — é a ordem pra achar cenas\n"
+    "vizinhas e juntá-las.\n"
+    "Duvidosas primeiro: as de menor confiança na frente, pra revisar\n"
+    "o que tem mais chance de estar errado.\n"
+    "Mais longas primeiro: as cenas com mais material."
+)
+
+
+def fill_sort_box(combo: QComboBox) -> None:
+    for texto, chave in SORT_MODES:
+        combo.addItem(texto, chave)
+    combo.setToolTip(SORT_TIP)
+
 
 def _ensure_cache_size() -> None:
     """Miniaturas de keyframe cabem folgado em 64 MB (~80 KB cada depois de
@@ -253,26 +275,21 @@ class ShotGrid(QWidget):
         # Cabeçalho: contagem à esquerda, ordem à direita. A ordem CRONOLÓGICA
         # é o padrão porque é a única em que "cenas vizinhas" ficam vizinhas
         # na tela — sem isso, juntar duas cenas partidas vira caça ao tesouro.
-        head = QHBoxLayout()
+        # Vive num WIDGET (não num layout solto) porque a Biblioteca esconde
+        # este cabeçalho: lá a contagem já está na linha do título e o
+        # seletor de ordem mora ao lado dela, como na referência.
+        self.head_widget = QWidget()
+        head = QHBoxLayout(self.head_widget)
         head.setContentsMargins(2, 0, 2, 2)
         self.info_label = QLabel("")
         self.info_label.setStyleSheet(theme.label("dim"))
         head.addWidget(self.info_label, 1)
         head.addWidget(QLabel("ordem:"))
         self.sort_box = QComboBox()
-        self.sort_box.addItem("⏱  cronológica", "idx")
-        self.sort_box.addItem("⚠  duvidosas primeiro", "confidence")
-        self.sort_box.addItem("⏳  mais longas primeiro", "duration")
-        self.sort_box.setToolTip(
-            "Cronológica: na ordem do episódio — é a ordem pra achar cenas\n"
-            "vizinhas e juntá-las.\n"
-            "Duvidosas primeiro: as de menor confiança na frente, pra revisar\n"
-            "o que tem mais chance de estar errado.\n"
-            "Mais longas primeiro: as cenas com mais material."
-        )
+        fill_sort_box(self.sort_box)
         self.sort_box.currentIndexChanged.connect(self._resort)
         head.addWidget(self.sort_box)
-        layout.addLayout(head)
+        layout.addWidget(self.head_widget)
 
         self.list = QListWidget()
         self.list.setViewMode(QListWidget.ViewMode.IconMode)
@@ -396,6 +413,16 @@ class ShotGrid(QWidget):
         self._hover_frames = []
         self._hover_icon0 = None
         self._hover_idx = -1
+
+    def set_header_visible(self, visivel: bool) -> None:
+        """A Biblioteca desliga o cabeçalho: lá a contagem e o seletor de
+        ordem vivem na linha do título do episódio."""
+        self.head_widget.setVisible(visivel)
+
+    def set_sort_mode(self, chave: str) -> None:
+        i = self.sort_box.findData(chave)
+        if i >= 0:
+            self.sort_box.setCurrentIndex(i)
 
     def _resort(self) -> None:
         """Reordena o que já está na tela — sem ir ao banco de novo."""
