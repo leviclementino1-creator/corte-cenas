@@ -25,9 +25,11 @@ from PySide6.QtCore import Qt, QThreadPool, QTimer, QRunnable, QObject, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QTreeWidget,
@@ -38,8 +40,16 @@ from PySide6.QtWidgets import (
 
 from ..config import Config
 from ..storage.db import Database
+from ..storage.organizer import refresh_shot_links
 from . import quiet, theme
 from .character_grid import ShotGrid
+
+
+def _mmss(segundos: float) -> str:
+    """Timecode m:ss.d — como qualquer programa de edição mostra."""
+    s = max(0.0, float(segundos))
+    return f"{int(s // 60)}:{s % 60:04.1f}"
+
 
 _PREVIEW_W = 384          # largura do player lateral
 _PREVIEW_FPS = 12         # suave o bastante pra leitura, leve pra UI
@@ -103,6 +113,7 @@ class LibraryTab(QWidget):
         self._frames: list[QImage] = []
         self._frame_i = 0
         self._pending: str | None = None
+        self._current_shot: dict | None = None
 
         self._bridge = _Bridge()
         self._bridge.ready.connect(self._on_clip_ready)
@@ -158,18 +169,47 @@ class LibraryTab(QWidget):
         cap = QLabel("A CENA")
         cap.setStyleSheet(theme.label("eyebrow"))
         rv.addWidget(cap)
+        # A tela do clipe tem altura FIXA (proporção de vídeo). Antes ela
+        # esticava pra ocupar a coluna inteira e o quadro ficava boiando no
+        # meio de um painel vazio, com a informação empurrada pro rodapé.
         self.player = QLabel("Clique numa cena\npra ela tocar aqui, em loop")
         self.player.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.player.setFixedHeight(int(_PREVIEW_W * 9 / 16))
         self.player.setMinimumWidth(_PREVIEW_W)
         self.player.setStyleSheet(
-            "background:#141a24;border:1px solid #2b2d31;border-radius:4px;"
-            "color:#6a7484;padding:12px;"
+            f"background:{theme.SURFACE_2};border:1px solid {theme.LINE};"
+            f"border-radius:6px;color:{theme.TXT_FAINT};padding:10px;"
         )
-        rv.addWidget(self.player, 1)
+        rv.addWidget(self.player)
+
         self.player_info = QLabel("")
-        self.player_info.setStyleSheet(theme.label("mono"))
+        self.player_info.setTextFormat(Qt.TextFormat.RichText)
         self.player_info.setWordWrap(True)
+        self.player_info.setStyleSheet(
+            f"font-family:{theme.MONO};font-size:11.5px;color:{theme.TXT_DIM};"
+            f"padding:10px 2px;"
+        )
         rv.addWidget(self.player_info)
+
+        # Ações da cena — o que a referência prometia e faltava aqui: dá pra
+        # curar sem sair da Biblioteca.
+        self.btn_merge = QPushButton("⛓   Juntar com a próxima")
+        self.btn_merge.setStyleSheet(theme.button("primary"))
+        self.btn_merge.clicked.connect(lambda: self._scene_action("merge_next"))
+        rv.addWidget(self.btn_merge)
+
+        self.btn_move = QPushButton("↗   Mover pra outro personagem")
+        self.btn_move.clicked.connect(lambda: self._scene_action("move"))
+        rv.addWidget(self.btn_move)
+
+        self.btn_drop = QPushButton("⤫   Remover deste personagem")
+        self.btn_drop.setStyleSheet(theme.button("danger"))
+        self.btn_drop.clicked.connect(lambda: self._scene_action("remove"))
+        rv.addWidget(self.btn_drop)
+
+        for b in (self.btn_merge, self.btn_move, self.btn_drop):
+            b.setEnabled(False)
+        rv.addStretch(1)
         split.addWidget(right)
 
         split.setStretchFactor(0, 0)
@@ -338,9 +378,32 @@ class LibraryTab(QWidget):
             self._stop_player()
             self.player.setText("O arquivo dessa cena não está mais na pasta")
             return
-        dur = float(row.get("end") or 0) - float(row.get("start") or 0)
+        ini = float(row.get("start") or 0)
+        fim = float(row.get("end") or 0)
+        conf = row.get("confidence")
+        quem = [
+            a["name"]
+            for a in self.db.assignments_for_episode(self._episode["id"]).get(
+                int(row["id"]), []
+            )
+        ]
+        k = f"color:{theme.TXT_FAINT}"
+        t = f"color:{theme.TIME}"
         self.player_info.setText(
-            f"Cena #{int(row['idx']):04d}  ·  {dur:.1f}s  ·  {clipe.name}"
+            f"<span style='{k}'>cena</span> &nbsp;#{int(row['idx']):04d}<br>"
+            f"<span style='{k}'>tempo</span> &nbsp;{_mmss(ini)} → {_mmss(fim)}<br>"
+            f"<span style='{k}'>duração</span> &nbsp;<b style='{t}'>{fim - ini:.1f}s</b>"
+            + (f" &nbsp;<span style='{k}'>conf</span> {conf:.2f}" if conf is not None else "")
+            + f"<br><span style='{k}'>quem</span> &nbsp;"
+            + (", ".join(quem) if quem else "—")
+        )
+        self._current_shot = row
+        filtro = self._char_filter()
+        self.btn_merge.setEnabled(True)
+        self.btn_move.setEnabled(filtro is not None)
+        self.btn_drop.setEnabled(filtro is not None)
+        self.btn_drop.setText(
+            f"⤫   Remover de {filtro}" if filtro else "⤫   Remover deste personagem"
         )
         self._stop_player()
         self.player.setText("carregando…")
@@ -373,6 +436,114 @@ class LibraryTab(QWidget):
         self._pending = None
         self.player.setPixmap(QPixmap())
         self.player.setText("Clique numa cena\npra ela tocar aqui, em loop")
+
+    def _char_filter(self) -> str | None:
+        """Personagem filtrado agora, se houver (as ações por personagem só
+        fazem sentido quando existe um)."""
+        itens = self.chars.selectedItems()
+        return itens[0].data(Qt.ItemDataRole.UserRole) if itens else None
+
+    def _char_id(self, nome: str) -> int | None:
+        with self.db.connect() as c:
+            row = c.execute(
+                "SELECT id FROM character WHERE name = ? LIMIT 1", (nome,)
+            ).fetchone()
+        return int(row["id"]) if row else None
+
+    def _scene_action(self, acao: str) -> None:
+        """Curar sem sair da Biblioteca."""
+        row = getattr(self, "_current_shot", None)
+        if row is None or self._episode is None or self._root is None:
+            return
+        ep_id = self._episode["id"]
+
+        if acao == "merge_next":
+            todas = sorted(
+                self.db.shots_for_episode(ep_id), key=lambda r: float(r["start"])
+            )
+            pos = next(
+                (i for i, r in enumerate(todas) if int(r["id"]) == int(row["id"])), None
+            )
+            if pos is None or pos + 1 >= len(todas):
+                quiet.information(self, "Sem próxima", "Essa é a última cena.")
+                return
+            par = [todas[pos], todas[pos + 1]]
+            dur = sum(float(r["end"]) - float(r["start"]) for r in par)
+            if quiet.question(
+                self, "Juntar cenas",
+                f"Juntar #{int(par[0]['idx']):04d} e #{int(par[1]['idx']):04d} "
+                f"num clipe só de {dur:.1f}s?\n\n"
+                "• Sem recodificar (rápido e sem perda)\n"
+                "• O app lembra: as próximas análises já saem juntadas\n"
+                "• As outras cenas não mudam de número",
+            ) != QMessageBox.StandardButton.Yes:
+                return
+            from ..curation import merge_shots
+            novo = merge_shots(
+                self.db, ep_id, par, self._root,
+                keyframes_per_shot=self.config.keyframes_per_shot,
+                by_character=self.config.organize_by_character_enabled,
+                by_pair=self.config.organize_by_pair_enabled,
+            )
+            if novo is None:
+                quiet.information(
+                    self, "Não deu pra juntar",
+                    "As cenas precisam ser vizinhas e os clipes precisam existir.",
+                )
+                return
+            self._stop_player()
+            self._load_episode()
+            return
+
+        nome = self._char_filter()
+        if not nome:
+            return
+        cid = self._char_id(nome)
+        if cid is None:
+            return
+
+        if acao == "remove":
+            self.db.remove_shot_character(int(row["id"]), cid)
+            self.db.record_manual(ep_id, int(row["idx"]), cid, "block")
+        elif acao == "move":
+            outros = sorted(
+                {a["name"] for ass in self.db.assignments_for_episode(ep_id).values()
+                 for a in ass} - {nome}
+            )
+            if not outros:
+                quiet.information(
+                    self, "Sem destino",
+                    "Não há outro personagem neste episódio pra receber a cena.",
+                )
+                return
+            alvo, ok = QInputDialog.getItem(
+                self, "Mover cena", "Passar esta cena para:", outros, 0, False
+            )
+            if not ok or not alvo:
+                return
+            alvo_id = self._char_id(alvo)
+            if alvo_id is None:
+                return
+            self.db.remove_shot_character(int(row["id"]), cid)
+            self.db.record_manual(ep_id, int(row["idx"]), cid, "block")
+            self.db.assign_character_manual(int(row["id"]), alvo_id, 1.0)
+            self.db.record_manual(ep_id, int(row["idx"]), alvo_id, "add", 1.0)
+
+        # pastas reais acompanham na hora
+        nomes = [
+            a["name"]
+            for a in self.db.assignments_for_episode(ep_id).get(int(row["id"]), [])
+        ]
+        try:
+            refresh_shot_links(
+                self._root, self._root / row["file"], nomes,
+                by_character=self.config.organize_by_character_enabled,
+                by_pair=self.config.organize_by_pair_enabled,
+            )
+        except Exception:
+            pass
+        self._stop_player()
+        self._load_episode()
 
     def _open_folder(self) -> None:
         if self._root and self._root.exists():

@@ -76,11 +76,14 @@ class MainWindow(QMainWindow):
         self._lib_index = self.tabs.addTab(QWidget(), "Biblioteca")
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
-        # Top bar: GPU/CPU indicator on the left of the settings button so
-        # the user always knows which mode they're in without opening Settings.
-        top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(8, 6, 8, 0)
-        top_bar.addStretch(1)
+        # Selo de GPU e Configurações vão no CANTO da barra de abas, não numa
+        # faixa própria acima dela: uma linha inteira da janela só pra dois
+        # controles é altura roubada da grade de cenas, que é o conteúdo que
+        # importa. O QTabWidget tem encaixe pra isso (corner widget).
+        canto = QWidget()
+        top_bar = QHBoxLayout(canto)
+        top_bar.setContentsMargins(0, 0, 8, 0)
+        top_bar.setSpacing(8)
 
         self.device_label = QLabel(_device_badge_text())
         self.device_label.setStyleSheet(_device_badge_style())
@@ -102,12 +105,12 @@ class MainWindow(QMainWindow):
         self.settings_btn.setStyleSheet(theme.button())
         self.settings_btn.clicked.connect(self._open_settings)
         top_bar.addWidget(self.settings_btn)
+        self.tabs.setCornerWidget(canto, Qt.Corner.TopRightCorner)
 
         central = QWidget()
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(4)
-        root.addLayout(top_bar)
+        root.setSpacing(0)
         root.addWidget(self.tabs)
 
         self.analyze.pipeline_finished.connect(self._on_pipeline_finished)
