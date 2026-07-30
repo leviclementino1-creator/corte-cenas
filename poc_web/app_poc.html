@@ -434,12 +434,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 
     <div class="secao">
       <div class="cabecalho"><span class="num">02</span><span class="tit">Análise</span><span class="traco"></span></div>
-      <div class="corpo" style="gap:10px">
-        <div class="linha" style="gap:14px">
-          <span class="caixa" id="so_cortar"><span class="qd"></span>✂ Só cortar as cenas (sem identificar personagens)</span>
-          <span class="btn fantasma">Testar refs (preview)</span>
-        </div>
-      </div>
+      <!-- "Só cortar as cenas" e "Testar refs" NÃO ficam aqui: na maquete a
+           seção 02 tem só os três botões. Os dois são ajuste, não ação do
+           dia a dia — moraram nas Configurações. -->
       <div class="acoes">
         <div class="btn vazado">🔍&nbsp; Modo Descoberta</div>
         <span style="flex:1"></span>
@@ -571,6 +568,10 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
             <div class="exp">Pega quase tudo, com mais engano junto. Bom pra caçar cena rara.</div></div>
         </div>
         <div class="nota"><b>Mostrar valores manuais ⌄</b> — os cinco números por trás dos presets, se quiser mexer na mão.</div>
+        <div class="corpo" style="padding-top:2px">
+          <span class="caixa" id="so_cortar"><span class="qd"></span>✂ Só cortar as cenas (sem identificar personagens)</span>
+          <div class="nota" style="padding-left:24px">Pula o reconhecimento inteiro: sai só a pasta <span style="font-family:var(--mono);color:var(--dim)">shots/</span>, sem elenco e sem pastas por personagem.</div>
+        </div>
       </div>
 
       <div class="secao">
@@ -593,6 +594,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <div class="secao">
         <div class="cabecalho"><span class="num">03</span><span class="tit">Referências e cache</span><span class="traco"></span></div>
         <div class="botoeira">
+          <div class="btn-campo" style="border-color:var(--accent-dim);color:var(--accent);font-weight:600">🔍 Testar refs (preview)</div>
           <div class="btn-campo">📂 Abrir pasta de referências</div>
           <div class="btn-campo">📂 Abrir pasta de cache</div>
           <div class="btn-campo">🧩 Fundir duplicados</div>
