@@ -509,22 +509,36 @@ def testa_progresso(jan, app) -> None:
     # O que fazia a tela tremer era a fileira mudando de altura quando o
     # rótulo longo quebrava em duas linhas. Isso é medível e estável: se só
     # aparecer UMA altura durante o processo inteiro, nada pulou.
+    # Mede a altura de TUDO que pode encolher durante o processo. Se algum
+    # bloco tiver mais de uma altura, ele pula — e pular é o tremido.
     ESPIA = r"""
     (() => {
-      window.__alturas = new Set();
+      window.__alt = {};
+      const alvos = {
+        fileira: '.etapa',
+        cabecalho: '.prog-topo',
+        contagem: '#p_conta',
+        oque: '.prog-topo .oque',
+        esquerda: '.prog-esq',
+        secao: '#analisar .secao:last-child',
+      };
       window.__timer = setInterval(() => {
-        document.querySelectorAll('.etapa').forEach(e =>
-          window.__alturas.add(Math.round(e.getBoundingClientRect().height)));
-      }, 60);
-      return 'medindo a altura das fileiras';
+        for (const [nome, sel] of Object.entries(alvos)) {
+          (window.__alt[nome] = window.__alt[nome] || new Set());
+          document.querySelectorAll(sel).forEach(e =>
+            window.__alt[nome].add(Math.round(e.getBoundingClientRect().height)));
+        }
+      }, 50);
+      return 'medindo a altura de cada bloco';
     })()
     """
     VEREDITO = r"""
     (() => {
       clearInterval(window.__timer);
-      const a = [...window.__alturas].sort((x,y) => x-y);
-      return `alturas de fileira durante todo o processo: [${a.join(', ')}]`
-           + (a.length === 1 ? ' — nada pulou' : ' — AINDA PULA');
+      return Object.entries(window.__alt).map(([n, s]) => {
+        const a = [...s].sort((x,y) => x-y);
+        return `${n}=[${a.join(',')}]${a.length > 1 ? ' PULA' : ''}`;
+      }).join('  ');
     })()
     """
 

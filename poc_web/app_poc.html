@@ -104,10 +104,20 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .prog-esq{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}
 .prog-topo{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
 .prog-topo .oque{display:flex;flex-direction:column;gap:3px}
-.prog-topo .titulo{font-size:13px;font-weight:600;color:var(--txt)}
-.prog-topo .conta{font-size:12px;color:var(--faint)}
-.prog-topo .conta b{font-family:var(--mono);color:var(--time);font-weight:400}
-.prog-topo .pct{font-family:var(--mono);font-size:26px;color:var(--time);line-height:1}
+.prog-topo .titulo{font-size:13px;font-weight:600;color:var(--txt);
+                   line-height:17px;height:17px}
+/* A linha da contagem SOME quando a mensagem não traz número — e some no
+   começo de toda etapa. Sem altura reservada o cabeçalho encolhia 10px e
+   voltava, uma vez por etapa: era isso o tremido. */
+/* ALTURA FIXA, não min-height: com min-height a caixa vazia dava 16 e a
+   cheia 17 por arredondamento de subpixel — 1px de tremor que sobrava. */
+.prog-topo .conta{font-size:12px;color:var(--faint);line-height:17px;height:17px}
+/* o `line-height` tem que ser repetido AQUI: a altura da linha é a maior
+   entre a do pai e a do filho, e a fonte mono do número esticava 1px */
+.prog-topo .conta b{font-family:var(--mono);color:var(--time);font-weight:400;
+                    line-height:16px;font-variant-numeric:tabular-nums}
+.prog-topo .pct{font-family:var(--mono);font-size:26px;color:var(--time);
+                line-height:1;font-variant-numeric:tabular-nums}
 .barra{height:10px;background:var(--well);border:1px solid var(--line);
        border-radius:5px;display:flex;overflow:hidden}
 .barra i{height:8px;background:var(--accent)}
@@ -117,11 +127,15 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
         border-radius:4px;overflow:hidden}
 .tempos div{background:var(--well);padding:8px 10px;display:flex;
             flex-direction:column;gap:2px}
-.tempos .r{font-size:11px;color:var(--faint)}
-.tempos .v{font-family:var(--mono);font-size:14px;color:var(--txt)}
+.tempos .r{font-size:11px;color:var(--faint);line-height:14px}
+.tempos .v{font-family:var(--mono);font-size:14px;color:var(--txt);
+           line-height:18px;min-height:18px;font-variant-numeric:tabular-nums}
 .tempos .v.amb{color:var(--time)}
+/* uma linha, sempre: o caminho do arquivo muda a cada cena e sem isto a
+   altura mudava junto */
 .arquivo-atual{font-family:var(--mono);font-size:11px;color:var(--ghost);
-               overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+               overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+               line-height:15px;min-height:15px}
 .etapas{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:1px;
         background:var(--line-soft);border:1px solid var(--line-soft);
         border-radius:4px;overflow:hidden}
@@ -133,7 +147,10 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .etapa .marca{width:12px;flex:0 0 12px;text-align:center;font-size:11px}
 .etapa .rotulo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
                white-space:nowrap}
-.etapa .n{margin-left:auto;flex:0 0 auto;font-family:var(--mono);font-size:11px}
+/* largura reservada + dígitos de mesma largura: sem isso o contador crescia
+   de "40/320" pra "320/320" e empurrava o rótulo ao lado a cada atualização */
+.etapa .n{margin-left:auto;flex:0 0 58px;text-align:right;font-family:var(--mono);
+          font-size:11px;font-variant-numeric:tabular-nums}
 .etapa.feita{color:var(--dim)} .etapa.feita .marca{color:var(--ok)}
 .etapa.feita .n{color:var(--faint)}
 .etapa.rodando{background:var(--accent-ink);color:var(--txt);font-weight:600}
