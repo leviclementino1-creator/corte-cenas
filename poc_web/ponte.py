@@ -162,6 +162,18 @@ class Ponte(QObject):
         self.cliques: list[str] = []
         self.marcas: dict[str, float] = {}
 
+    @Slot(result=str)
+    def config(self) -> str:
+        """O que a tela de Analisar e o diálogo de Configurações mostram nos
+        campos. Vem do Config real do app, não de texto fixo."""
+        try:
+            from app.config import Config
+
+            c = Config.load()
+            return json.dumps({"saida": str(c.output_path)})
+        except Exception as e:  # noqa: BLE001 — o PoC não pode morrer por isso
+            return json.dumps({"saida": str(self.raiz.parent.parent), "erro": str(e)})
+
     # ---- prévia -----------------------------------------------------------
     @Slot(int, result=str)
     def previa(self, idx: int) -> str:

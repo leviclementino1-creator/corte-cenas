@@ -5,68 +5,150 @@
 <title>Corte Cenas — prova de conceito</title>
 <style>
 /* ------------------------------------------------------------------ *
- * Os mesmos tokens do app/ui/theme.py. Copiados, não reinterpretados. *
+ * Tokens copiados de app/ui/theme.py. Os valores de layout (alturas,  *
+ * recuos, gaps) vieram medidos da maquete, não estimados a olho.      *
  * ------------------------------------------------------------------ */
 :root{
   --bg:#0e1014; --surface:#14181f; --surface-2:#1b2129; --surface-3:#232b35;
-  --well:#14181f; --well-off:#0f1217; --pressed:#161b22;
+  --well:#14181f; --well-off:#0f1217;
   --line:#2a323d; --line-soft:#1e242c; --line-bright:#37414e;
   --txt:#e6ebf2; --dim:#9aa4b2; --faint:#6a7382; --off:#4b5462; --ghost:#5b6473;
   --accent:#4cc9c0; --accent-hover:#5fd6cd; --accent-dim:#35938c;
   --accent-ink:#0c2b29; --on-accent:#08201e;
-  --time:#e8a15c; --time-ink:#20190f; --time-line:#5c4a2a;
-  --ok:#6fcf8b; --danger:#e5686f;
+  --time:#e8a15c; --time-ink:#20190f;
+  --ok:#6fcf8b; --danger:#e5686f; --danger-ink:#1f1418; --danger-line:#5b2a30;
   --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   --display:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
   --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
-  --w-acervo:248px; --w-cena:320px;
+  --w-acervo:248px; --w-cena:320px; --w-elenco:268px;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
-body{
-  background:var(--bg); color:var(--txt); font-family:var(--sans); font-size:13px;
-  -webkit-font-smoothing:antialiased; user-select:none; cursor:default;
-}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13px;
+     -webkit-font-smoothing:antialiased;user-select:none;cursor:default}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:#2a323d;border-radius:5px;border:2px solid var(--bg)}
-::-webkit-scrollbar-thumb:hover{background:#37414e}
+::-webkit-scrollbar-thumb:hover{background:var(--line-bright)}
 
-/* --- barra de abas: 44 no total, aba de 36 encostada embaixo ---------- */
-.abas{height:44px;display:flex;align-items:flex-end;padding:0 12px;
-      border-bottom:1px solid var(--line);gap:2px}
-.aba{height:36px;display:flex;align-items:center;padding:0 16px;font-size:13px;
-     color:var(--dim);border:1px solid transparent;border-bottom:none;
-     border-radius:6px 6px 0 0;margin-bottom:-1px;cursor:default}
-.aba:hover{color:var(--txt);background:var(--surface)}
-.aba.viva{color:var(--txt);background:var(--surface-2);border-color:var(--line);
-          border-bottom-color:var(--surface-2)}
+/* --- barra de abas: 44 no total, aba de 36 encostada embaixo --------- */
+.abas{height:44px;display:flex;align-items:flex-end;padding:0 12px;gap:2px;
+      background:var(--surface);border-bottom:1px solid var(--line)}
+.aba{height:36px;display:flex;align-items:center;padding:0 16px;font-size:14px;
+     color:var(--dim);border-radius:4px 4px 0 0;margin-bottom:-1px}
+.aba:hover{color:var(--txt)}
+.aba.viva{background:var(--bg);color:var(--txt);font-weight:600;
+          border-width:2px 1px 1px;border-style:solid;
+          border-color:var(--accent) var(--line) var(--bg)}
 .abas .direita{margin-left:auto;display:flex;align-items:center;gap:8px;padding-bottom:5px}
-.capsula{height:26px;display:flex;align-items:center;gap:7px;padding:0 11px;
+.capsula{height:26px;display:flex;align-items:center;gap:7px;padding:0 12px;
          border-radius:13px;background:var(--surface-2);border:1px solid var(--line);
-         font-size:12px;color:var(--dim)}
+         font-size:12.5px;color:var(--txt);white-space:nowrap}
+/* nome próprio: `.rot` é o rótulo de 98px do formulário e esticava a cápsula */
+.capsula .leg{color:var(--dim)}
 .ponto{width:7px;height:7px;border-radius:50%;background:var(--ok)}
 
-/* --- a Biblioteca: 248 fixo | grade elástica | 320 fixo -------------- */
-.tela{height:calc(100vh - 44px);display:flex}
+.telas{height:calc(100vh - 44px)}
+.tela{height:100%;display:none}
+.tela.viva{display:flex}
+
+/* ================= 1. ANALISAR ====================================== */
+#analisar{flex-direction:column;padding:16px 20px;gap:16px;overflow:auto}
+.secao{display:flex;flex-direction:column;gap:10px}
+.cabecalho{display:flex;align-items:center;gap:10px}
+.cabecalho .num{font-family:var(--mono);font-size:11px;color:var(--accent)}
+.cabecalho .tit{font-size:13px;font-weight:600;color:var(--txt)}
+.cabecalho .traco{flex:1;height:1px;background:var(--line-soft)}
+.corpo{padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.linha{display:flex;align-items:center;gap:10px}
+.rot{width:98px;font-size:13px;color:var(--dim);flex:0 0 98px}
+.campo{flex:1;display:flex;align-items:center;height:32px;padding:0 10px;
+       background:var(--well);border:1px solid var(--line);border-radius:4px;
+       font-size:13px;color:var(--txt);min-width:0;overflow:hidden;
+       text-overflow:ellipsis;white-space:nowrap}
+.campo.fraco{color:var(--ghost)}
+.btn-campo{display:flex;align-items:center;height:32px;padding:0 14px;
+           background:var(--surface-2);border:1px solid var(--line);border-radius:4px;
+           font-size:13px;color:var(--txt);white-space:nowrap}
+.btn-campo:hover{border-color:var(--line-bright)}
+.giro{display:flex;align-items:center;justify-content:space-between;width:84px;
+      height:32px;padding:0 4px 0 10px;background:var(--well);
+      border:1px solid var(--line);border-radius:4px}
+.giro .v{font-family:var(--mono);font-size:13px;color:var(--time)}
+.giro .setas{display:flex;flex-direction:column;gap:1px}
+.giro .setas span{display:flex;align-items:center;justify-content:center;width:20px;
+                  height:12px;background:var(--surface-2);border:1px solid var(--line);
+                  border-radius:2px;font-size:7px;color:var(--dim)}
+.giro .setas span:hover{background:var(--surface-3);color:var(--txt)}
+.mini-rot{font-size:12.5px;color:var(--faint)}
+.campo-curto{width:78px;flex:0 0 78px;justify-content:center;font-family:var(--mono)}
+
+.acoes{padding-left:20px;display:flex;gap:10px;align-items:center}
+.btn{display:flex;align-items:center;justify-content:center;height:38px;padding:0 16px;
+     border-radius:4px;font-size:14px;font-weight:600;border:1px solid transparent;
+     white-space:nowrap}
+.btn.cheio{background:var(--accent);border-color:var(--accent);color:var(--on-accent);
+           padding:0 20px}
+.btn.cheio:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.btn.vazado{background:var(--bg);border-color:var(--accent-dim);color:var(--accent)}
+.btn.vazado:hover{border-color:var(--accent)}
+.btn.cinza{background:var(--surface-2);border-color:var(--line);color:var(--txt)}
+.btn.cinza:hover{border-color:var(--line-bright)}
+.btn.perigo{height:32px;padding:0 14px;font-size:13px;background:var(--danger-ink);
+            border-color:var(--danger-line);color:var(--danger)}
+.btn.fantasma{height:32px;padding:0 12px;font-size:13px;background:transparent;
+              color:var(--dim);font-weight:400}
+.btn.fantasma:hover{background:var(--surface-2);color:var(--txt)}
+
+.progresso{padding-left:20px;display:flex;gap:20px}
+.prog-esq{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}
+.prog-topo{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.prog-topo .oque{display:flex;flex-direction:column;gap:3px}
+.prog-topo .titulo{font-size:13px;font-weight:600;color:var(--txt)}
+.prog-topo .conta{font-size:12px;color:var(--faint)}
+.prog-topo .conta b{font-family:var(--mono);color:var(--time);font-weight:400}
+.prog-topo .pct{font-family:var(--mono);font-size:26px;color:var(--time);line-height:1}
+.barra{height:10px;background:var(--well);border:1px solid var(--line);
+       border-radius:5px;display:flex;overflow:hidden}
+.barra i{height:8px;background:var(--accent)}
+.barra i.pale{background:var(--accent-dim)}
+.tempos{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+        background:var(--line-soft);border:1px solid var(--line-soft);
+        border-radius:4px;overflow:hidden}
+.tempos div{background:var(--well);padding:8px 10px;display:flex;
+            flex-direction:column;gap:2px}
+.tempos .r{font-size:11px;color:var(--faint)}
+.tempos .v{font-family:var(--mono);font-size:14px;color:var(--txt)}
+.tempos .v.amb{color:var(--time)}
+.arquivo-atual{font-family:var(--mono);font-size:11px;color:var(--ghost);
+               overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.etapas{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:1px;
+        background:var(--line-soft);border:1px solid var(--line-soft);
+        border-radius:4px;overflow:hidden}
+.etapa{height:30px;display:flex;align-items:center;gap:8px;padding:0 10px;
+       background:var(--well);font-size:12.5px;color:var(--faint)}
+.etapa .marca{width:12px;text-align:center;font-size:11px}
+.etapa .n{margin-left:auto;font-family:var(--mono);font-size:11px}
+.etapa.feita{color:var(--dim)} .etapa.feita .marca{color:var(--ok)}
+.etapa.feita .n{color:var(--faint)}
+.etapa.rodando{background:var(--accent-ink);color:var(--txt);font-weight:600}
+.etapa.rodando .marca,.etapa.rodando .n{color:var(--accent)}
+
+/* ================= 2. BIBLIOTECA =================================== */
 .acervo{width:var(--w-acervo);flex:0 0 var(--w-acervo);
         border-right:1px solid var(--line);padding:14px 8px 12px;overflow:auto}
-.meio{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
-.cena{width:var(--w-cena);flex:0 0 var(--w-cena);
-      border-left:1px solid var(--line);padding:14px 16px;display:flex;
-      flex-direction:column;gap:14px;overflow:auto}
-
-.sobrancelha{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
-             text-transform:uppercase;color:var(--faint);padding:0 8px 8px}
+.meio{flex:1;min-width:0;display:flex;flex-direction:column}
+.cena{width:var(--w-cena);flex:0 0 var(--w-cena);border-left:1px solid var(--line);
+      padding:14px 16px;display:flex;flex-direction:column;gap:14px;overflow:auto}
+.sobrancelha{font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+             text-transform:uppercase;color:var(--faint);padding:4px 10px 6px}
 .no{display:flex;align-items:center;height:28px;padding:0 8px;border-radius:4px;
     color:var(--dim);gap:6px}
 .no:hover{background:var(--surface)}
-.no.viva{background:var(--surface-2);color:var(--txt);
-         box-shadow:inset 3px 0 0 var(--accent)}
+.no.viva{background:var(--surface-2);color:var(--txt);box-shadow:inset 3px 0 0 var(--accent)}
 .no .seta{width:9px;color:var(--off);font-size:9px}
 .no .conta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--time)}
-.no.n1{padding-left:10px} .no.n2{padding-left:24px} .no.n3{padding-left:38px}
-
+.no.n1{padding-left:10px}.no.n2{padding-left:24px}.no.n3{padding-left:38px}
 .cabeca{padding:16px 20px 12px;border-bottom:1px solid var(--line)}
 .cabeca h1{font-family:var(--display);font-size:19px;font-weight:600;margin:0 0 6px;
            letter-spacing:-.01em}
@@ -74,42 +156,36 @@ body{
 .cabeca .meta b{font-family:var(--mono);color:var(--time);font-weight:400}
 .cabeca .meta .duv{color:var(--danger)}
 .filtros{display:flex;gap:8px;margin-top:12px;overflow-x:auto;overflow-y:hidden;
-         padding-bottom:2px;scrollbar-width:thin}
+         padding-bottom:2px}
 .filtros::-webkit-scrollbar{height:6px}
-.pilula{flex:0 0 auto;height:34px;display:flex;align-items:center;gap:8px;
-        padding:0 13px;border-radius:17px;background:var(--surface-2);
-        border:1px solid var(--line);color:var(--dim);font-size:13px;white-space:nowrap}
+.pilula{flex:0 0 auto;height:34px;display:flex;align-items:center;gap:8px;padding:0 13px;
+        border-radius:17px;background:var(--surface-2);border:1px solid var(--line);
+        color:var(--dim);font-size:13px;white-space:nowrap}
 .pilula:hover{border-color:var(--line-bright);color:var(--txt)}
 .pilula.viva{background:var(--accent-ink);border-color:var(--accent-dim);color:var(--accent)}
 .pilula .n{font-family:var(--mono);font-size:11px;color:var(--time)}
 .pilula.viva .n{color:var(--accent)}
 
-/* --- A GRADE. O ponto todo desta prova de conceito. ------------------ *
- * Em QSS isso não existe: nem grid, nem auto-fill, nem minmax. Aqui as  *
- * colunas se ajustam sozinhas, o respiro é igual nos quatro lados e o   *
- * cartão nunca passa de 300 nem encolhe abaixo de 196.                  */
-.grade{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:14px 20px;align-content:start}
+.grade{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px 20px;align-content:start}
 .grade .pista{
   display:grid;gap:12px;justify-items:center;
   /* Cartão entre 196 e 300, no máximo 5 colunas — as três regras numa linha.
      O `max(...)` é o teto de colunas: exigindo que cada uma ocupe ao menos
-     1/5 da pista, não cabem seis. O `1fr` faz o resto esticar pra preencher,
-     e é ele que mantém o respiro igual dos dois lados sozinho.
+     1/5 da pista, não cabem seis. O `1fr` faz o resto esticar e é ele que
+     mantém o respiro igual dos dois lados sozinho.
      ARMADILHA (medida): trocar o `1fr` por `300px` parece equivalente e não
      é — com um máximo definido o `auto-fill` passa a CONTAR por ele, e 1920
      de largura caía pra 4 colunas de 300 com 53px sobrando de cada lado. */
   grid-template-columns:repeat(auto-fill,minmax(max(196px,calc(20% - 9.6px)),1fr))}
-.cartao{max-width:300px;width:100%}
-/* Abaixo de 1180 o painel da cena sai de cena e a grade fica com a largura
-   — mesma régua que o app usa hoje. */
+/* Abaixo de 1180 o painel da cena sai e a grade fica com a largura. */
 @media (max-width:1180px){ .cena{display:none} }
 
 /* ARMADILHA (medida): `overflow:hidden` AQUI zera a altura intrínseca do
  * cartão quando o filho tira a altura de `aspect-ratio` — a linha do grid
- * saía com 2px (só as bordas) e a grade virava um monte de riscos. Quem
- * recorta a imagem é o .quadro, que já tem o overflow dele. */
+ * saía com 2px e a grade virava um monte de riscos. Quem recorta a imagem
+ * é o .quadro, que já tem o overflow dele. */
 .cartao{background:var(--surface);border:1px solid var(--line-soft);border-radius:6px;
-        position:relative}
+        position:relative;max-width:300px;width:100%}
 .cartao:hover{border-color:var(--line-bright)}
 .cartao.viva{border-color:var(--accent)}
 .cartao .quadro{position:relative;aspect-ratio:16/9;background:var(--well-off);
@@ -120,15 +196,14 @@ body{
              background:rgba(11,14,18,.82);font-family:var(--mono);font-size:10px;
              color:var(--dim)}
 .cartao.viva .tag{background:var(--accent);color:var(--on-accent)}
-.cartao .selo{position:absolute;top:6px;right:6px;font-size:11px}
-.cartao .selo.duv{color:var(--time)} .cartao .selo.ok{color:var(--ok)}
+.cartao .selo{position:absolute;top:6px;right:6px;font-size:11px;color:var(--time)}
 .cartao .trilho{position:absolute;left:0;right:0;bottom:0;height:3px;
                 background:rgba(232,161,92,.25);opacity:0;transition:opacity .12s}
 .cartao:hover .trilho{opacity:1}
 .cartao .trilho i{display:block;height:100%;background:var(--time);width:0}
-.cartao .tc{position:absolute;bottom:6px;right:6px;font-family:var(--mono);
-            font-size:10px;color:var(--time);background:rgba(11,14,18,.82);
-            padding:1px 4px;border-radius:3px;opacity:0}
+.cartao .tc{position:absolute;bottom:6px;right:6px;font-family:var(--mono);font-size:10px;
+            color:var(--time);background:rgba(11,14,18,.82);padding:1px 4px;
+            border-radius:3px;opacity:0}
 .cartao:hover .tc{opacity:1}
 .cartao .pe{height:26px;display:flex;align-items:center;gap:8px;padding:0 8px;
             border-top:1px solid var(--line-soft)}
@@ -137,24 +212,19 @@ body{
 .cartao .pe .nome.vazio{color:var(--ghost);font-style:italic}
 .cartao .pe .dur{font-family:var(--mono);font-size:11px;color:var(--time)}
 
-/* --- painel A CENA --------------------------------------------------- */
 .cena .tv{background:#000;border:1px solid var(--line);border-radius:6px;
           aspect-ratio:16/9;overflow:hidden;position:relative}
 .cena .tv video{width:100%;height:100%;display:block;object-fit:contain}
 .cena .tv .vazio{position:absolute;inset:0;display:flex;align-items:center;
-                 justify-content:center;color:var(--ghost);font-size:12px}
+                 justify-content:center;color:var(--ghost);font-size:12px;text-align:center}
 .cena table{width:100%;border-collapse:collapse;font-size:12px}
 .cena td{padding:3px 0;vertical-align:top}
 .cena td.r{width:66px;color:var(--faint)}
 .cena td.v{color:var(--txt)}
 .cena td.v.num{font-family:var(--mono);color:var(--time)}
-.btn{height:38px;display:flex;align-items:center;justify-content:center;gap:8px;
-     border-radius:6px;font-size:13px;border:1px solid transparent;width:100%}
-.btn.cheio{background:var(--accent);color:var(--on-accent);font-weight:600}
-.btn.cheio:hover{background:var(--accent-hover)}
-.btn.linha{height:32px;justify-content:flex-start;padding:0 10px;
-           background:transparent;color:var(--dim)}
-.btn.linha:hover{background:var(--surface-2);color:var(--txt)}
+.btn-linha{height:32px;display:flex;align-items:center;gap:8px;padding:0 10px;
+           border-radius:4px;background:transparent;color:var(--dim);font-size:13px}
+.btn-linha:hover{background:var(--surface-2);color:var(--txt)}
 .atalhos{border-top:1px solid var(--line-soft);padding-top:10px;font-size:11px;
          color:var(--faint);line-height:1.8}
 .atalhos kbd{font-family:var(--mono);background:var(--surface-2);
@@ -162,7 +232,73 @@ body{
              font-size:10px;color:var(--dim)}
 .divisor{height:1px;background:var(--line-soft)}
 
-/* --- medidor: só na prova de conceito, some no app ------------------- */
+/* ================= 3. RESULTADOS =================================== */
+#resultados{flex-direction:column}
+.res-topo{padding:16px 20px 12px;border-bottom:1px solid var(--line)}
+.res-topo h1{font-family:var(--display);font-size:19px;font-weight:600;margin:0 0 6px;
+             letter-spacing:-.01em}
+.res-topo .meta{font-size:12px;color:var(--faint);line-height:1.5}
+.res-topo .meta b{font-family:var(--mono);color:var(--time);font-weight:400}
+.res-corpo{flex:1;display:flex;min-height:0}
+.elenco{width:var(--w-elenco);flex:0 0 var(--w-elenco);border-right:1px solid var(--line);
+        padding:14px 8px 12px;display:flex;flex-direction:column;overflow:auto}
+.elenco .lista{flex:1}
+.pessoa{display:flex;align-items:center;height:28px;padding:0 10px;border-radius:4px;
+        gap:8px;color:var(--txt);font-size:13px}
+.pessoa:hover{background:var(--surface)}
+.pessoa.viva{background:var(--surface-2);box-shadow:inset 3px 0 0 var(--accent)}
+.pessoa .nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pessoa.orfa .nome{color:var(--ghost);font-style:italic}
+.pessoa .n{font-family:var(--mono);font-size:11px;color:var(--time)}
+.elenco .btn-acao{display:flex;align-items:center;height:32px;padding:0 10px;gap:8px;
+                  border-radius:4px;background:var(--bg);border:1px solid var(--line);
+                  font-size:13px;color:var(--dim);margin-top:6px}
+.elenco .btn-acao.destaque{border-color:var(--accent-dim);color:var(--accent);
+                           font-weight:600}
+.elenco .btn-acao:hover{border-color:var(--line-bright);color:var(--txt)}
+.res-dir{flex:1;min-width:0;display:flex;flex-direction:column}
+.res-dir .quem{padding:14px 20px 10px;display:flex;align-items:baseline;gap:10px;
+               border-bottom:1px solid var(--line-soft)}
+.res-dir .quem .nome{font-size:15px;font-weight:600}
+.res-dir .quem .sub{font-size:12px;color:var(--faint)}
+.res-dir .quem .sub b{font-family:var(--mono);color:var(--time);font-weight:400}
+
+/* ================= CONFIGURAÇÕES =================================== */
+.veu{position:fixed;inset:0;background:rgba(6,8,11,.7);display:none;
+     align-items:center;justify-content:center;z-index:50}
+.veu.viva{display:flex}
+.dialogo{width:720px;max-height:88vh;background:var(--bg);border:1px solid var(--line);
+         border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.dialogo .topo{height:48px;display:flex;align-items:center;padding:0 20px;
+               border-bottom:1px solid var(--line);font-family:var(--display);
+               font-size:15px;font-weight:600}
+.dialogo .miolo{flex:1;overflow:auto;padding:16px 20px;display:flex;
+                flex-direction:column;gap:16px}
+.dialogo .rodape{height:60px;display:flex;align-items:center;justify-content:flex-end;
+                 gap:10px;padding:0 20px;border-top:1px solid var(--line)}
+.radios{padding-left:20px;display:flex;gap:10px}
+.radio{flex:1;display:flex;flex-direction:column;gap:4px;padding:10px 12px;
+       border-radius:4px;background:var(--surface);border:1px solid var(--line)}
+.radio.viva{background:var(--accent-ink);border-color:var(--accent-dim)}
+.radio .cab{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.radio .bola{width:13px;height:13px;border-radius:50%;border:1px solid var(--line-bright);
+             flex:0 0 13px;display:flex;align-items:center;justify-content:center}
+.radio.viva .bola{border-color:var(--accent)}
+.radio.viva .bola::after{content:"";width:7px;height:7px;border-radius:50%;
+                         background:var(--accent)}
+.radio .exp{font-size:11.5px;color:var(--faint);line-height:1.45}
+.radio.viva .cab{color:var(--accent)}
+.caixa{display:flex;align-items:center;gap:9px;height:26px;font-size:13px;color:var(--txt)}
+.caixa .qd{width:15px;height:15px;border-radius:3px;border:1px solid var(--line-bright);
+           flex:0 0 15px;display:flex;align-items:center;justify-content:center;
+           font-size:10px;color:var(--on-accent)}
+.caixa.marcada .qd{background:var(--accent);border-color:var(--accent)}
+.nota{font-size:11.5px;color:var(--faint);line-height:1.5;padding-left:20px}
+.nota b{color:var(--dim);font-weight:600}
+.botoeira{padding-left:20px;display:flex;flex-wrap:wrap;gap:8px}
+.botoeira .btn-campo.perigo{color:var(--danger);border-color:var(--danger-line);
+                            background:var(--danger-ink)}
+
 #medidor{position:fixed;right:12px;bottom:12px;background:rgba(11,14,18,.94);
          border:1px solid var(--accent-dim);border-radius:6px;padding:10px 12px;
          font-family:var(--mono);font-size:11px;color:var(--accent);line-height:1.7;
@@ -172,57 +308,240 @@ body{
 <body>
 
 <div class="abas">
-  <div class="aba">Analisar</div>
-  <div class="aba viva">Biblioteca</div>
-  <div class="aba">Resultados</div>
+  <div class="aba" data-tela="analisar">Analisar</div>
+  <div class="aba" data-tela="resultados">Resultados</div>
+  <div class="aba viva" data-tela="biblioteca">Biblioteca</div>
   <div class="direita">
-    <div class="capsula"><span class="ponto"></span>RTX 4070</div>
-    <div class="capsula">Configurações</div>
+    <div class="capsula"><span class="ponto"></span><span class="leg">RTX 4070</span></div>
+    <div class="capsula" id="abrir_config"><span class="leg">⚙</span>Configurações</div>
   </div>
 </div>
 
-<div class="tela">
-  <aside class="acervo">
-    <div class="sobrancelha">Acervo</div>
-    <div class="no n1"><span class="seta">▾</span>Mushoku Tensei III<span class="conta">331</span></div>
-    <div class="no n2"><span class="seta">▾</span>Temporada 3<span class="conta">331</span></div>
-    <div class="no n3 viva">Episódio 2<span class="conta">331</span></div>
-    <div class="divisor" style="margin:12px 8px"></div>
-    <div class="sobrancelha">Ações</div>
-    <div class="no n1">Abrir no Explorer</div>
-    <div class="no n1">Reanalisar episódio</div>
-  </aside>
+<div class="telas">
 
-  <main class="meio">
-    <div class="cabeca">
-      <h1 id="titulo">Mushoku Tensei III · T3 E2</h1>
-      <div class="meta" id="meta">carregando…</div>
-      <div class="filtros" id="filtros"></div>
+  <!-- ============================ ANALISAR ========================== -->
+  <div class="tela" id="analisar">
+    <div class="secao">
+      <div class="cabecalho"><span class="num">01</span><span class="tit">Episódio</span><span class="traco"></span></div>
+      <div class="corpo">
+        <div class="linha">
+          <span class="rot">Arquivo</span>
+          <div class="campo fraco" id="c_arquivo">Arraste o episódio pra cá (.mp4/.mkv) ou clique em Selecionar…</div>
+          <div class="btn-campo">Selecionar...</div>
+        </div>
+        <div class="linha">
+          <span class="rot">Anime</span>
+          <div class="campo" id="c_anime">Mushoku Tensei III: Isekai Ittara Honki Dasu</div>
+        </div>
+        <div class="linha">
+          <span class="rot">Temporada/Ep</span>
+          <span class="mini-rot">T</span>
+          <div class="giro"><span class="v">3</span><span class="setas"><span>▲</span><span>▼</span></span></div>
+          <span class="mini-rot">E</span>
+          <div class="giro"><span class="v">2</span><span class="setas"><span>▲</span><span>▼</span></span></div>
+          <span style="flex:1"></span>
+          <span class="rot" style="width:52px;flex:0 0 52px">OP/ED</span>
+          <div class="campo campo-curto">1:30</div>
+          <div class="campo campo-curto">1:30</div>
+        </div>
+        <div class="linha">
+          <span class="rot">Saída</span>
+          <div class="campo" id="c_saida">G:\App Corte Cenas\Output</div>
+          <div class="btn-campo">Escolher pasta...</div>
+        </div>
+      </div>
     </div>
-    <div class="grade"><div class="pista" id="grade"></div></div>
-  </main>
 
-  <aside class="cena">
-    <div class="sobrancelha" style="padding:0 0 4px">A cena</div>
-    <div class="tv">
-      <video id="tv" muted loop playsinline></video>
-      <div class="vazio" id="tv_vazio">escolha uma cena</div>
+    <div class="secao">
+      <div class="cabecalho"><span class="num">02</span><span class="tit">Análise</span><span class="traco"></span></div>
+      <div class="corpo" style="gap:10px">
+        <div class="linha" style="gap:14px">
+          <span class="caixa" id="so_cortar"><span class="qd"></span>✂ Só cortar as cenas (sem identificar personagens)</span>
+          <span class="btn fantasma">Testar refs (preview)</span>
+        </div>
+      </div>
+      <div class="acoes">
+        <div class="btn vazado">🔍&nbsp; Modo Descoberta</div>
+        <span style="flex:1"></span>
+        <div class="btn cinza">Analisar + IA nos duvidosos</div>
+        <div class="btn cheio" id="btn_analisar">Analisar episódio</div>
+      </div>
     </div>
-    <table>
-      <tr><td class="r">Cena</td><td class="v num" id="i_num">—</td></tr>
-      <tr><td class="r">Duração</td><td class="v num" id="i_dur">—</td></tr>
-      <tr><td class="r">Quem</td><td class="v" id="i_quem">—</td></tr>
-      <tr><td class="r">Arquivo</td><td class="v" id="i_arq">—</td></tr>
-    </table>
-    <div class="divisor"></div>
-    <button class="btn cheio" id="btn_ponte">Juntar com a próxima</button>
-    <button class="btn linha">✂  Remover desta pasta</button>
-    <button class="btn linha">→  Mover para outro personagem</button>
-    <div class="atalhos">
-      <kbd>J</kbd> juntar · <kbd>M</kbd> mover · <kbd>Del</kbd> remover<br>
-      <kbd>←</kbd> <kbd>→</kbd> navegar · <kbd>Ctrl</kbd>+<kbd>P</kbd> tocar
+
+    <div class="secao">
+      <div class="cabecalho"><span class="num">03</span><span class="tit">Progresso</span><span class="traco"></span></div>
+      <div class="progresso">
+        <div class="prog-esq">
+          <div class="prog-topo">
+            <div class="oque">
+              <span class="titulo" id="p_titulo">Cortando cenas</span>
+              <span class="conta" id="p_conta"><b>214</b> de <b>331</b></span>
+            </div>
+            <span class="pct" id="p_pct">64%</span>
+          </div>
+          <div class="barra"><i style="width:64%"></i><i class="pale" style="width:8%"></i></div>
+          <div class="tempos">
+            <div><span class="r">decorrido</span><span class="v">02:41</span></div>
+            <div><span class="r">resta ~</span><span class="v amb">01:29</span></div>
+            <div><span class="r">ritmo</span><span class="v">1.3 cena/s</span></div>
+          </div>
+          <div class="arquivo-atual">escrevendo → Output\S03E02\Farion, Nina\0214.mp4</div>
+          <div class="linha" style="gap:8px">
+            <div class="btn perigo">✕&nbsp; Cancelar</div>
+            <div class="btn fantasma">📂&nbsp; Abrir pasta de saída</div>
+          </div>
+        </div>
+        <div class="etapas">
+          <div class="etapa feita"><span class="marca">✓</span>Lendo arquivo<span class="n">0:04</span></div>
+          <div class="etapa feita"><span class="marca">✓</span>Detectando shots<span class="n">0:38</span></div>
+          <div class="etapa rodando"><span class="marca">▸</span>Cortando<span class="n">214/331</span></div>
+          <div class="etapa"><span class="marca">○</span>Extraindo keyframes</div>
+          <div class="etapa"><span class="marca">○</span>Baixando referências</div>
+          <div class="etapa"><span class="marca">○</span>Reconhecendo</div>
+          <div class="etapa"><span class="marca">○</span>Organizando pastas</div>
+        </div>
+      </div>
     </div>
-  </aside>
+  </div>
+
+  <!-- ============================ BIBLIOTECA ======================== -->
+  <div class="tela viva" id="biblioteca">
+    <aside class="acervo">
+      <div class="sobrancelha">Acervo</div>
+      <div class="no n1"><span class="seta">▾</span>Mushoku Tensei III<span class="conta">331</span></div>
+      <div class="no n2"><span class="seta">▾</span>Temporada 3<span class="conta">331</span></div>
+      <div class="no n3 viva">Episódio 2<span class="conta">331</span></div>
+      <div class="divisor" style="margin:12px 8px"></div>
+      <div class="sobrancelha">Ações</div>
+      <div class="no n1">Atualizar lista</div>
+      <div class="no n1">Abrir pasta do episódio</div>
+    </aside>
+
+    <main class="meio">
+      <div class="cabeca">
+        <h1 id="titulo">Mushoku Tensei III · T3 E2</h1>
+        <div class="meta" id="meta">carregando…</div>
+        <div class="filtros" id="filtros"></div>
+      </div>
+      <div class="grade"><div class="pista" id="grade"></div></div>
+    </main>
+
+    <aside class="cena">
+      <div class="sobrancelha" style="padding:0 0 4px">A cena</div>
+      <div class="tv">
+        <video id="tv" muted loop playsinline></video>
+        <div class="vazio" id="tv_vazio">clique numa cena<br>pra ela tocar aqui, em loop</div>
+      </div>
+      <table>
+        <tr><td class="r">Cena</td><td class="v num" id="i_num">—</td></tr>
+        <tr><td class="r">Duração</td><td class="v num" id="i_dur">—</td></tr>
+        <tr><td class="r">Quem</td><td class="v" id="i_quem">—</td></tr>
+        <tr><td class="r">Arquivo</td><td class="v" id="i_arq">—</td></tr>
+      </table>
+      <div class="divisor"></div>
+      <button class="btn cheio" id="btn_ponte">Juntar com a próxima</button>
+      <div class="btn-linha">✂&nbsp; Remover desta pasta</div>
+      <div class="btn-linha">→&nbsp; Mover para outro personagem</div>
+      <div class="atalhos">
+        <kbd>J</kbd> juntar · <kbd>M</kbd> mover · <kbd>Del</kbd> remover<br>
+        <kbd>←</kbd> <kbd>→</kbd> navegar · <kbd>Ctrl</kbd>+<kbd>P</kbd> tocar
+      </div>
+    </aside>
+  </div>
+
+  <!-- ============================ RESULTADOS ======================== -->
+  <div class="tela" id="resultados">
+    <div class="res-topo">
+      <h1 id="r_titulo">Mushoku Tensei III — S03E02</h1>
+      <div class="meta" id="r_meta">carregando…</div>
+    </div>
+    <div class="res-corpo">
+      <aside class="elenco">
+        <div class="sobrancelha">Elenco</div>
+        <div class="lista" id="r_elenco"></div>
+        <div class="sobrancelha" style="margin-top:10px">Ações</div>
+        <div class="btn-acao destaque">🔄 Sincronizar pastas</div>
+        <div class="btn-acao">📂 Abrir pasta do episódio</div>
+        <div class="btn-acao">⤓ Exportar refs (.zip)</div>
+        <div class="btn-acao">✚ Reforçar refs com este ep</div>
+        <div class="btn-acao">▯ Exportar vertical 1080×1920</div>
+      </aside>
+      <div class="res-dir">
+        <div class="quem">
+          <span class="nome" id="r_quem">—</span>
+          <span class="sub" id="r_sub"></span>
+        </div>
+        <div class="grade"><div class="pista" id="r_grade"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ CONFIGURAÇÕES ======================= -->
+<div class="veu" id="veu">
+  <div class="dialogo">
+    <div class="topo">Configurações</div>
+    <div class="miolo">
+      <div class="secao">
+        <div class="cabecalho"><span class="num">01</span><span class="tit">Modo de reconhecimento</span><span class="traco"></span></div>
+        <div class="radios">
+          <div class="radio"><div class="cab"><span class="bola"></span>Muito fiel</div>
+            <div class="exp">Erra menos, mas deixa cenas de fora. Bom pra quando você vai postar sem revisar.</div></div>
+          <div class="radio viva"><div class="cab"><span class="bola"></span>Auto</div>
+            <div class="exp">O equilíbrio. É o que o benchmark mede — recomendado pra uso normal.</div></div>
+          <div class="radio"><div class="cab"><span class="bola"></span>Pouco fiel</div>
+            <div class="exp">Pega quase tudo, com mais engano junto. Bom pra caçar cena rara.</div></div>
+        </div>
+        <div class="nota"><b>Mostrar valores manuais ⌄</b> — os cinco números por trás dos presets, se quiser mexer na mão.</div>
+      </div>
+
+      <div class="secao">
+        <div class="cabecalho"><span class="num">02</span><span class="tit">Pasta de saída</span><span class="traco"></span></div>
+        <div class="corpo">
+          <div class="linha">
+            <span class="rot">Saída</span>
+            <div class="campo" id="s_saida">G:\App Corte Cenas\Output</div>
+            <div class="btn-campo">Escolher...</div>
+          </div>
+          <div class="nota" style="padding-left:0">Aqui dentro vão nascer subpastas por anime/episódio.
+            Ex: <span style="font-family:var(--mono);color:var(--dim)">&lt;saída&gt;/Dr. Stone/S04E25/shots/</span></div>
+          <span class="caixa marcada" style="padding-left:0"><span class="qd">✓</span>Criar pastas por personagem (by_character)</span>
+          <span class="caixa"><span class="qd"></span>Criar pastas de duplas (by_pair)</span>
+          <span class="caixa marcada"><span class="qd">✓</span>Segunda opinião local (CCIP) nos duvidosos</span>
+          <span class="caixa"><span class="qd"></span>Detecção de cenas rápida (experimental)</span>
+        </div>
+      </div>
+
+      <div class="secao">
+        <div class="cabecalho"><span class="num">03</span><span class="tit">Referências e cache</span><span class="traco"></span></div>
+        <div class="botoeira">
+          <div class="btn-campo">📂 Abrir pasta de referências</div>
+          <div class="btn-campo">📂 Abrir pasta de cache</div>
+          <div class="btn-campo">🧩 Fundir duplicados</div>
+          <div class="btn-campo">🧹 Limpar fotos baixadas</div>
+          <div class="btn-campo">♻ Restaurar padrões</div>
+          <div class="btn-campo perigo">🗑 Apagar TODO o cache</div>
+        </div>
+        <div class="nota">Foto de personagem errado no meio das referências suja a identificação.
+          <b>Limpar fotos baixadas</b> zera só o que veio da internet — a próxima análise baixa de novo.
+          O apagão total remove <b>tudo</b>, inclusive batismos e a memória de curadoria: use só como último recurso.</div>
+      </div>
+
+      <div class="secao">
+        <div class="cabecalho"><span class="num">04</span><span class="tit">IA de apoio</span><span class="traco"></span></div>
+        <div class="corpo">
+          <div class="linha"><span class="rot">API key</span>
+            <div class="campo" style="font-family:var(--mono)">••••••••••••••••••••••••••••</div>
+            <div class="btn-campo">Mostrar</div></div>
+          <div class="linha"><span class="rot">Modelo</span><div class="campo">gemini-2.5-flash</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="rodape">
+      <div class="btn cinza" id="fechar_config">Cancelar</div>
+      <div class="btn cheio">Salvar</div>
+    </div>
+  </div>
 </div>
 
 <div id="medidor">medindo…</div>
@@ -230,54 +549,71 @@ body{
 <script src="/qwebchannel.js"></script>
 <script>
 const T0 = performance.now();
-let ponte = null, cenas = [];
+let ponte = null, cenas = [], elenco = {};
 
-function fmt(s){ const m=Math.floor(s/60), r=(s%60).toFixed(1); return `${m}:${r.padStart(4,'0')}`; }
+const fmt = s => { const m = Math.floor(s/60), r = (s%60).toFixed(1);
+                   return `${m}:${r.padStart(4,'0')}`; };
+const relogio = s => { const m = Math.floor(s/60), r = Math.round(s%60);
+                       return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
 
-function monta(lista){
-  const t = performance.now();
-  const grade = document.getElementById('grade');
-  const frag = document.createDocumentFragment();
-  for (const c of lista){
-    const el = document.createElement('div');
-    el.className = 'cartao';
-    el.dataset.idx = c.idx;
-    const quem = c.quem.length ? c.quem.join(', ') : 'sem identificação';
-    el.innerHTML =
-      `<div class="quadro">
-         <img loading="lazy" decoding="async" src="${c.mini}" alt="">
-         <span class="tag">${String(c.idx).padStart(3,'0')}</span>
-         ${c.quem.length ? '' : '<span class="selo duv">⚠</span>'}
-         <div class="trilho"><i></i></div>
-         <span class="tc">0:00.0</span>
-       </div>
-       <div class="pe">
-         <span class="nome${c.quem.length?'':' vazio'}">${quem}</span>
-         <span class="dur">${c.dur.toFixed(1)}s</span>
-       </div>`;
-    frag.appendChild(el);
-  }
-  grade.appendChild(frag);
-  const ms = performance.now() - t;
-  if (ponte) ponte.marca('montou_' + lista.length + '_cartoes', ms);
-  return ms;
+// ---- troca de aba -----------------------------------------------------
+document.querySelectorAll('.aba').forEach(a => a.addEventListener('click', () => {
+  document.querySelectorAll('.aba').forEach(x => x.classList.remove('viva'));
+  document.querySelectorAll('.tela').forEach(x => x.classList.remove('viva'));
+  a.classList.add('viva');
+  document.getElementById(a.dataset.tela).classList.add('viva');
+}));
+document.getElementById('abrir_config').addEventListener('click',
+  () => document.getElementById('veu').classList.add('viva'));
+document.getElementById('fechar_config').addEventListener('click',
+  () => document.getElementById('veu').classList.remove('viva'));
+
+// ---- cartão de cena (usado pela Biblioteca E pelos Resultados) --------
+function cartao(c){
+  const el = document.createElement('div');
+  el.className = 'cartao';
+  el.dataset.idx = c.idx;
+  const quem = c.quem.length ? c.quem.join(', ') : 'sem identificação';
+  el.innerHTML =
+    `<div class="quadro">
+       <img loading="lazy" decoding="async" src="${c.mini}" alt="">
+       <span class="tag">${String(c.idx).padStart(4,'0')}</span>
+       ${c.quem.length ? '' : '<span class="selo">⚠</span>'}
+       <div class="trilho"><i></i></div>
+       <span class="tc">0:00.0</span>
+     </div>
+     <div class="pe">
+       <span class="nome${c.quem.length?'':' vazio'}">${quem}</span>
+       <span class="dur">${c.dur.toFixed(1)}s</span>
+     </div>`;
+  return el;
 }
 
-// scrub no hover — três linhas de JS. Em Qt isso é um delegate com QPainter.
-document.getElementById('grade').addEventListener('mousemove', e => {
-  const cartao = e.target.closest('.cartao'); if (!cartao) return;
-  const q = cartao.querySelector('.quadro'), r = q.getBoundingClientRect();
+function monta(lista, onde){
+  const t = performance.now();
+  const frag = document.createDocumentFragment();
+  for (const c of lista) frag.appendChild(cartao(c));
+  const alvo = document.getElementById(onde);
+  alvo.textContent = '';
+  alvo.appendChild(frag);
+  return performance.now() - t;
+}
+
+// scrub no hover — em Qt isso é um delegate com QPainter
+document.addEventListener('mousemove', e => {
+  const c = e.target.closest('.cartao'); if (!c) return;
+  const q = c.querySelector('.quadro'), r = q.getBoundingClientRect();
   const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-  cartao.querySelector('.trilho i').style.width = (f*100) + '%';
-  const c = cenas[+cartao.dataset.idx];
-  if (c) cartao.querySelector('.tc').textContent = fmt(f * c.dur);
+  c.querySelector('.trilho i').style.width = (f*100) + '%';
+  const d = cenas[+c.dataset.idx];
+  if (d) c.querySelector('.tc').textContent = fmt(f * d.dur);
 });
 
 document.getElementById('grade').addEventListener('click', e => {
-  const cartao = e.target.closest('.cartao'); if (!cartao) return;
-  document.querySelectorAll('.cartao.viva').forEach(x => x.classList.remove('viva'));
-  cartao.classList.add('viva');
-  const c = cenas[+cartao.dataset.idx]; if (!c) return;
+  const el = e.target.closest('.cartao'); if (!el) return;
+  document.querySelectorAll('#grade .cartao.viva').forEach(x => x.classList.remove('viva'));
+  el.classList.add('viva');
+  const c = cenas[+el.dataset.idx]; if (!c) return;
   document.getElementById('i_num').textContent = String(c.idx).padStart(4,'0');
   document.getElementById('i_dur').textContent = c.dur.toFixed(1) + 's';
   document.getElementById('i_quem').textContent = c.quem.length ? c.quem.join(', ') : '—';
@@ -294,9 +630,25 @@ document.getElementById('grade').addEventListener('click', e => {
   if (ponte) ponte.clicou('cartao_' + c.idx);
 });
 
-document.getElementById('btn_ponte').addEventListener('click', () => {
-  if (ponte) ponte.clicou('botao_juntar');
-});
+document.getElementById('btn_ponte').addEventListener('click',
+  () => ponte && ponte.clicou('botao_juntar'));
+document.getElementById('btn_analisar').addEventListener('click',
+  () => ponte && ponte.clicou('botao_analisar'));
+
+// ---- Resultados -------------------------------------------------------
+function mostraPersonagem(nome){
+  document.querySelectorAll('.pessoa').forEach(p =>
+    p.classList.toggle('viva', p.dataset.nome === nome));
+  const lista = nome === '\u0000'
+    ? cenas.filter(c => !c.quem.length)
+    : cenas.filter(c => c.quem.includes(nome));
+  const total = lista.reduce((s,c) => s + c.dur, 0);
+  document.getElementById('r_quem').textContent =
+    nome === '\u0000' ? 'sem identificação' : nome;
+  document.getElementById('r_sub').innerHTML =
+    `<b>${lista.length}</b> cenas · <b>${relogio(total)}</b>`;
+  monta(lista, 'r_grade');
+}
 
 new QWebChannel(qt.webChannelTransport, canal => {
   ponte = canal.objects.ponte;
@@ -304,32 +656,58 @@ new QWebChannel(qt.webChannelTransport, canal => {
 
   ponte.cenas_do_episodio('3', json => {
     cenas = JSON.parse(json);
-    const ms = monta(cenas);
+    const ms = monta(cenas, 'grade');
     const semDono = cenas.filter(c => !c.quem.length).length;
-    document.getElementById('meta').innerHTML =
-      `<b>${cenas.length}</b> cenas · <b>${new Set(cenas.flatMap(c=>c.quem)).size}</b> personagens · ` +
-      `<span class="duv">${semDono} duvidosas</span>`;
+    const total = cenas.reduce((s,c) => s + c.dur, 0);
 
-    const elenco = {};
     for (const c of cenas) for (const q of c.quem) elenco[q] = (elenco[q]||0)+1;
-    const filtros = document.getElementById('filtros');
-    filtros.innerHTML = `<div class="pilula viva">Todas <span class="n">${cenas.length}</span></div>` +
-      Object.entries(elenco).sort((a,b)=>b[1]-a[1])
-        .map(([n,k])=>`<div class="pilula">${n} <span class="n">${k}</span></div>`).join('');
+    const nomes = Object.entries(elenco).sort((a,b) => b[1]-a[1]);
 
-    // espera TODAS as miniaturas ficarem prontas — é o número que interessa
-    const imgs = [...document.querySelectorAll('.grade img')];
+    document.getElementById('meta').innerHTML =
+      `<b>${cenas.length}</b> cenas · <b>${nomes.length}</b> personagens · ` +
+      `<span class="duv">${semDono} duvidosas</span>`;
+    document.getElementById('filtros').innerHTML =
+      `<div class="pilula viva">Todas <span class="n">${cenas.length}</span></div>` +
+      nomes.map(([n,k]) => `<div class="pilula">${n} <span class="n">${k}</span></div>`).join('');
+
+    // duplas mais frequentes
+    const duplas = {};
+    for (const c of cenas) if (c.quem.length === 2)
+      duplas[[...c.quem].sort().join('+')] = (duplas[[...c.quem].sort().join('+')]||0)+1;
+    const topo = Object.entries(duplas).sort((a,b)=>b[1]-a[1]).slice(0,2);
+    document.getElementById('r_meta').innerHTML =
+      `<b>${cenas.length}</b> shots · <b>${nomes.length}</b> personagens · <b>${relogio(total)}</b>` +
+      (topo.length ? '<br>top duplas: ' + topo.map(([d,k]) =>
+        `${d.replace(/\+/,'+')} <b>${k}</b>`).join(' · ') : '');
+
+    document.getElementById('r_elenco').innerHTML =
+      nomes.map(([n,k]) =>
+        `<div class="pessoa" data-nome="${n}"><span class="nome">${n}</span><span class="n">${k}</span></div>`
+      ).join('') +
+      `<div class="pessoa orfa" data-nome="&#0;"><span class="nome">sem identificação</span><span class="n">${semDono}</span></div>`;
+    document.querySelectorAll('.pessoa').forEach(p =>
+      p.addEventListener('click', () => mostraPersonagem(p.dataset.nome)));
+    if (nomes.length) mostraPersonagem(nomes[0][0]);
+
+    ponte.marca('montou_' + cenas.length + '_cartoes', ms);
+
+    const imgs = [...document.querySelectorAll('#grade img')];
     let prontas = 0;
     const conta = () => {
       if (++prontas < imgs.length) return;
-      const total = performance.now() - T0;
-      ponte.marca('todas_miniaturas', total);
+      const t = performance.now() - T0;
+      ponte.marca('todas_miniaturas', t);
       document.getElementById('medidor').textContent =
-        `grade  ${ms.toFixed(0)} ms\n${imgs.length} minis  ${total.toFixed(0)} ms`;
+        `grade  ${ms.toFixed(0)} ms\n${imgs.length} minis  ${t.toFixed(0)} ms`;
     };
     imgs.forEach(i => i.complete ? conta() : (i.onload = conta, i.onerror = conta));
-    // com loading="lazy" só as visíveis carregam: força o resto
     setTimeout(() => imgs.forEach(i => i.loading = 'eager'), 50);
+  });
+
+  ponte.config(json => {
+    const c = JSON.parse(json);
+    document.getElementById('c_saida').textContent = c.saida;
+    document.getElementById('s_saida').textContent = c.saida;
   });
 });
 </script>

@@ -102,8 +102,35 @@ class Janela(QMainWindow):
         self.servidor = servidor
 
 
+def retratos(jan, app) -> None:
+    """Uma foto de cada tela do PoC, pra comparar com as do app Qt."""
+    fila = [
+        ("web_analisar", "document.querySelector('[data-tela=analisar]').click()"),
+        ("web_biblioteca", "document.querySelector('[data-tela=biblioteca]').click()"),
+        ("web_resultados", "document.querySelector('[data-tela=resultados]').click()"),
+        ("web_configuracoes", "document.getElementById('abrir_config').click()"),
+    ]
+
+    def passo(i: int) -> None:
+        if i >= len(fila):
+            print("\nretratos em poc_web/web_*.png")
+            QTimer.singleShot(300, app.quit)
+            return
+        nome, js = fila[i]
+        jan.vista.page().runJavaScript(js)
+        # dá tempo do layout assentar e das miniaturas chegarem
+        QTimer.singleShot(2200, lambda: (
+            jan.grab().save(str(RAIZ / "poc_web" / f"{nome}.png")),
+            print(f"  {nome}.png"),
+            passo(i + 1),
+        ))
+
+    passo(0)
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
+    galeria = "--telas" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -259,6 +286,11 @@ def main() -> int:
 
         # dois quadros de folga pro layout assentar antes de medir
         QTimer.singleShot(320, lambda: jan.vista.page().runJavaScript(COLUNAS, leu))
+
+    if galeria:
+        # só as fotos: sem A/B, sem teste de redimensionamento
+        QTimer.singleShot(4000, lambda: retratos(jan, app))
+        return app.exec()
 
     QTimer.singleShot(4000, clica)
     QTimer.singleShot(9000 if foto else 12000, relatorio)
