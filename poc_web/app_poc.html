@@ -557,11 +557,11 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
         <div class="sobrancelha">Elenco</div>
         <div class="lista" id="r_elenco"></div>
         <div class="sobrancelha" style="margin-top:10px">Ações</div>
-        <div class="btn-acao destaque">🔄 Sincronizar pastas</div>
-        <div class="btn-acao">📂 Abrir pasta do episódio</div>
-        <div class="btn-acao">⤓ Exportar refs (.zip)</div>
-        <div class="btn-acao">✚ Reforçar refs com este ep</div>
-        <div class="btn-acao">▯ Exportar vertical 1080×1920</div>
+        <div class="btn-acao destaque" data-res="sync">🔄 Sincronizar pastas</div>
+        <div class="btn-acao" data-res="abrir">📂 Abrir pasta do episódio</div>
+        <div class="btn-acao" data-res="refs">⤓ Exportar refs (.zip)</div>
+        <div class="btn-acao" data-res="reforcar">✚ Reforçar refs com este ep</div>
+        <div class="btn-acao" data-res="vertical">▯ Exportar vertical 1080×1920</div>
       </aside>
       <div class="res-dir">
         <div class="quem">
@@ -582,16 +582,16 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <div class="secao">
         <div class="cabecalho"><span class="num">01</span><span class="tit">Modo de reconhecimento</span><span class="traco"></span></div>
         <div class="radios">
-          <div class="radio"><div class="cab"><span class="bola"></span>Muito fiel</div>
+          <div class="radio" data-preset="strict"><div class="cab"><span class="bola"></span>Muito fiel</div>
             <div class="exp">Erra menos, mas deixa cenas de fora. Bom pra quando você vai postar sem revisar.</div></div>
-          <div class="radio viva"><div class="cab"><span class="bola"></span>Auto</div>
+          <div class="radio" data-preset="auto"><div class="cab"><span class="bola"></span>Auto</div>
             <div class="exp">O equilíbrio. É o que o benchmark mede — recomendado pra uso normal.</div></div>
-          <div class="radio"><div class="cab"><span class="bola"></span>Pouco fiel</div>
+          <div class="radio" data-preset="loose"><div class="cab"><span class="bola"></span>Pouco fiel</div>
             <div class="exp">Pega quase tudo, com mais engano junto. Bom pra caçar cena rara.</div></div>
         </div>
         <div class="nota"><b>Mostrar valores manuais ⌄</b> — os cinco números por trás dos presets, se quiser mexer na mão.</div>
         <div class="corpo" style="padding-top:2px">
-          <span class="caixa" id="so_cortar"><span class="qd"></span>✂ Só cortar as cenas (sem identificar personagens)</span>
+          <span class="caixa" data-cfg="so_cortar" id="so_cortar"><span class="qd"></span>✂ Só cortar as cenas (sem identificar personagens)</span>
           <div class="nota" style="padding-left:24px">Pula o reconhecimento inteiro: sai só a pasta <span style="font-family:var(--mono);color:var(--dim)">shots/</span>, sem elenco e sem pastas por personagem.</div>
         </div>
       </div>
@@ -606,10 +606,10 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
           </div>
           <div class="nota" style="padding-left:0">Aqui dentro vão nascer subpastas por anime/episódio.
             Ex: <span style="font-family:var(--mono);color:var(--dim)">&lt;saída&gt;/Dr. Stone/S04E25/shots/</span></div>
-          <span class="caixa marcada" style="padding-left:0"><span class="qd">✓</span>Criar pastas por personagem (by_character)</span>
-          <span class="caixa"><span class="qd"></span>Criar pastas de duplas (by_pair)</span>
-          <span class="caixa marcada"><span class="qd">✓</span>Segunda opinião local (CCIP) nos duvidosos</span>
-          <span class="caixa"><span class="qd"></span>Detecção de cenas rápida (experimental)</span>
+          <span class="caixa" data-cfg="por_personagem" style="padding-left:0"><span class="qd"></span>Criar pastas por personagem (by_character)</span>
+          <span class="caixa" data-cfg="por_dupla"><span class="qd"></span>Criar pastas de duplas (by_pair)</span>
+          <span class="caixa" data-cfg="ccip"><span class="qd"></span>Segunda opinião local (CCIP) nos duvidosos</span>
+          <span class="caixa" data-cfg="deteccao_rapida"><span class="qd"></span>Detecção de cenas rápida (experimental)</span>
         </div>
       </div>
 
@@ -641,7 +641,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
     </div>
     <div class="rodape">
       <div class="btn cinza" id="fechar_config">Cancelar</div>
-      <div class="btn cheio">Salvar</div>
+      <div class="btn cheio" id="btn_salvar">Salvar</div>
     </div>
   </div>
 </div>
@@ -1152,6 +1152,27 @@ document.addEventListener('keydown', e => {
   pedeAcao(acao, [+sel.dataset.idx]);
 });
 
+// ---- Configurações ----------------------------------------------------
+function carregaConfig(){
+  ponte.config(json => {
+    const c = JSON.parse(json);
+    document.getElementById('c_saida').textContent = c.saida;
+    document.getElementById('s_saida').textContent = c.saida;
+    document.querySelectorAll('.radio[data-preset]').forEach(r =>
+      r.classList.toggle('viva', r.dataset.preset === c.preset));
+    document.querySelectorAll('.caixa[data-cfg]').forEach(x => {
+      if (!(x.dataset.cfg in c)) return;
+      x.classList.toggle('marcada', !!c[x.dataset.cfg]);
+      x.querySelector('.qd').textContent = c[x.dataset.cfg] ? '✓' : '';
+    });
+    // "manual": os números foram mexidos na mão e não batem com preset nenhum
+    if (c.preset === 'manual')
+      document.querySelector('#veu .nota').innerHTML =
+        '<b>Valores manuais</b> — os números atuais não batem com nenhum dos '
+        + 'três presets. Escolher um acima substitui os cinco de uma vez.';
+  });
+}
+
 // ---- acervo, filtro e ordenação ---------------------------------------
 // A grade é sempre desenhada por AQUI: filtro e ordem são estado, não dois
 // caminhos separados de montar cartão. Assim trocar de episódio, filtrar por
@@ -1347,6 +1368,32 @@ document.getElementById('btn_recarregar').addEventListener('click', () => {
 document.getElementById('btn_abrir_pasta').addEventListener('click', () => {
   if (ponte) ponte.abrir_pasta('episodio');
 });
+
+// ---- ações da aba Resultados ------------------------------------------
+document.querySelectorAll('.elenco [data-res]').forEach(b =>
+  b.addEventListener('click', () => {
+    if (!ponte) return;
+    const acao = b.dataset.res;
+    if (acao === 'abrir') { ponte.abrir_pasta('episodio'); return; }
+    if (acao === 'sync'){
+      recado('Conferindo as pastas…');
+      ponte.sincronizar(json => {
+        const r = JSON.parse(json);
+        recado(r.msg, !r.ok);
+        if (r.mudou) recarregaEpisodio();
+      });
+      return;
+    }
+    if (acao === 'refs'){
+      ponte.exportar_refs(json => {
+        const r = JSON.parse(json);
+        recado(r.msg, !r.ok);
+      });
+      return;
+    }
+    // reforçar refs e exportar vertical continuam só no app Qt
+    recado('Ainda não migrado — use o app atual pra isso.', true);
+  }));
 document.getElementById('aviso_esquecidas').addEventListener('click', () => {
   pergunta({
     titulo: 'Pastas esquecidas',
@@ -1382,10 +1429,44 @@ new QWebChannel(qt.webChannelTransport, canal => {
 
   carregaAcervo();
 
-  ponte.config(json => {
-    const c = JSON.parse(json);
-    document.getElementById('c_saida').textContent = c.saida;
-    document.getElementById('s_saida').textContent = c.saida;
+  carregaConfig();
+
+  // ---- Configurações: ler, mexer e salvar ------------------------------
+  // Radios e caixas eram desenho. Agora leem o Config real do app e o
+  // Salvar grava — só os campos que ESTA tela mostra, senão salvar a partir
+  // de uma tela incompleta apagaria ajuste que ela nem exibe.
+  document.querySelectorAll('.radio[data-preset]').forEach(r =>
+    r.addEventListener('click', () => {
+      document.querySelectorAll('.radio').forEach(x => x.classList.remove('viva'));
+      r.classList.add('viva');
+    }));
+  document.querySelectorAll('.caixa[data-cfg]').forEach(c =>
+    c.addEventListener('click', () => {
+      c.classList.toggle('marcada');
+      c.querySelector('.qd').textContent = c.classList.contains('marcada') ? '✓' : '';
+    }));
+  document.querySelectorAll('.btn-campo').forEach(b => {
+    if (!b.textContent.startsWith('Escolher')) return;
+    b.addEventListener('click', () => ponte.escolher_pasta_saida(d => {
+      if (!d) return;
+      document.getElementById('s_saida').textContent = d;
+    }));
+  });
+  document.getElementById('btn_salvar').addEventListener('click', () => {
+    const viva = document.querySelector('.radio.viva');
+    const pedido = {
+      preset: viva ? viva.dataset.preset : null,
+      saida: document.getElementById('s_saida').textContent.trim(),
+    };
+    document.querySelectorAll('.caixa[data-cfg]').forEach(c => {
+      if (c.dataset.cfg !== 'so_cortar')
+        pedido[c.dataset.cfg] = c.classList.contains('marcada');
+    });
+    ponte.salvar_config(JSON.stringify(pedido), json => {
+      const r = JSON.parse(json);
+      recado(r.msg, !r.ok);
+      if (r.ok) document.getElementById('veu').classList.remove('viva');
+    });
   });
 
   // O episódio arrastado pra janela chega por AQUI: quem pegou o caminho

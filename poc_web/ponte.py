@@ -30,6 +30,17 @@ from PySide6.QtWebEngineCore import (
 ESQUEMA = b"cena"
 LARG_MINI = 292
 ALT_MINI = 164
+# O preset fala em nome curto ("threshold"); o Config guarda o nome longo
+# ("default_threshold"). O diálogo Qt faz essa tradução na mão, campo a
+# campo; aqui ela fica numa tabela só, pra não existirem dois lugares
+# decidindo o que é "Auto".
+_CAMPO_DO_PRESET = {
+    "threshold": "default_threshold",
+    "margin": "argmax_margin",
+    "min_shots": "min_shots_per_character",
+    "padding": "face_crop_padding",
+    "credit": "credit_edge_threshold",
+}
 # Quantos quadros a prévia de hover mostra. Oito é o que o app usa hoje: dá
 # pra ver a cena andar sem que a tira fique pesada (292x8 = 2336 px de largura).
 QUADROS_TIRA = 8
@@ -653,6 +664,130 @@ class Ponte(QObject):
         print(f"    [python] {msg}")
         return json.dumps({"ok": True, "msg": msg})
 
+    # ---- ações da aba Resultados -----------------------------------------
+    @Slot(result=str)
+    def sincronizar(self) -> str:
+        """Explorer → app, nos dois sentidos.
+
+        Clipe arrastado pra pasta de outro personagem vira atribuição
+        lembrada; clipe apagado da pasta vira remoção com memória. É a mesma
+        `curation.apply_folder_moves` que a aba Resultados usa hoje.
+
+        A parte conservadora continua valendo: pasta INTEIRA sumida não vira
+        remoção silenciosa em massa — some da conta e fica pra decisão de
+        quem apagou.
+        """
+        from app.curation import apply_folder_moves
+        from app.storage.organizer import refresh_shot_links, sanitize
+
+        if self.ep_id is None or self.anime_id is None:
+            return json.dumps({"ok": False, "msg": "nenhum episódio aberto"})
+        db = self.db
+        raiz = self.raiz
+        movidas = apply_folder_moves(db, self.ep_id, self.anime_id, raiz)
+        n_movidas = sum(movidas.values()) if movidas else 0
+
+        # clipe que sumiu da pasta de um personagem = remoção com memória
+        by_char = raiz / "by_character"
+        removidas = 0
+        if by_char.exists():
+            atribs = db.assignments_for_episode(self.ep_id)
+            cenas = {int(s["id"]): s for s in db.shots_for_episode(self.ep_id)}
+            mexidas = set()
+            for sid, donos in atribs.items():
+                s = cenas.get(int(sid))
+                if not s:
+                    continue
+                nome_arq = Path(s["file"]).name
+                for d in donos:
+                    pasta = by_char / sanitize(d["name"])
+                    if not pasta.exists():
+                        continue      # pasta inteira sumida: NÃO conta aqui
+                    if not (pasta / nome_arq).exists():
+                        db.remove_shot_character(int(sid), int(d["id"]))
+                        db.record_manual(self.ep_id, int(s["idx"]), int(d["id"]), "block")
+                        removidas += 1
+                        mexidas.add(int(sid))
+            if mexidas:
+                agora = db.assignments_for_episode(self.ep_id)
+                for sid in mexidas:
+                    nomes = [x["name"] for x in agora.get(sid, [])]
+                    try:
+                        refresh_shot_links(
+                            raiz, raiz / cenas[sid]["file"], nomes,
+                            by_character=self.cfg.organize_by_character_enabled,
+                            by_pair=self.cfg.organize_by_pair_enabled,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+
+        if not n_movidas and not removidas:
+            msg = "Pastas já estavam em dia."
+        else:
+            msg = f"{n_movidas} cena(s) movida(s) à mão · {removidas} removida(s)"
+        print(f"    [python] sync: {msg}")
+        return json.dumps({"ok": True, "msg": msg, "mudou": bool(n_movidas or removidas)})
+
+    @Slot(result=str)
+    def exportar_refs(self) -> str:
+        """Zip do banco de referências deste anime."""
+        import zipfile
+
+        from PySide6.QtWidgets import QFileDialog
+
+        if self.anime_id is None:
+            return json.dumps({"ok": False, "msg": "nenhum episódio aberto"})
+        with self.db.connect() as c:
+            r = c.execute(
+                "SELECT title, anilist_id FROM anime WHERE id = ?", (self.anime_id,)
+            ).fetchone()
+        if r is None:
+            return json.dumps({"ok": False, "msg": "anime não encontrado"})
+
+        # o MESMO cache que a análise usa — refs exportadas têm que ser as
+        # que o app realmente consultou
+        from app.references.reference_store import ReferenceStore
+
+        try:
+            loja = ReferenceStore(self.cfg.cache_path)
+            cache_id = (f"al{r['anilist_id']}" if r["anilist_id"]
+                        else f"local_{r['title']}")
+            src = loja.anime_dir(cache_id) / "characters"
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"ok": False, "msg": f"cache de refs: {e}"})
+        if not src.exists():
+            return json.dumps({
+                "ok": False,
+                "msg": "Esse anime ainda não tem banco de referências no cache.",
+            })
+
+        destino, _ = QFileDialog.getSaveFileName(
+            None, "Exportar refs",
+            str(Path.home() / "Documents" / f"CorteCenas-refs-{src.parent.name}.zip"),
+            "Zip (*.zip)",
+        )
+        if not destino:
+            return json.dumps({"ok": True, "msg": "cancelado"})
+
+        n_arq = n_pers = 0
+        with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as zf:
+            for pasta in sorted(src.iterdir()):
+                # _filtered guarda o que o filtro REJEITOU — exportar isso
+                # contaminaria o banco de quem receber
+                if not pasta.is_dir() or pasta.name == "_filtered":
+                    continue
+                achou = False
+                for f in sorted(pasta.iterdir()):
+                    if f.is_file():
+                        zf.write(f, f"{pasta.name}/{f.name}")
+                        n_arq += 1
+                        achou = True
+                n_pers += 1 if achou else 0
+        return json.dumps({
+            "ok": True,
+            "msg": f"{n_arq} imagens de {n_pers} personagens em {Path(destino).name}",
+        })
+
     @Slot(str)
     def abrir_pasta(self, qual: str) -> None:
         """Abre no Explorer. `qual` é 'episodio' ou o nome de um personagem."""
@@ -670,14 +805,77 @@ class Ponte(QObject):
         self.cliques.append(f"tecla:{tecla}")
         print(f"    [python] atalho -> {tecla!r}")
 
+    def _preset_atual(self, c) -> str:
+        """Qual preset bate com os números gravados — 'manual' se nenhum."""
+        from app.ui.presets import PRESETS
+
+        for nome, vals in PRESETS.items():
+            if all(
+                abs((getattr(c, campo, None) or 0) - vals[curto]) < 1e-9
+                for curto, campo in _CAMPO_DO_PRESET.items()
+            ):
+                return nome
+        return "manual"
+
     @Slot(result=str)
     def config(self) -> str:
-        """O que a tela de Analisar e o diálogo de Configurações mostram nos
-        campos. Vem do Config real do app, não de texto fixo."""
+        """O estado real das Configurações — o mesmo `Config` que o app usa,
+        e os mesmos presets de `ui/presets.py`, pra não existirem dois lugares
+        dizendo o que é 'Auto'."""
         try:
-            return json.dumps({"saida": str(self._saida())})
+            c = self.cfg
+            atual = self._preset_atual(c)
+            return json.dumps({
+                "saida": str(c.output_path),
+                "preset": atual,
+                "por_personagem": bool(c.organize_by_character_enabled),
+                "por_dupla": bool(c.organize_by_pair_enabled),
+                "ccip": bool(c.ccip_enabled),
+                "deteccao_rapida": bool(c.fast_scene_detect),
+                "danbooru": bool(getattr(c, "use_danbooru", False)),
+                "tem_chave": bool(getattr(c, "navyai_api_key", "")),
+                "modelo": getattr(c, "gemini_model", "") or getattr(c, "navyai_model", ""),
+            })
         except Exception as e:  # noqa: BLE001 — o PoC não pode morrer por isso
             return json.dumps({"saida": str(self.raiz.parent.parent), "erro": str(e)})
+
+    @Slot(str, result=str)
+    def salvar_config(self, pedido: str) -> str:
+        """Grava o que mudou. Só os campos que a tela mostra — o resto do
+        Config fica como está, senão salvar a partir de uma tela incompleta
+        apagaria ajuste que ela nem exibe."""
+        d = json.loads(pedido)
+        try:
+            c = self.cfg
+            from app.ui.presets import PRESETS
+
+            preset = d.get("preset")
+            if preset in PRESETS:
+                for curto, campo in _CAMPO_DO_PRESET.items():
+                    setattr(c, campo, PRESETS[preset][curto])
+            for chave, campo in (
+                ("por_personagem", "organize_by_character_enabled"),
+                ("por_dupla", "organize_by_pair_enabled"),
+                ("ccip", "ccip_enabled"),
+                ("deteccao_rapida", "fast_scene_detect"),
+                ("danbooru", "use_danbooru"),
+            ):
+                if chave in d:
+                    setattr(c, campo, bool(d[chave]))
+            if d.get("saida"):
+                c.output_dir = str(d["saida"])
+            c.save()
+            print(f"    [python] configurações gravadas (preset={preset})")
+            return json.dumps({"ok": True, "msg": "Configurações salvas."})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"ok": False, "msg": f"não deu pra salvar: {e}"})
+
+    @Slot(result=str)
+    def escolher_pasta_saida(self) -> str:
+        from PySide6.QtWidgets import QFileDialog
+
+        d = QFileDialog.getExistingDirectory(None, "Pasta de saída", str(self._saida()))
+        return d or ""
 
     # ---- prévia -----------------------------------------------------------
     @Slot(int, result=str)
