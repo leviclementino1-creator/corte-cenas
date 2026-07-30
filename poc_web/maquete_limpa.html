@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html><head><meta charset='utf-8'>
+<title>Corte Cenas — maquete sem runtime</title>
+<style>
+html,body{margin:0;padding:0;background:#0b0d11}
+body{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+
+    .sc-placeholder{background:color-mix(in srgb,currentColor 8%,transparent);
+      border:1px solid color-mix(in srgb,currentColor 50%,transparent);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:color-mix(in srgb,currentColor 70%,transparent);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:color-mix(in srgb,currentColor 50%,transparent);
+      background:color-mix(in srgb,currentColor 10%,transparent);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts — keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  
+x-dc{display:none!important}
+html,body{height:100%;margin:0}#dc-root,#dc-root>.sc-host{height:100%}
+
+  html, body { margin: 0; padding: 0; background: #0b0d11; }
+  body { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: #4cc9c0; text-decoration: none; }
+  a:hover { color: #7ddcd5; text-decoration: underline; }
+
+</style>
+</head>
+<body>
+<section data-dc-tpl="462" id="telas" style="display: flex; flex-direction: column; gap: 24px;">
+    <div data-dc-tpl="463" style="display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid rgb(30, 36, 44); padding-bottom: 12px;">
+      <span data-dc-tpl="464" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 13px; color: rgb(76, 201, 192);">03</span>
+      <h2 data-dc-tpl="465" style="font-family: &quot;Segoe UI Variable Display&quot;, &quot;Segoe UI&quot;, system-ui, sans-serif; font-size: 24px; font-weight: 600; margin: 0px;">As três abas, montadas</h2>
+      <span data-dc-tpl="466" style="font-size: 13px; color: rgb(106, 115, 130);">dados reais do briefing · cada quadro no seu tamanho de janela</span>
+    </div>
+
+    
+    <div data-dc-tpl="467" style="display: flex; flex-direction: column; gap: 10px;">
+      <div data-dc-tpl="468" style="display: flex; align-items: baseline; gap: 12px;"><span data-dc-tpl="469" style="font-size: 15px; font-weight: 600;">Biblioteca</span><span data-dc-tpl="470" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11.5px; color: rgb(106, 115, 130);">1600 × 950 · árvore 248 fixa · cena 320 fixa · grade estica</span></div>
+      <div data-dc-tpl="471" style="width: 1600px; height: 950px; background: rgb(14, 16, 20); border: 1px solid rgb(42, 50, 61); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column;">
+        
+        <div data-dc-tpl="472" style="height: 44px; min-height: 44px; padding: 0px 12px; background: rgb(20, 24, 31); border-bottom: 1px solid rgb(42, 50, 61); display: flex; align-items: flex-end; justify-content: space-between;">
+          <div data-dc-tpl="473" style="display: flex; align-items: flex-end; gap: 2px;">
+            <div data-dc-tpl="474" style="display: flex; align-items: center; height: 36px; padding: 0px 16px; font-size: 14px; color: rgb(154, 164, 178);">Analisar</div>
+            <div data-dc-tpl="475" style="display: flex; align-items: center; height: 36px; padding: 0px 16px; font-size: 14px; color: rgb(154, 164, 178);">Resultados</div>
+            <div data-dc-tpl="476" style="display: flex; align-items: center; height: 36px; padding: 0px 16px; background: rgb(14, 16, 20); border-width: 2px 1px 1px; border-style: solid; border-color: rgb(76, 201, 192) rgb(42, 50, 61) rgb(14, 16, 20); border-image: initial; border-radius: 4px 4px 0px 0px; font-size: 14px; font-weight: 600; color: rgb(230, 235, 242);">Biblioteca</div>
+          </div>
+          <div data-dc-tpl="477" style="display: flex; align-items: center; gap: 8px; padding-bottom: 5px;">
+            <div data-dc-tpl="478" style="display: flex; align-items: center; gap: 7px; height: 26px; padding: 0px 12px; background: rgb(19, 32, 25); border: 1px solid rgb(47, 92, 61); border-radius: 13px;"><span data-dc-tpl="479" style="width: 7px; height: 7px; background: rgb(111, 207, 139); border-radius: 4px;"></span><span data-dc-tpl="480" style="font-size: 12.5px; color: rgb(111, 207, 139);">RTX 5080</span></div>
+            <div data-dc-tpl="481" style="display: flex; align-items: center; gap: 7px; height: 26px; padding: 0px 12px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 13px;"><span data-dc-tpl="482" style="font-size: 12px; color: rgb(154, 164, 178);">⚙</span><span data-dc-tpl="483" style="font-size: 12.5px; color: rgb(230, 235, 242);">Configurações</span></div>
+          </div>
+        </div>
+
+        <div data-dc-tpl="484" style="flex: 1 1 0%; display: flex; min-height: 0px;">
+          
+          <div data-dc-tpl="485" style="width: 248px; min-width: 248px; background: rgb(20, 24, 31); border-right: 1px solid rgb(30, 36, 44); display: flex; flex-direction: column;">
+            <div data-dc-tpl="486" style="padding: 14px 14px 8px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: rgb(106, 115, 130);">Acervo</div>
+            <div data-dc-tpl="487" style="flex: 1 1 0%; padding: 0px 8px; display: flex; flex-direction: column; gap: 2px; overflow: hidden;">
+              <div data-dc-tpl="488" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 6px; border-radius: 4px;"><span data-dc-tpl="489" style="font-size: 9px; color: rgb(106, 115, 130);">▾</span><span data-dc-tpl="490" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Mushoku Tensei III</span><span data-dc-tpl="491" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">1</span></div>
+              <div data-dc-tpl="492" style="display: flex; align-items: center; height: 30px; padding: 0px 10px 0px 24px; gap: 6px; border-radius: 4px;"><span data-dc-tpl="493" style="font-size: 9px; color: rgb(106, 115, 130);">▾</span><span data-dc-tpl="494" style="font-size: 13px; color: rgb(154, 164, 178); flex: 1 1 0%;">Temporada 3</span><span data-dc-tpl="495" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">1</span></div>
+              <div data-dc-tpl="496" style="display: flex; align-items: center; height: 30px; padding: 0px 10px 0px 38px; gap: 6px; border-radius: 4px; background: rgb(12, 43, 41); border-width: 1px 1px 1px 3px; border-style: solid; border-color: rgb(53, 147, 140) rgb(53, 147, 140) rgb(53, 147, 140) rgb(76, 201, 192); border-image: initial;"><span data-dc-tpl="497" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%;">Episódio 02</span><span data-dc-tpl="498" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">331</span></div>
+              <div data-dc-tpl="499" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 6px; border-radius: 4px; margin-top: 6px;"><span data-dc-tpl="500" style="font-size: 9px; color: rgb(106, 115, 130);">▾</span><span data-dc-tpl="501" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Tensei Shitara Slime Datta Ken</span><span data-dc-tpl="502" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">2</span></div>
+              <div data-dc-tpl="503" style="display: flex; align-items: center; height: 30px; padding: 0px 10px 0px 24px; gap: 6px; border-radius: 4px;"><span data-dc-tpl="504" style="font-size: 9px; color: rgb(106, 115, 130);">▾</span><span data-dc-tpl="505" style="font-size: 13px; color: rgb(154, 164, 178); flex: 1 1 0%;">Temporada 4</span><span data-dc-tpl="506" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">2</span></div>
+              <div data-dc-tpl="507" style="display: flex; align-items: center; height: 30px; padding: 0px 10px 0px 38px; gap: 6px; border-radius: 4px;"><span data-dc-tpl="508" style="font-size: 13px; color: rgb(154, 164, 178); flex: 1 1 0%;">Episódio 15</span><span data-dc-tpl="509" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">361</span></div>
+              <div data-dc-tpl="510" style="display: flex; align-items: center; height: 30px; padding: 0px 10px 0px 38px; gap: 6px; border-radius: 4px;"><span data-dc-tpl="511" style="font-size: 13px; color: rgb(91, 100, 115); font-style: italic; flex: 1 1 0%;">Episódio 16 (sumiu)</span><span data-dc-tpl="512" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(91, 100, 115);">288</span></div>
+            </div>
+            <div data-dc-tpl="513" style="border-top: 1px solid rgb(30, 36, 44); padding: 10px 8px 12px; display: flex; flex-direction: column; gap: 2px;">
+              <div data-dc-tpl="514" style="padding: 4px 10px 6px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: rgb(106, 115, 130);">Ações</div>
+              <div data-dc-tpl="515" style="display: flex; align-items: center; height: 32px; padding: 0px 10px; gap: 8px; border-radius: 4px; font-size: 13px; color: rgb(154, 164, 178);"><span data-dc-tpl="516">↻</span>Atualizar lista</div>
+              <div data-dc-tpl="517" style="display: flex; align-items: center; height: 32px; padding: 0px 10px; gap: 8px; border-radius: 4px; font-size: 13px; color: rgb(230, 235, 242); background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53);"><span data-dc-tpl="518">📂</span>Abrir pasta do episódio</div>
+            </div>
+          </div>
+
+          
+          <div data-dc-tpl="519" style="flex: 1 1 0%; min-width: 0px; display: flex; flex-direction: column; background: rgb(14, 16, 20);">
+            <div data-dc-tpl="520" style="padding: 16px 20px 12px; display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid rgb(30, 36, 44);">
+              <div data-dc-tpl="521" style="display: flex; align-items: baseline; justify-content: space-between; gap: 20px;">
+                <span data-dc-tpl="522" style="font-family: &quot;Segoe UI Variable Display&quot;, &quot;Segoe UI&quot;, sans-serif; font-size: 19px; font-weight: 600; color: rgb(230, 235, 242);">Mushoku Tensei III: Isekai Ittara Honki Dasu — S03E02</span>
+                <div data-dc-tpl="523" style="display: flex; align-items: center; gap: 10px;">
+                  <span data-dc-tpl="524" style="font-size: 12px; color: rgb(106, 115, 130);">ordem</span>
+                  <div data-dc-tpl="525" style="display: flex; align-items: center; gap: 2px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 4px; padding: 2px;">
+                    <span data-dc-tpl="526" style="display: flex; align-items: center; height: 26px; padding: 0px 12px; background: rgb(12, 43, 41); border-radius: 3px; font-size: 12.5px; color: rgb(76, 201, 192);">⏱ cronológica</span>
+                    <span data-dc-tpl="527" style="display: flex; align-items: center; height: 26px; padding: 0px 12px; font-size: 12.5px; color: rgb(154, 164, 178);">⚠ duvidosas</span>
+                    <span data-dc-tpl="528" style="display: flex; align-items: center; height: 26px; padding: 0px 12px; font-size: 12.5px; color: rgb(154, 164, 178);">⏳ mais longas</span>
+                  </div>
+                </div>
+              </div>
+              <div data-dc-tpl="529" style="display: flex; align-items: center; gap: 16px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12.5px; color: rgb(106, 115, 130);">
+                <span data-dc-tpl="530"><span data-dc-tpl="531" style="color: rgb(232, 161, 92);">331</span> cenas</span><span data-dc-tpl="532">·</span><span data-dc-tpl="533"><span data-dc-tpl="534" style="color: rgb(232, 161, 92);">6</span> personagens</span><span data-dc-tpl="535">·</span><span data-dc-tpl="536"><span data-dc-tpl="537" style="color: rgb(232, 161, 92);">23:40</span></span><span data-dc-tpl="538">·</span><span data-dc-tpl="539"><span data-dc-tpl="540" style="color: rgb(229, 104, 111);">14</span> duvidosas</span>
+              </div>
+              <div data-dc-tpl="541" style="display: flex; flex-wrap: wrap; gap: 8px;">
+                <div data-dc-tpl="542" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0px 15px; background: rgb(12, 43, 41); border: 1px solid rgb(76, 201, 192); border-radius: 17px;"><span data-dc-tpl="543" style="font-size: 13px;">📼</span><span data-dc-tpl="544" style="font-size: 13px; font-weight: 600; color: rgb(230, 235, 242);">Todas</span><span data-dc-tpl="545" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">331</span></div>
+                
+                  <div data-dc-tpl="547" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0px 15px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 17px;"><span data-dc-tpl="548" style="font-size: 13px; color: rgb(230, 235, 242);"><span class="sc-interp">Farion, Nina</span></span><span data-dc-tpl="549" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);"><span class="sc-interp">91</span></span></div>
+                
+                  <div data-dc-tpl="547" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0px 15px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 17px;"><span data-dc-tpl="548" style="font-size: 13px; color: rgb(230, 235, 242);"><span class="sc-interp">Greyrat, Eris Boreas</span></span><span data-dc-tpl="549" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);"><span class="sc-interp">85</span></span></div>
+                
+                  <div data-dc-tpl="547" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0px 15px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 17px;"><span data-dc-tpl="548" style="font-size: 13px; color: rgb(230, 235, 242);"><span class="sc-interp">Cruel, Isolte</span></span><span data-dc-tpl="549" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);"><span class="sc-interp">39</span></span></div>
+                
+                  <div data-dc-tpl="547" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0px 15px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 17px;"><span data-dc-tpl="548" style="font-size: 13px; color: rgb(230, 235, 242);"><span class="sc-interp">Farion, Gull</span></span><span data-dc-tpl="549" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);"><span class="sc-interp">18</span></span></div>
+                
+                  <div data-dc-tpl="547" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0px 15px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 17px;"><span data-dc-tpl="548" style="font-size: 13px; color: rgb(230, 235, 242);"><span class="sc-interp">Ryia, Reida</span></span><span data-dc-tpl="549" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);"><span class="sc-interp">17</span></span></div>
+                
+                  <div data-dc-tpl="547" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0px 15px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 17px;"><span data-dc-tpl="548" style="font-size: 13px; color: rgb(230, 235, 242);"><span class="sc-interp">Greyrat, Rudeus</span></span><span data-dc-tpl="549" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);"><span class="sc-interp">8</span></span></div>
+                
+              </div>
+            </div>
+            <div data-dc-tpl="550" style="flex: 1 1 0%; min-height: 0px; overflow: hidden; padding: 14px 20px;">
+              <div data-dc-tpl="551" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;">
+                
+                  <div data-dc-tpl="553" style="background: rgb(12, 43, 41); border: 2px solid rgb(76, 201, 192); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(47, 59, 70), rgb(26, 34, 43));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(76, 201, 192); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(8, 32, 30);"><span class="sc-interp">#0000</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(12, 43, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(230, 235, 242); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.4s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(58, 63, 74), rgb(30, 35, 43));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0001</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">4.8s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(70, 58, 58), rgb(35, 29, 32));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0002</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Eris</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(43, 58, 70), rgb(24, 32, 40));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0003</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Eris</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">0.9s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(62, 68, 80), rgb(32, 38, 46));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0004</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina, Eris</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">5.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(74, 63, 58), rgb(36, 30, 28));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0005</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: inline;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(91, 100, 115); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">sem identificação</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.4s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(51, 66, 78), rgb(27, 35, 43));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0006</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">4.8s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(61, 55, 70), rgb(31, 28, 38));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0007</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: flex;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Eris</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(47, 59, 70), rgb(26, 34, 43));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0008</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Isolte</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">0.9s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(58, 63, 74), rgb(30, 35, 43));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0009</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina, Gull</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">5.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(70, 58, 58), rgb(35, 29, 32));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0010</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.4s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(43, 58, 70), rgb(24, 32, 40));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0011</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">4.8s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(62, 68, 80), rgb(32, 38, 46));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0012</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Eris</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(74, 63, 58), rgb(36, 30, 28));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0013</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Eris</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">0.9s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(51, 66, 78), rgb(27, 35, 43));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0014</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina, Eris</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">5.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(61, 55, 70), rgb(31, 28, 38));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0015</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(91, 100, 115); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">sem identificação</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.4s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(47, 59, 70), rgb(26, 34, 43));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0016</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: inline;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">4.8s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(58, 63, 74), rgb(30, 35, 43));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0017</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Eris</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(70, 58, 58), rgb(35, 29, 32));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0018</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Isolte</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">0.9s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="553" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="554" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(43, 58, 70), rgb(24, 32, 40));">
+                      <div data-dc-tpl="555" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; gap: 5px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0019</span><span data-dc-tpl="556" style="color: rgb(76, 201, 192); display: none;">⛓</span></div>
+                      <div data-dc-tpl="557" style="position: absolute; top: 6px; right: 6px; height: 18px; width: 18px; background: rgb(11, 14, 18); border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; color: rgb(229, 104, 111); display: none;">⚠</div>
+                    </div>
+                    <div data-dc-tpl="558" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="559" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina, Gull</span></span>
+                      <span data-dc-tpl="560" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">5.0s</span></span>
+                    </div>
+                  </div>
+                
+              </div>
+            </div>
+          </div>
+
+          
+          <div data-dc-tpl="561" style="width: 320px; min-width: 320px; background: rgb(20, 24, 31); border-left: 1px solid rgb(30, 36, 44); display: flex; flex-direction: column;">
+            <div data-dc-tpl="562" style="padding: 14px 16px 10px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: rgb(106, 115, 130);">A cena</div>
+            <div data-dc-tpl="563" style="padding: 0px 16px; display: flex; flex-direction: column; gap: 14px;">
+              <div data-dc-tpl="564" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(44, 55, 66), rgb(22, 29, 37)); border: 1px solid rgb(42, 50, 61); border-radius: 6px; overflow: hidden;">
+                <div data-dc-tpl="565" style="position: absolute; top: 8px; right: 8px; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0px 10px; background: rgb(12, 43, 41); border: 1px solid rgb(53, 147, 140); border-radius: 12px;"><span data-dc-tpl="566" style="font-size: 11px; color: rgb(76, 201, 192);">▸</span><span data-dc-tpl="567" style="font-size: 12px; color: rgb(76, 201, 192);">em loop</span></div>
+                <div data-dc-tpl="568" style="position: absolute; left: 0px; right: 0px; bottom: 0px; height: 3px; background: rgb(11, 14, 18);"><div data-dc-tpl="569" style="width: 44%; height: 3px; background: rgb(232, 161, 92);"></div></div>
+              </div>
+              <div data-dc-tpl="570" style="display: flex; flex-direction: column; gap: 7px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12.5px;">
+                <div data-dc-tpl="571" style="display: flex; gap: 12px;"><span data-dc-tpl="572" style="width: 66px; color: rgb(106, 115, 130);">cena</span><span data-dc-tpl="573" style="color: rgb(230, 235, 242);">#0129</span></div>
+                <div data-dc-tpl="574" style="display: flex; gap: 12px;"><span data-dc-tpl="575" style="width: 66px; color: rgb(106, 115, 130);">tempo</span><span data-dc-tpl="576" style="color: rgb(232, 161, 92);">08:24.6 → 08:28.0</span></div>
+                <div data-dc-tpl="577" style="display: flex; gap: 12px;"><span data-dc-tpl="578" style="width: 66px; color: rgb(106, 115, 130);">duração</span><span data-dc-tpl="579" style="color: rgb(232, 161, 92);">3.4s</span></div>
+                <div data-dc-tpl="580" style="display: flex; gap: 12px;"><span data-dc-tpl="581" style="width: 66px; color: rgb(106, 115, 130);">quem</span><span data-dc-tpl="582" style="color: rgb(230, 235, 242);">Nina, Eris</span></div>
+                <div data-dc-tpl="583" style="display: flex; gap: 12px;"><span data-dc-tpl="584" style="width: 66px; color: rgb(106, 115, 130);">confiança</span><span data-dc-tpl="585" style="color: rgb(111, 207, 139);">0.91 / 0.78</span></div>
+              </div>
+              <div data-dc-tpl="586" style="height: 1px; background: rgb(30, 36, 44);"></div>
+              <div data-dc-tpl="587" style="display: flex; flex-direction: column; gap: 8px;">
+                <div data-dc-tpl="588" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 38px; background: rgb(76, 201, 192); border: 1px solid rgb(76, 201, 192); border-radius: 4px; font-size: 14px; font-weight: 600; color: rgb(8, 32, 30);"><span data-dc-tpl="589">⛓</span>Juntar com a próxima</div>
+                <div data-dc-tpl="590" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0px 12px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-size: 13px; color: rgb(230, 235, 242);"><span data-dc-tpl="591" style="color: rgb(154, 164, 178);">↗</span>Mover pra outro personagem</div>
+                <div data-dc-tpl="592" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0px 12px; background: rgb(31, 20, 24); border: 1px solid rgb(91, 42, 48); border-radius: 4px; font-size: 13px; color: rgb(229, 104, 111);"><span data-dc-tpl="593">⤫</span>Remover desta pasta</div>
+              </div>
+              <div data-dc-tpl="594" style="font-size: 12px; line-height: 1.5; color: rgb(106, 115, 130); border-top: 1px solid rgb(30, 36, 44); padding-top: 12px;">Atalhos: <span data-dc-tpl="595" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; color: rgb(154, 164, 178);">J</span> juntar · <span data-dc-tpl="596" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; color: rgb(154, 164, 178);">M</span> mover · <span data-dc-tpl="597" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; color: rgb(154, 164, 178);">Del</span> remover · <span data-dc-tpl="598" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; color: rgb(154, 164, 178);">←→</span> cena anterior/próxima</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div data-dc-tpl="599" style="display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start;">
+
+      <div data-dc-tpl="600" style="display: flex; flex-direction: column; gap: 10px;">
+        <div data-dc-tpl="601" style="display: flex; align-items: baseline; gap: 12px;"><span data-dc-tpl="602" style="font-size: 15px; font-weight: 600;">Analisar</span><span data-dc-tpl="603" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11.5px; color: rgb(106, 115, 130);">980 × 640 · janela mínima · rótulo 108 fixo</span></div>
+        <div data-dc-tpl="604" style="width: 980px; height: 640px; background: rgb(14, 16, 20); border: 1px solid rgb(42, 50, 61); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column;">
+          <div data-dc-tpl="605" style="height: 44px; min-height: 44px; padding: 0px 12px; background: rgb(20, 24, 31); border-bottom: 1px solid rgb(42, 50, 61); display: flex; align-items: flex-end; justify-content: space-between;">
+            <div data-dc-tpl="606" style="display: flex; align-items: flex-end; gap: 2px;">
+              <div data-dc-tpl="607" style="display: flex; align-items: center; height: 36px; padding: 0px 16px; background: rgb(14, 16, 20); border-width: 2px 1px 1px; border-style: solid; border-color: rgb(76, 201, 192) rgb(42, 50, 61) rgb(14, 16, 20); border-image: initial; border-radius: 4px 4px 0px 0px; font-size: 14px; font-weight: 600; color: rgb(230, 235, 242);">Analisar</div>
+              <div data-dc-tpl="608" style="display: flex; align-items: center; height: 36px; padding: 0px 16px; font-size: 14px; color: rgb(154, 164, 178);">Resultados</div>
+              <div data-dc-tpl="609" style="display: flex; align-items: center; height: 36px; padding: 0px 16px; font-size: 14px; color: rgb(154, 164, 178);">Biblioteca</div>
+            </div>
+            <div data-dc-tpl="610" style="display: flex; align-items: center; gap: 8px; padding-bottom: 5px;">
+              <div data-dc-tpl="611" style="display: flex; align-items: center; gap: 7px; height: 26px; padding: 0px 12px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 13px;"><span data-dc-tpl="612" style="width: 7px; height: 7px; background: rgb(106, 115, 130); border-radius: 4px;"></span><span data-dc-tpl="613" style="font-size: 12.5px; color: rgb(154, 164, 178);">detectando…</span></div>
+              <div data-dc-tpl="614" style="display: flex; align-items: center; gap: 7px; height: 26px; padding: 0px 12px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 13px;"><span data-dc-tpl="615" style="font-size: 12px; color: rgb(154, 164, 178);">⚙</span><span data-dc-tpl="616" style="font-size: 12.5px; color: rgb(230, 235, 242);">Configurações</span></div>
+            </div>
+          </div>
+
+          <div data-dc-tpl="617" style="flex: 1 1 0%; min-height: 0px; overflow: hidden; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px;">
+            <div data-dc-tpl="618" style="display: flex; flex-direction: column; gap: 10px;">
+              <div data-dc-tpl="619" style="display: flex; align-items: center; gap: 10px;"><span data-dc-tpl="620" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(76, 201, 192);">1</span><span data-dc-tpl="621" style="font-size: 13px; font-weight: 600; color: rgb(230, 235, 242);">Episódio</span><span data-dc-tpl="622" style="flex: 1 1 0%; height: 1px; background: rgb(30, 36, 44);"></span></div>
+              <div data-dc-tpl="623" style="display: flex; flex-direction: column; gap: 8px; padding-left: 20px;">
+                <div data-dc-tpl="624" style="display: flex; align-items: center; gap: 10px;">
+                  <span data-dc-tpl="625" style="width: 98px; font-size: 13px; color: rgb(154, 164, 178);">Arquivo</span>
+                  <div data-dc-tpl="626" style="flex: 1 1 0%; display: flex; align-items: center; height: 32px; padding: 0px 10px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-size: 13px; color: rgb(230, 235, 242);">G:\Anime\Mushoku S03\[SubsPlease] S03E02.mkv</div>
+                  <div data-dc-tpl="627" style="display: flex; align-items: center; height: 32px; padding: 0px 14px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-size: 14px; font-weight: 600; color: rgb(230, 235, 242);">Selecionar...</div>
+                </div>
+                <div data-dc-tpl="628" style="display: flex; align-items: center; gap: 10px;">
+                  <span data-dc-tpl="629" style="width: 98px; font-size: 13px; color: rgb(154, 164, 178);">Anime</span>
+                  <div data-dc-tpl="630" style="flex: 1 1 0%; display: flex; align-items: center; height: 32px; padding: 0px 10px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-size: 13px; color: rgb(230, 235, 242);">Mushoku Tensei III: Isekai Ittara Honki Dasu</div>
+                </div>
+                <div data-dc-tpl="631" style="display: flex; align-items: center; gap: 10px;">
+                  <span data-dc-tpl="632" style="width: 98px; font-size: 13px; color: rgb(154, 164, 178);">Temporada/Ep</span>
+                  <div data-dc-tpl="633" style="display: flex; align-items: center; gap: 6px;"><span data-dc-tpl="634" style="font-size: 12.5px; color: rgb(106, 115, 130);">T</span>
+                    <div data-dc-tpl="635" style="display: flex; align-items: center; justify-content: space-between; width: 84px; height: 32px; padding: 0px 4px 0px 10px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 4px;"><span data-dc-tpl="636" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 13px; color: rgb(232, 161, 92);">3</span><div data-dc-tpl="637" style="display: flex; flex-direction: column; gap: 1px;"><span data-dc-tpl="638" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 12px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 2px; font-size: 7px; color: rgb(154, 164, 178);">▲</span><span data-dc-tpl="639" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 12px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 2px; font-size: 7px; color: rgb(154, 164, 178);">▼</span></div></div>
+                  </div>
+                  <div data-dc-tpl="640" style="display: flex; align-items: center; gap: 6px;"><span data-dc-tpl="641" style="font-size: 12.5px; color: rgb(106, 115, 130);">E</span>
+                    <div data-dc-tpl="642" style="display: flex; align-items: center; justify-content: space-between; width: 84px; height: 32px; padding: 0px 4px 0px 10px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 4px;"><span data-dc-tpl="643" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 13px; color: rgb(232, 161, 92);">2</span><div data-dc-tpl="644" style="display: flex; flex-direction: column; gap: 1px;"><span data-dc-tpl="645" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 12px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 2px; font-size: 7px; color: rgb(154, 164, 178);">▲</span><span data-dc-tpl="646" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 12px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 2px; font-size: 7px; color: rgb(154, 164, 178);">▼</span></div></div>
+                  </div>
+                  <span data-dc-tpl="647" style="flex: 1 1 0%;"></span>
+                  <span data-dc-tpl="648" style="width: 52px; font-size: 13px; color: rgb(154, 164, 178);">OP/ED</span>
+                  <div data-dc-tpl="649" style="display: flex; align-items: center; width: 78px; height: 32px; padding: 0px 10px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 13px; color: rgb(232, 161, 92);">1:30</div>
+                  <div data-dc-tpl="650" style="display: flex; align-items: center; width: 78px; height: 32px; padding: 0px 10px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 13px; color: rgb(232, 161, 92);">1:30</div>
+                </div>
+                <div data-dc-tpl="651" style="display: flex; align-items: center; gap: 10px;">
+                  <span data-dc-tpl="652" style="width: 98px; font-size: 13px; color: rgb(154, 164, 178);">Saída</span>
+                  <div data-dc-tpl="653" style="flex: 1 1 0%; display: flex; align-items: center; height: 32px; padding: 0px 10px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-size: 13px; color: rgb(230, 235, 242);">G:\App Corte Cenas\Output</div>
+                  <div data-dc-tpl="654" style="display: flex; align-items: center; height: 32px; padding: 0px 14px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-size: 14px; font-weight: 600; color: rgb(230, 235, 242);">Escolher pasta...</div>
+                </div>
+              </div>
+            </div>
+
+            <div data-dc-tpl="655" style="display: flex; flex-direction: column; gap: 10px;">
+              <div data-dc-tpl="656" style="display: flex; align-items: center; gap: 10px;"><span data-dc-tpl="657" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(76, 201, 192);">2</span><span data-dc-tpl="658" style="font-size: 13px; font-weight: 600; color: rgb(230, 235, 242);">Análise</span><span data-dc-tpl="659" style="flex: 1 1 0%; height: 1px; background: rgb(30, 36, 44);"></span></div>
+              <div data-dc-tpl="660" style="padding-left: 20px; display: flex; gap: 10px; align-items: center;">
+                <div data-dc-tpl="661" style="display: flex; align-items: center; height: 38px; padding: 0px 16px; background: rgb(14, 16, 20); border: 1px solid rgb(53, 147, 140); border-radius: 4px; font-size: 14px; font-weight: 600; color: rgb(76, 201, 192);">🔍&nbsp;&nbsp;Modo Descoberta</div>
+                <span data-dc-tpl="662" style="flex: 1 1 0%;"></span>
+                <div data-dc-tpl="663" style="display: flex; align-items: center; height: 38px; padding: 0px 16px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-size: 14px; font-weight: 600; color: rgb(230, 235, 242);">Analisar + IA nos duvidosos</div>
+                <div data-dc-tpl="664" style="display: flex; align-items: center; height: 38px; padding: 0px 20px; background: rgb(76, 201, 192); border: 1px solid rgb(76, 201, 192); border-radius: 4px; font-size: 14px; font-weight: 600; color: rgb(8, 32, 30);">Analisar episódio</div>
+              </div>
+            </div>
+
+            <div data-dc-tpl="665" style="display: flex; flex-direction: column; gap: 10px; min-height: 0px;">
+              <div data-dc-tpl="666" style="display: flex; align-items: center; gap: 10px;"><span data-dc-tpl="667" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(76, 201, 192);">3</span><span data-dc-tpl="668" style="font-size: 13px; font-weight: 600; color: rgb(230, 235, 242);">Progresso</span><span data-dc-tpl="669" style="flex: 1 1 0%; height: 1px; background: rgb(30, 36, 44);"></span></div>
+              <div data-dc-tpl="670" style="padding-left: 20px; display: flex; gap: 20px; min-height: 0px;">
+                <div data-dc-tpl="671" style="flex: 1 1 0%; display: flex; flex-direction: column; gap: 10px; min-width: 0px;">
+                  <div data-dc-tpl="672" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;">
+                    <div data-dc-tpl="673" style="display: flex; flex-direction: column; gap: 3px; min-width: 0px;">
+                      <span data-dc-tpl="674" style="font-size: 13px; font-weight: 600; color: rgb(230, 235, 242);">Cortando cenas</span>
+                      <span data-dc-tpl="675" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(106, 115, 130);"><span data-dc-tpl="676" style="color: rgb(232, 161, 92);">214</span> de <span data-dc-tpl="677" style="color: rgb(232, 161, 92);">331</span></span>
+                    </div>
+                    <span data-dc-tpl="678" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 26px; line-height: 1; color: rgb(232, 161, 92);">64%</span>
+                  </div>
+                  <div data-dc-tpl="679" style="height: 10px; background: rgb(20, 24, 31); border: 1px solid rgb(42, 50, 61); border-radius: 5px; overflow: hidden; display: flex;"><div data-dc-tpl="680" style="width: 64%; height: 8px; background: rgb(76, 201, 192);"></div><div data-dc-tpl="681" style="width: 8%; height: 8px; background: rgb(53, 147, 140);"></div></div>
+                  <div data-dc-tpl="682" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: rgb(30, 36, 44); border: 1px solid rgb(30, 36, 44); border-radius: 4px; overflow: hidden;">
+                    <div data-dc-tpl="683" style="background: rgb(20, 24, 31); padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;"><span data-dc-tpl="684" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: rgb(106, 115, 130);">decorrido</span><span data-dc-tpl="685" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 14px; color: rgb(232, 161, 92);">02:41</span></div>
+                    <div data-dc-tpl="686" style="background: rgb(20, 24, 31); padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;"><span data-dc-tpl="687" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: rgb(106, 115, 130);">resta ~</span><span data-dc-tpl="688" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 14px; color: rgb(232, 161, 92);">01:29</span></div>
+                    <div data-dc-tpl="689" style="background: rgb(20, 24, 31); padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;"><span data-dc-tpl="690" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: rgb(106, 115, 130);">ritmo</span><span data-dc-tpl="691" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 14px; color: rgb(232, 161, 92);">1.3 cena/s</span></div>
+                  </div>
+                  <div data-dc-tpl="692" style="display: flex; align-items: center; gap: 8px; min-width: 0px;"><span data-dc-tpl="693" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(106, 115, 130); min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">escrevendo → Output\S03E02\Farion, Nina\0214.mp4</span></div>
+                  <div data-dc-tpl="694" style="display: flex; align-items: center; gap: 8px; margin-top: auto;">
+                    <div data-dc-tpl="695" style="display: flex; align-items: center; height: 32px; padding: 0px 14px; background: rgb(31, 20, 24); border: 1px solid rgb(91, 42, 48); border-radius: 4px; font-size: 13px; font-weight: 600; color: rgb(229, 104, 111);">✕&nbsp;&nbsp;Cancelar</div>
+                    <div data-dc-tpl="696" style="display: flex; align-items: center; height: 32px; padding: 0px 14px; background: rgb(27, 33, 41); border: 1px solid rgb(42, 50, 61); border-radius: 4px; font-size: 13px; color: rgb(230, 235, 242);">📂&nbsp;&nbsp;Abrir pasta de saída</div>
+                  </div>
+                </div>
+                <div data-dc-tpl="697" style="width: 300px; display: flex; flex-direction: column; gap: 2px;">
+                  <div data-dc-tpl="698" style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0px 8px; border-left: 3px solid transparent; background: rgb(15, 18, 23);"><span data-dc-tpl="699" style="width: 12px; text-align: center; color: rgb(111, 207, 139); font-size: 11px;">✓</span><span data-dc-tpl="700" style="font-size: 12px; color: rgb(154, 164, 178); flex: 1 1 0%;">Lendo arquivo</span><span data-dc-tpl="701" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(106, 115, 130);">0:04</span></div>
+                  <div data-dc-tpl="702" style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0px 8px; border-left: 3px solid transparent; background: rgb(15, 18, 23);"><span data-dc-tpl="703" style="width: 12px; text-align: center; color: rgb(111, 207, 139); font-size: 11px;">✓</span><span data-dc-tpl="704" style="font-size: 12px; color: rgb(154, 164, 178); flex: 1 1 0%;">Detectando shots</span><span data-dc-tpl="705" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(106, 115, 130);">0:38</span></div>
+                  <div data-dc-tpl="706" style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0px 8px; border-left: 3px solid rgb(76, 201, 192); background: rgb(12, 43, 41);"><span data-dc-tpl="707" style="width: 12px; text-align: center; color: rgb(76, 201, 192); font-size: 11px;">▸</span><span data-dc-tpl="708" style="font-size: 12px; font-weight: 600; color: rgb(230, 235, 242); flex: 1 1 0%;">Cortando</span><span data-dc-tpl="709" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(232, 161, 92);">214/331</span></div>
+                  <div data-dc-tpl="710" style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0px 8px; border-left: 3px solid transparent;"><span data-dc-tpl="711" style="width: 12px; text-align: center; color: rgb(91, 100, 115); font-size: 11px;">○</span><span data-dc-tpl="712" style="font-size: 12px; color: rgb(91, 100, 115); flex: 1 1 0%;">Extraindo keyframes</span></div>
+                  <div data-dc-tpl="713" style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0px 8px; border-left: 3px solid transparent;"><span data-dc-tpl="714" style="width: 12px; text-align: center; color: rgb(91, 100, 115); font-size: 11px;">○</span><span data-dc-tpl="715" style="font-size: 12px; color: rgb(91, 100, 115); flex: 1 1 0%;">Baixando referências</span></div>
+                  <div data-dc-tpl="716" style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0px 8px; border-left: 3px solid transparent;"><span data-dc-tpl="717" style="width: 12px; text-align: center; color: rgb(91, 100, 115); font-size: 11px;">○</span><span data-dc-tpl="718" style="font-size: 12px; color: rgb(91, 100, 115); flex: 1 1 0%;">Reconhecendo</span></div>
+                  <div data-dc-tpl="719" style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0px 8px; border-left: 3px solid transparent;"><span data-dc-tpl="720" style="width: 12px; text-align: center; color: rgb(91, 100, 115); font-size: 11px;">○</span><span data-dc-tpl="721" style="font-size: 12px; color: rgb(91, 100, 115); flex: 1 1 0%;">Organizando pastas</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div data-dc-tpl="722" style="display: flex; flex-direction: column; gap: 10px;">
+        <div data-dc-tpl="723" style="display: flex; align-items: baseline; gap: 12px;"><span data-dc-tpl="724" style="font-size: 15px; font-weight: 600;">Resultados</span><span data-dc-tpl="725" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11.5px; color: rgb(106, 115, 130);">596 × 640 (recorte) · coluna esquerda 268 fixa</span></div>
+        <div data-dc-tpl="726" style="width: 596px; height: 640px; background: rgb(14, 16, 20); border: 1px solid rgb(42, 50, 61); border-radius: 6px; overflow: hidden; display: flex;">
+          <div data-dc-tpl="727" style="width: 268px; min-width: 268px; background: rgb(20, 24, 31); border-right: 1px solid rgb(30, 36, 44); display: flex; flex-direction: column;">
+            <div data-dc-tpl="728" style="padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid rgb(30, 36, 44);">
+              <span data-dc-tpl="729" style="font-family: &quot;Segoe UI Variable Display&quot;, &quot;Segoe UI&quot;, sans-serif; font-size: 15px; font-weight: 600; line-height: 1.3;">Mushoku Tensei III — S03E02</span>
+              <span data-dc-tpl="730" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(106, 115, 130);"><span data-dc-tpl="731" style="color: rgb(232, 161, 92);">331</span> shots · <span data-dc-tpl="732" style="color: rgb(232, 161, 92);">6</span> personagens · <span data-dc-tpl="733" style="color: rgb(232, 161, 92);">04:12</span></span>
+              <span data-dc-tpl="734" style="font-size: 12px; color: rgb(106, 115, 130); line-height: 1.5;">top duplas: Nina+Eris <span data-dc-tpl="735" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; color: rgb(232, 161, 92);">37</span> · Eris+Gull <span data-dc-tpl="736" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; color: rgb(232, 161, 92);">12</span></span>
+            </div>
+            <div data-dc-tpl="737" style="flex: 1 1 0%; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px;">
+              <div data-dc-tpl="738" style="padding: 4px 10px 6px; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: rgb(106, 115, 130);">Elenco</div>
+              <div data-dc-tpl="739" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 8px; border-radius: 4px; background: rgb(12, 43, 41); border-width: 1px 1px 1px 3px; border-style: solid; border-color: rgb(53, 147, 140) rgb(53, 147, 140) rgb(53, 147, 140) rgb(76, 201, 192); border-image: initial;"><span data-dc-tpl="740" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%;">Farion, Nina</span><span data-dc-tpl="741" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">91</span></div>
+              <div data-dc-tpl="742" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 8px; border-radius: 4px;"><span data-dc-tpl="743" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%;">Greyrat, Eris Boreas</span><span data-dc-tpl="744" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">85</span></div>
+              <div data-dc-tpl="745" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 8px; border-radius: 4px;"><span data-dc-tpl="746" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%;">Cruel, Isolte</span><span data-dc-tpl="747" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">39</span></div>
+              <div data-dc-tpl="748" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 8px; border-radius: 4px;"><span data-dc-tpl="749" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%;">Farion, Gull</span><span data-dc-tpl="750" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">18</span></div>
+              <div data-dc-tpl="751" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 8px; border-radius: 4px;"><span data-dc-tpl="752" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%;">Ryia, Reida</span><span data-dc-tpl="753" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">17</span></div>
+              <div data-dc-tpl="754" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 8px; border-radius: 4px;"><span data-dc-tpl="755" style="font-size: 13px; color: rgb(230, 235, 242); flex: 1 1 0%;">Greyrat, Rudeus</span><span data-dc-tpl="756" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92);">8</span></div>
+              <div data-dc-tpl="757" style="display: flex; align-items: center; height: 30px; padding: 0px 10px; gap: 8px; border-radius: 4px;"><span data-dc-tpl="758" style="font-size: 13px; color: rgb(91, 100, 115); flex: 1 1 0%;">sem identificação</span><span data-dc-tpl="759" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(229, 104, 111);">14</span></div>
+            </div>
+            <div data-dc-tpl="760" style="border-top: 1px solid rgb(30, 36, 44); padding: 10px 8px 12px; display: flex; flex-direction: column; gap: 3px;">
+              <div data-dc-tpl="761" style="display: flex; align-items: center; height: 32px; padding: 0px 10px; gap: 8px; border-radius: 4px; background: rgb(14, 16, 20); border: 1px solid rgb(53, 147, 140); font-size: 13px; font-weight: 600; color: rgb(76, 201, 192);"><span data-dc-tpl="762">🔄</span>Sincronizar pastas</div>
+              <div data-dc-tpl="763" style="display: flex; align-items: center; height: 32px; padding: 0px 10px; gap: 8px; border-radius: 4px; font-size: 13px; color: rgb(154, 164, 178);"><span data-dc-tpl="764">📂</span>Abrir pasta do episódio</div>
+              <div data-dc-tpl="765" style="display: flex; align-items: center; height: 32px; padding: 0px 10px; gap: 8px; border-radius: 4px; font-size: 13px; color: rgb(154, 164, 178);"><span data-dc-tpl="766">⤓</span>Exportar refs (.zip)</div>
+              <div data-dc-tpl="767" style="display: flex; align-items: center; height: 32px; padding: 0px 10px; gap: 8px; border-radius: 4px; font-size: 13px; color: rgb(154, 164, 178);"><span data-dc-tpl="768">✚</span>Reforçar refs com este ep</div>
+              <div data-dc-tpl="769" style="display: flex; align-items: center; height: 32px; padding: 0px 10px; gap: 8px; border-radius: 4px; font-size: 13px; color: rgb(154, 164, 178);"><span data-dc-tpl="770">▯</span>Exportar vertical 1080×1920</div>
+            </div>
+          </div>
+          <div data-dc-tpl="771" style="flex: 1 1 0%; min-width: 0px; display: flex; flex-direction: column;">
+            <div data-dc-tpl="772" style="padding: 14px 16px 12px; border-bottom: 1px solid rgb(30, 36, 44); display: flex; align-items: baseline; justify-content: space-between; gap: 10px;">
+              <span data-dc-tpl="773" style="font-size: 14px; font-weight: 600;">Farion, Nina</span>
+              <span data-dc-tpl="774" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(106, 115, 130);"><span data-dc-tpl="775" style="color: rgb(232, 161, 92);">91</span> cenas · <span data-dc-tpl="776" style="color: rgb(232, 161, 92);">04:52</span></span>
+            </div>
+            <div data-dc-tpl="777" style="flex: 1 1 0%; min-height: 0px; overflow: hidden; padding: 12px 16px;">
+              <div data-dc-tpl="778" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                
+                  <div data-dc-tpl="780" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="781" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(58, 63, 74), rgb(30, 35, 43));">
+                      <div data-dc-tpl="782" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0129</span></div>
+                    </div>
+                    <div data-dc-tpl="783" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="784" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina, Gull</span></span>
+                      <span data-dc-tpl="785" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">0.9s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="780" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="781" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(70, 58, 58), rgb(35, 29, 32));">
+                      <div data-dc-tpl="782" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0130</span></div>
+                    </div>
+                    <div data-dc-tpl="783" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="784" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="785" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">5.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="780" style="background: rgb(12, 43, 41); border: 2px solid rgb(76, 201, 192); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="781" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(43, 58, 70), rgb(24, 32, 40));">
+                      <div data-dc-tpl="782" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(76, 201, 192); border-radius: 3px; display: flex; align-items: center; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(8, 32, 30);"><span class="sc-interp">#0131</span></div>
+                    </div>
+                    <div data-dc-tpl="783" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(12, 43, 41);">
+                      <span data-dc-tpl="784" style="font-size: 12px; color: rgb(230, 235, 242); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="785" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.4s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="780" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="781" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(62, 68, 80), rgb(32, 38, 46));">
+                      <div data-dc-tpl="782" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0132</span></div>
+                    </div>
+                    <div data-dc-tpl="783" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="784" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Eris</span></span>
+                      <span data-dc-tpl="785" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">4.8s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="780" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="781" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(74, 63, 58), rgb(36, 30, 28));">
+                      <div data-dc-tpl="782" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0133</span></div>
+                    </div>
+                    <div data-dc-tpl="783" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="784" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Eris</span></span>
+                      <span data-dc-tpl="785" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="780" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="781" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(51, 66, 78), rgb(27, 35, 43));">
+                      <div data-dc-tpl="782" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0134</span></div>
+                    </div>
+                    <div data-dc-tpl="783" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="784" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina, Eris</span></span>
+                      <span data-dc-tpl="785" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">0.9s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="780" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="781" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(61, 55, 70), rgb(31, 28, 38));">
+                      <div data-dc-tpl="782" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0135</span></div>
+                    </div>
+                    <div data-dc-tpl="783" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="784" style="font-size: 12px; color: rgb(91, 100, 115); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">sem identificação</span></span>
+                      <span data-dc-tpl="785" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">5.0s</span></span>
+                    </div>
+                  </div>
+                
+                  <div data-dc-tpl="780" style="background: rgb(27, 33, 41); border: 1px solid rgb(35, 43, 53); border-radius: 6px; overflow: hidden;">
+                    <div data-dc-tpl="781" style="position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, rgb(47, 59, 70), rgb(26, 34, 43));">
+                      <div data-dc-tpl="782" style="position: absolute; top: 6px; left: 6px; height: 18px; padding: 0px 6px; background: rgb(11, 14, 18); border-radius: 3px; display: flex; align-items: center; font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 11px; color: rgb(154, 164, 178);"><span class="sc-interp">#0136</span></div>
+                    </div>
+                    <div data-dc-tpl="783" style="height: 26px; padding: 0px 8px; display: flex; align-items: center; justify-content: space-between; background: rgb(27, 33, 41);">
+                      <span data-dc-tpl="784" style="font-size: 12px; color: rgb(154, 164, 178); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="sc-interp">Nina</span></span>
+                      <span data-dc-tpl="785" style="font-family: &quot;Cascadia Mono&quot;, Consolas, monospace; font-size: 12px; color: rgb(232, 161, 92); padding-left: 6px;"><span class="sc-interp">2.4s</span></span>
+                    </div>
+                  </div>
+                
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</body></html>

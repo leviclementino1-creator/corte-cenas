@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Corte Cenas — prova de conceito</title>
+<style>
+/* ------------------------------------------------------------------ *
+ * Os mesmos tokens do app/ui/theme.py. Copiados, não reinterpretados. *
+ * ------------------------------------------------------------------ */
+:root{
+  --bg:#0e1014; --surface:#14181f; --surface-2:#1b2129; --surface-3:#232b35;
+  --well:#14181f; --well-off:#0f1217; --pressed:#161b22;
+  --line:#2a323d; --line-soft:#1e242c; --line-bright:#37414e;
+  --txt:#e6ebf2; --dim:#9aa4b2; --faint:#6a7382; --off:#4b5462; --ghost:#5b6473;
+  --accent:#4cc9c0; --accent-hover:#5fd6cd; --accent-dim:#35938c;
+  --accent-ink:#0c2b29; --on-accent:#08201e;
+  --time:#e8a15c; --time-ink:#20190f; --time-line:#5c4a2a;
+  --ok:#6fcf8b; --danger:#e5686f;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --display:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+  --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
+  --w-acervo:248px; --w-cena:320px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{
+  background:var(--bg); color:var(--txt); font-family:var(--sans); font-size:13px;
+  -webkit-font-smoothing:antialiased; user-select:none; cursor:default;
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2a323d;border-radius:5px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:#37414e}
+
+/* --- barra de abas: 44 no total, aba de 36 encostada embaixo ---------- */
+.abas{height:44px;display:flex;align-items:flex-end;padding:0 12px;
+      border-bottom:1px solid var(--line);gap:2px}
+.aba{height:36px;display:flex;align-items:center;padding:0 16px;font-size:13px;
+     color:var(--dim);border:1px solid transparent;border-bottom:none;
+     border-radius:6px 6px 0 0;margin-bottom:-1px;cursor:default}
+.aba:hover{color:var(--txt);background:var(--surface)}
+.aba.viva{color:var(--txt);background:var(--surface-2);border-color:var(--line);
+          border-bottom-color:var(--surface-2)}
+.abas .direita{margin-left:auto;display:flex;align-items:center;gap:8px;padding-bottom:5px}
+.capsula{height:26px;display:flex;align-items:center;gap:7px;padding:0 11px;
+         border-radius:13px;background:var(--surface-2);border:1px solid var(--line);
+         font-size:12px;color:var(--dim)}
+.ponto{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+
+/* --- a Biblioteca: 248 fixo | grade elástica | 320 fixo -------------- */
+.tela{height:calc(100vh - 44px);display:flex}
+.acervo{width:var(--w-acervo);flex:0 0 var(--w-acervo);
+        border-right:1px solid var(--line);padding:14px 8px 12px;overflow:auto}
+.meio{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.cena{width:var(--w-cena);flex:0 0 var(--w-cena);
+      border-left:1px solid var(--line);padding:14px 16px;display:flex;
+      flex-direction:column;gap:14px;overflow:auto}
+
+.sobrancelha{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+             text-transform:uppercase;color:var(--faint);padding:0 8px 8px}
+.no{display:flex;align-items:center;height:28px;padding:0 8px;border-radius:4px;
+    color:var(--dim);gap:6px}
+.no:hover{background:var(--surface)}
+.no.viva{background:var(--surface-2);color:var(--txt);
+         box-shadow:inset 3px 0 0 var(--accent)}
+.no .seta{width:9px;color:var(--off);font-size:9px}
+.no .conta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--time)}
+.no.n1{padding-left:10px} .no.n2{padding-left:24px} .no.n3{padding-left:38px}
+
+.cabeca{padding:16px 20px 12px;border-bottom:1px solid var(--line)}
+.cabeca h1{font-family:var(--display);font-size:19px;font-weight:600;margin:0 0 6px;
+           letter-spacing:-.01em}
+.cabeca .meta{font-size:12px;color:var(--dim)}
+.cabeca .meta b{font-family:var(--mono);color:var(--time);font-weight:400}
+.cabeca .meta .duv{color:var(--danger)}
+.filtros{display:flex;gap:8px;margin-top:12px;overflow-x:auto;overflow-y:hidden;
+         padding-bottom:2px;scrollbar-width:thin}
+.filtros::-webkit-scrollbar{height:6px}
+.pilula{flex:0 0 auto;height:34px;display:flex;align-items:center;gap:8px;
+        padding:0 13px;border-radius:17px;background:var(--surface-2);
+        border:1px solid var(--line);color:var(--dim);font-size:13px;white-space:nowrap}
+.pilula:hover{border-color:var(--line-bright);color:var(--txt)}
+.pilula.viva{background:var(--accent-ink);border-color:var(--accent-dim);color:var(--accent)}
+.pilula .n{font-family:var(--mono);font-size:11px;color:var(--time)}
+.pilula.viva .n{color:var(--accent)}
+
+/* --- A GRADE. O ponto todo desta prova de conceito. ------------------ *
+ * Em QSS isso não existe: nem grid, nem auto-fill, nem minmax. Aqui as  *
+ * colunas se ajustam sozinhas, o respiro é igual nos quatro lados e o   *
+ * cartão nunca passa de 300 nem encolhe abaixo de 196.                  */
+.grade{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:14px 20px;align-content:start}
+.grade .pista{
+  display:grid;gap:12px;justify-items:center;
+  /* Cartão entre 196 e 300, no máximo 5 colunas — as três regras numa linha.
+     O `max(...)` é o teto de colunas: exigindo que cada uma ocupe ao menos
+     1/5 da pista, não cabem seis. O `1fr` faz o resto esticar pra preencher,
+     e é ele que mantém o respiro igual dos dois lados sozinho.
+     ARMADILHA (medida): trocar o `1fr` por `300px` parece equivalente e não
+     é — com um máximo definido o `auto-fill` passa a CONTAR por ele, e 1920
+     de largura caía pra 4 colunas de 300 com 53px sobrando de cada lado. */
+  grid-template-columns:repeat(auto-fill,minmax(max(196px,calc(20% - 9.6px)),1fr))}
+.cartao{max-width:300px;width:100%}
+/* Abaixo de 1180 o painel da cena sai de cena e a grade fica com a largura
+   — mesma régua que o app usa hoje. */
+@media (max-width:1180px){ .cena{display:none} }
+
+/* ARMADILHA (medida): `overflow:hidden` AQUI zera a altura intrínseca do
+ * cartão quando o filho tira a altura de `aspect-ratio` — a linha do grid
+ * saía com 2px (só as bordas) e a grade virava um monte de riscos. Quem
+ * recorta a imagem é o .quadro, que já tem o overflow dele. */
+.cartao{background:var(--surface);border:1px solid var(--line-soft);border-radius:6px;
+        position:relative}
+.cartao:hover{border-color:var(--line-bright)}
+.cartao.viva{border-color:var(--accent)}
+.cartao .quadro{position:relative;aspect-ratio:16/9;background:var(--well-off);
+                overflow:hidden;border-radius:5px 5px 0 0}
+.cartao img{width:100%;height:100%;object-fit:cover;display:block}
+.cartao .tag{position:absolute;top:6px;left:6px;height:18px;display:flex;
+             align-items:center;padding:0 6px;border-radius:3px;
+             background:rgba(11,14,18,.82);font-family:var(--mono);font-size:10px;
+             color:var(--dim)}
+.cartao.viva .tag{background:var(--accent);color:var(--on-accent)}
+.cartao .selo{position:absolute;top:6px;right:6px;font-size:11px}
+.cartao .selo.duv{color:var(--time)} .cartao .selo.ok{color:var(--ok)}
+.cartao .trilho{position:absolute;left:0;right:0;bottom:0;height:3px;
+                background:rgba(232,161,92,.25);opacity:0;transition:opacity .12s}
+.cartao:hover .trilho{opacity:1}
+.cartao .trilho i{display:block;height:100%;background:var(--time);width:0}
+.cartao .tc{position:absolute;bottom:6px;right:6px;font-family:var(--mono);
+            font-size:10px;color:var(--time);background:rgba(11,14,18,.82);
+            padding:1px 4px;border-radius:3px;opacity:0}
+.cartao:hover .tc{opacity:1}
+.cartao .pe{height:26px;display:flex;align-items:center;gap:8px;padding:0 8px;
+            border-top:1px solid var(--line-soft)}
+.cartao .pe .nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+                  white-space:nowrap;font-size:12px}
+.cartao .pe .nome.vazio{color:var(--ghost);font-style:italic}
+.cartao .pe .dur{font-family:var(--mono);font-size:11px;color:var(--time)}
+
+/* --- painel A CENA --------------------------------------------------- */
+.cena .tv{background:#000;border:1px solid var(--line);border-radius:6px;
+          aspect-ratio:16/9;overflow:hidden;position:relative}
+.cena .tv video{width:100%;height:100%;display:block;object-fit:contain}
+.cena .tv .vazio{position:absolute;inset:0;display:flex;align-items:center;
+                 justify-content:center;color:var(--ghost);font-size:12px}
+.cena table{width:100%;border-collapse:collapse;font-size:12px}
+.cena td{padding:3px 0;vertical-align:top}
+.cena td.r{width:66px;color:var(--faint)}
+.cena td.v{color:var(--txt)}
+.cena td.v.num{font-family:var(--mono);color:var(--time)}
+.btn{height:38px;display:flex;align-items:center;justify-content:center;gap:8px;
+     border-radius:6px;font-size:13px;border:1px solid transparent;width:100%}
+.btn.cheio{background:var(--accent);color:var(--on-accent);font-weight:600}
+.btn.cheio:hover{background:var(--accent-hover)}
+.btn.linha{height:32px;justify-content:flex-start;padding:0 10px;
+           background:transparent;color:var(--dim)}
+.btn.linha:hover{background:var(--surface-2);color:var(--txt)}
+.atalhos{border-top:1px solid var(--line-soft);padding-top:10px;font-size:11px;
+         color:var(--faint);line-height:1.8}
+.atalhos kbd{font-family:var(--mono);background:var(--surface-2);
+             border:1px solid var(--line);border-radius:3px;padding:1px 5px;
+             font-size:10px;color:var(--dim)}
+.divisor{height:1px;background:var(--line-soft)}
+
+/* --- medidor: só na prova de conceito, some no app ------------------- */
+#medidor{position:fixed;right:12px;bottom:12px;background:rgba(11,14,18,.94);
+         border:1px solid var(--accent-dim);border-radius:6px;padding:10px 12px;
+         font-family:var(--mono);font-size:11px;color:var(--accent);line-height:1.7;
+         z-index:99;pointer-events:none;white-space:pre}
+</style>
+</head>
+<body>
+
+<div class="abas">
+  <div class="aba">Analisar</div>
+  <div class="aba viva">Biblioteca</div>
+  <div class="aba">Resultados</div>
+  <div class="direita">
+    <div class="capsula"><span class="ponto"></span>RTX 4070</div>
+    <div class="capsula">Configurações</div>
+  </div>
+</div>
+
+<div class="tela">
+  <aside class="acervo">
+    <div class="sobrancelha">Acervo</div>
+    <div class="no n1"><span class="seta">▾</span>Mushoku Tensei III<span class="conta">331</span></div>
+    <div class="no n2"><span class="seta">▾</span>Temporada 3<span class="conta">331</span></div>
+    <div class="no n3 viva">Episódio 2<span class="conta">331</span></div>
+    <div class="divisor" style="margin:12px 8px"></div>
+    <div class="sobrancelha">Ações</div>
+    <div class="no n1">Abrir no Explorer</div>
+    <div class="no n1">Reanalisar episódio</div>
+  </aside>
+
+  <main class="meio">
+    <div class="cabeca">
+      <h1 id="titulo">Mushoku Tensei III · T3 E2</h1>
+      <div class="meta" id="meta">carregando…</div>
+      <div class="filtros" id="filtros"></div>
+    </div>
+    <div class="grade"><div class="pista" id="grade"></div></div>
+  </main>
+
+  <aside class="cena">
+    <div class="sobrancelha" style="padding:0 0 4px">A cena</div>
+    <div class="tv">
+      <video id="tv" muted loop playsinline></video>
+      <div class="vazio" id="tv_vazio">escolha uma cena</div>
+    </div>
+    <table>
+      <tr><td class="r">Cena</td><td class="v num" id="i_num">—</td></tr>
+      <tr><td class="r">Duração</td><td class="v num" id="i_dur">—</td></tr>
+      <tr><td class="r">Quem</td><td class="v" id="i_quem">—</td></tr>
+      <tr><td class="r">Arquivo</td><td class="v" id="i_arq">—</td></tr>
+    </table>
+    <div class="divisor"></div>
+    <button class="btn cheio" id="btn_ponte">Juntar com a próxima</button>
+    <button class="btn linha">✂  Remover desta pasta</button>
+    <button class="btn linha">→  Mover para outro personagem</button>
+    <div class="atalhos">
+      <kbd>J</kbd> juntar · <kbd>M</kbd> mover · <kbd>Del</kbd> remover<br>
+      <kbd>←</kbd> <kbd>→</kbd> navegar · <kbd>Ctrl</kbd>+<kbd>P</kbd> tocar
+    </div>
+  </aside>
+</div>
+
+<div id="medidor">medindo…</div>
+
+<script src="/qwebchannel.js"></script>
+<script>
+const T0 = performance.now();
+let ponte = null, cenas = [];
+
+function fmt(s){ const m=Math.floor(s/60), r=(s%60).toFixed(1); return `${m}:${r.padStart(4,'0')}`; }
+
+function monta(lista){
+  const t = performance.now();
+  const grade = document.getElementById('grade');
+  const frag = document.createDocumentFragment();
+  for (const c of lista){
+    const el = document.createElement('div');
+    el.className = 'cartao';
+    el.dataset.idx = c.idx;
+    const quem = c.quem.length ? c.quem.join(', ') : 'sem identificação';
+    el.innerHTML =
+      `<div class="quadro">
+         <img loading="lazy" decoding="async" src="${c.mini}" alt="">
+         <span class="tag">${String(c.idx).padStart(3,'0')}</span>
+         ${c.quem.length ? '' : '<span class="selo duv">⚠</span>'}
+         <div class="trilho"><i></i></div>
+         <span class="tc">0:00.0</span>
+       </div>
+       <div class="pe">
+         <span class="nome${c.quem.length?'':' vazio'}">${quem}</span>
+         <span class="dur">${c.dur.toFixed(1)}s</span>
+       </div>`;
+    frag.appendChild(el);
+  }
+  grade.appendChild(frag);
+  const ms = performance.now() - t;
+  if (ponte) ponte.marca('montou_' + lista.length + '_cartoes', ms);
+  return ms;
+}
+
+// scrub no hover — três linhas de JS. Em Qt isso é um delegate com QPainter.
+document.getElementById('grade').addEventListener('mousemove', e => {
+  const cartao = e.target.closest('.cartao'); if (!cartao) return;
+  const q = cartao.querySelector('.quadro'), r = q.getBoundingClientRect();
+  const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  cartao.querySelector('.trilho i').style.width = (f*100) + '%';
+  const c = cenas[+cartao.dataset.idx];
+  if (c) cartao.querySelector('.tc').textContent = fmt(f * c.dur);
+});
+
+document.getElementById('grade').addEventListener('click', e => {
+  const cartao = e.target.closest('.cartao'); if (!cartao) return;
+  document.querySelectorAll('.cartao.viva').forEach(x => x.classList.remove('viva'));
+  cartao.classList.add('viva');
+  const c = cenas[+cartao.dataset.idx]; if (!c) return;
+  document.getElementById('i_num').textContent = String(c.idx).padStart(4,'0');
+  document.getElementById('i_dur').textContent = c.dur.toFixed(1) + 's';
+  document.getElementById('i_quem').textContent = c.quem.length ? c.quem.join(', ') : '—';
+  document.getElementById('i_arq').textContent = c.clipe.split('/').pop();
+  document.getElementById('tv_vazio').textContent = 'preparando…';
+  // O clipe é H.264 e este Chromium não toca — o Python devolve uma prévia
+  // WebM feita na hora (ver Ponte.previa).
+  ponte.previa(c.idx, url => {
+    const tv = document.getElementById('tv');
+    if (!url) { document.getElementById('tv_vazio').textContent = 'sem prévia'; return; }
+    tv.src = url; tv.play().catch(()=>{});
+    document.getElementById('tv_vazio').style.display = 'none';
+  });
+  if (ponte) ponte.clicou('cartao_' + c.idx);
+});
+
+document.getElementById('btn_ponte').addEventListener('click', () => {
+  if (ponte) ponte.clicou('botao_juntar');
+});
+
+new QWebChannel(qt.webChannelTransport, canal => {
+  ponte = canal.objects.ponte;
+  ponte.marca('canal_pronto', performance.now() - T0);
+
+  ponte.cenas_do_episodio('3', json => {
+    cenas = JSON.parse(json);
+    const ms = monta(cenas);
+    const semDono = cenas.filter(c => !c.quem.length).length;
+    document.getElementById('meta').innerHTML =
+      `<b>${cenas.length}</b> cenas · <b>${new Set(cenas.flatMap(c=>c.quem)).size}</b> personagens · ` +
+      `<span class="duv">${semDono} duvidosas</span>`;
+
+    const elenco = {};
+    for (const c of cenas) for (const q of c.quem) elenco[q] = (elenco[q]||0)+1;
+    const filtros = document.getElementById('filtros');
+    filtros.innerHTML = `<div class="pilula viva">Todas <span class="n">${cenas.length}</span></div>` +
+      Object.entries(elenco).sort((a,b)=>b[1]-a[1])
+        .map(([n,k])=>`<div class="pilula">${n} <span class="n">${k}</span></div>`).join('');
+
+    // espera TODAS as miniaturas ficarem prontas — é o número que interessa
+    const imgs = [...document.querySelectorAll('.grade img')];
+    let prontas = 0;
+    const conta = () => {
+      if (++prontas < imgs.length) return;
+      const total = performance.now() - T0;
+      ponte.marca('todas_miniaturas', total);
+      document.getElementById('medidor').textContent =
+        `grade  ${ms.toFixed(0)} ms\n${imgs.length} minis  ${total.toFixed(0)} ms`;
+    };
+    imgs.forEach(i => i.complete ? conta() : (i.onload = conta, i.onerror = conta));
+    // com loading="lazy" só as visíveis carregam: força o resto
+    setTimeout(() => imgs.forEach(i => i.loading = 'eager'), 50);
+  });
+});
+</script>
+</body>
+</html>
