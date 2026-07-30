@@ -592,6 +592,14 @@ class AnalyzeTab(QWidget):
                     return
                 merge_previous = clicked is btn_merge
 
+        # Em qual pasta este anime mora? Perguntado AQUI, na thread da
+        # interface, antes de a análise começar — o pipeline roda em thread
+        # de fundo e não pode abrir diálogo. Só aparece quando o nome
+        # digitado parece com uma pasta que já existe e ainda não houve
+        # decisão; depois disso nunca mais.
+        if not self._escolher_pasta(info.anime):
+            return
+
         self.run_btn.setEnabled(False)
         self.run_ai_btn.setEnabled(False)
         self.discovery_btn.setEnabled(False)
@@ -760,6 +768,65 @@ class AnalyzeTab(QWidget):
         fonte = item.font()
         fonte.setBold(estado == "rodando")
         item.setFont(fonte)
+
+    def _escolher_pasta(self, digitado: str) -> bool:
+        """Pergunta em qual pasta o anime vai morar, uma vez só.
+
+        O app criava DUAS pastas do mesmo show quando o nome era digitado
+        diferente ("Mushoku Tensei" numa análise, "Mushoku" na outra). Agora,
+        quando o nome parece com uma pasta que já existe, quem decide é o
+        usuário — e a resposta fica gravada.
+
+        Devolve False só se o usuário cancelar a análise.
+        """
+        from ..storage import pastas
+        from ..storage.organizer import sanitize
+
+        if not digitado:
+            return True
+        # já decidido antes? então nem pergunta
+        try:
+            if pastas._memoria(self.config.cache_path).get(pastas._chave(digitado)):
+                return True
+        except Exception:  # noqa: BLE001 — memória ilegível não trava análise
+            return True
+
+        candidatas = [
+            c for c in pastas.parecidas(digitado, self.config.output_path)
+            if c != sanitize(digitado)
+        ]
+        if not candidatas:
+            return True
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Onde guardar este anime")
+        box.setText(
+            f'Já existe a pasta <b>{candidatas[0]}</b>, que parece ser o mesmo '
+            f'anime que "<b>{digitado}</b>".'
+        )
+        box.setInformativeText(
+            "Guardar este episódio lá dentro mantém as temporadas juntas.\n\n"
+            "Sua resposta fica gravada — não pergunto de novo."
+        )
+        usar = box.addButton(
+            f'Guardar em "{candidatas[0]}"', QMessageBox.ButtonRole.AcceptRole
+        )
+        propria = box.addButton(
+            f'Criar "{sanitize(digitado)}"', QMessageBox.ButtonRole.ActionRole
+        )
+        cancelar = box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(usar)
+        box.exec()
+
+        clicado = box.clickedButton()
+        if clicado is cancelar:
+            return False
+        pastas.apontar(
+            digitado,
+            candidatas[0] if clicado is usar else sanitize(digitado),
+            self.config.cache_path,
+        )
+        return True
 
     def _reset_stages(self) -> None:
         self.stage_list.setVisible(True)

@@ -2155,7 +2155,17 @@ class Pipeline:
         cfg = self.cfg
         cb("parse", 1.0, f"{info.anime} {info.slug}")
 
-        episode_root = cfg.output_path / sanitize(info.anime) / info.slug
+        # A pasta do anime NÃO vem mais direto do texto digitado: digitar
+        # "Mushoku Tensei" numa análise e "Mushoku" na outra criava duas
+        # pastas do mesmo show. `pastas.resolver` lembra a decisão e, quando
+        # o nome parece com uma pasta que já existe, pergunta uma vez (quem
+        # responde é a interface, via self.perguntar_pasta).
+        from .storage import pastas
+
+        episode_root = pastas.resolver(
+            info.anime, cfg.output_path, cfg.cache_path,
+            perguntar=getattr(self, "perguntar_pasta", None),
+        ) / info.slug
         shots_dir = episode_root / "shots"
         keyframes_dir = episode_root / "keyframes"
         metadata_dir = episode_root / "metadata"
