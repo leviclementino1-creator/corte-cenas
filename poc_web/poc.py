@@ -420,11 +420,91 @@ def testa_acervo(jan, app) -> None:
     p1()
 
 
+def testa_acoes(jan, app) -> None:
+    """As ações de curadoria PELA INTERFACE.
+
+    Cuidado: este modo fala com o banco de verdade. Então só faz o que dá pra
+    desfazer — junta e desfaz (líquido zero) — e nas destrutivas confere que a
+    pergunta aparece, cancelando. Quem testa remover/mover de verdade é o
+    fixture isolado em scratchpad/t_acoes.py."""
+    print("\n" + "=" * 62)
+    print("TESTE DAS AÇÕES (sem mexer na curadoria)")
+    print("=" * 62)
+
+    JUNTA = r"""
+    (() => {
+      const c = document.querySelectorAll('#grade .cartao')[10];
+      c.click();
+      pedeAcao('juntar', [+c.dataset.idx]);
+      return 'mandei juntar a cena ' + c.dataset.idx;
+    })()
+    """
+    RECADO = "document.getElementById('recado').textContent"
+    DESJUNTA = r"""
+    (() => {
+      const c = document.querySelector('#grade .cartao.viva');
+      pedeAcao('desjuntar', [+c.dataset.idx]);
+      return 'mandei desfazer';
+    })()
+    """
+    PERGUNTA_MOVER = r"""
+    (() => {
+      const c = [...document.querySelectorAll('#grade .cartao')]
+        .find(x => !x.querySelector('.nome').classList.contains('vazio'));
+      c.click();
+      pedeAcao('mover', [+c.dataset.idx]);
+      return 'pedi pra mover a cena ' + c.dataset.idx;
+    })()
+    """
+    LE_CAIXINHA = r"""
+    (() => {
+      const cx = document.getElementById('caixinha');
+      const aberta = cx.classList.contains('viva');
+      const ops = [...document.querySelectorAll('#cx_lista .op')].length;
+      const t = document.getElementById('cx_titulo').textContent;
+      if (aberta) document.getElementById('cx_nao').click();   // CANCELA
+      return `caixinha ${aberta ? 'abriu' : 'NÃO abriu'}: "${t}" com ${ops} opções · cancelei`;
+    })()
+    """
+
+    def js(codigo, rotulo, proximo, espera=1200):
+        jan.vista.page().runJavaScript(codigo, lambda s: print(f"    {rotulo} {s}"))
+        QTimer.singleShot(espera, proximo)
+
+    def p1():
+        js(JUNTA, "[1]", p2)
+
+    def p2():
+        jan.vista.page().runJavaScript(RECADO, lambda s: print(f"[1] resposta: {s}"))
+        QTimer.singleShot(2500, p3)
+
+    def p3():
+        js(DESJUNTA, "[2]", p4)
+
+    def p4():
+        jan.vista.page().runJavaScript(RECADO, lambda s: print(f"[2] resposta: {s}"))
+        QTimer.singleShot(2500, p5)
+
+    def p5():
+        js(PERGUNTA_MOVER, "[3]", p6)
+
+    def p6():
+        jan.vista.page().runJavaScript(LE_CAIXINHA, lambda s: print(f"[3] {s}"))
+        QTimer.singleShot(800, fim)
+
+    def fim():
+        print("=" * 62)
+        QTimer.singleShot(300, app.quit)
+
+    p1()
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
     galeria = "--telas" in sys.argv
     interacoes = "--interacoes" in sys.argv
     acervo = "--acervo" in sys.argv
+    acoes = "--acoes" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -592,6 +672,10 @@ def main() -> int:
 
     if acervo:
         QTimer.singleShot(4500, lambda: testa_acervo(jan, app))
+        return app.exec()
+
+    if acoes:
+        QTimer.singleShot(4500, lambda: testa_acoes(jan, app))
         return app.exec()
 
     QTimer.singleShot(4000, clica)

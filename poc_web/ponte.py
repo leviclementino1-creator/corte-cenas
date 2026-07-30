@@ -225,6 +225,24 @@ class Ponte(QObject):
         self.ffmpeg = ffmpeg
         self.cliques: list[str] = []
         self.marcas: dict[str, float] = {}
+        # Estado do episódio aberto, pra ação não ter que reconsultar o banco
+        # só pra descobrir em qual cena ela bate.
+        self.ep_id: int | None = None
+        self.anime_id: int | None = None
+        self._shots: dict[int, dict] = {}     # idx -> linha do shot
+        self._donos: dict[int, list] = {}     # shot_id -> personagens
+
+    @property
+    def db(self):
+        from app.storage.db import Database
+
+        return Database(self.banco)
+
+    @property
+    def cfg(self):
+        from app.config import Config
+
+        return Config.load()
 
     @property
     def previas(self) -> Path:
@@ -235,9 +253,7 @@ class Ponte(QObject):
         return self.raiz / "metadata" / "previas_web"
 
     def _saida(self) -> Path:
-        from app.config import Config
-
-        return Path(Config.load().output_path)
+        return Path(self.cfg.output_path)
 
     def _raiz_do_episodio(self, titulo: str, temporada: int, episodio: int) -> Path:
         """Mesma regra do app: o nome da pasta vem do que o usuário DIGITOU,
@@ -326,12 +342,185 @@ class Ponte(QObject):
         )
         return caminho or ""
 
+    # ---- curadoria --------------------------------------------------------
+    @Slot(result=str)
+    def elenco_do_anime(self) -> str:
+        """Todo o elenco do anime, não só quem apareceu neste episódio — pra
+        mover uma cena pra alguém que ainda não tem cena aqui."""
+        if self.anime_id is None:
+            return "[]"
+        with self.db.connect() as c:
+            nomes = [
+                r["name"]
+                for r in c.execute(
+                    "SELECT name FROM character WHERE anime_id = ? ORDER BY name",
+                    (self.anime_id,),
+                )
+            ]
+        return json.dumps(nomes)
+
+    def _id_do_personagem(self, nome: str) -> int | None:
+        """Escopado no anime: dois animes podem ter uma Nina cada."""
+        if self.anime_id is None:
+            return None
+        with self.db.connect() as c:
+            r = c.execute(
+                "SELECT id FROM character WHERE anime_id = ? AND name = ?",
+                (self.anime_id, nome),
+            ).fetchone()
+        return int(r["id"]) if r else None
+
+    @Slot(str, result=str)
+    def acao_cena(self, pedido: str) -> str:
+        """O portão ÚNICO das ações de curadoria.
+
+        Mesma regra do app: o botão do painel e o menu do botão direito
+        entram por aqui. Duas portas pra mesma ação é como uma delas fica
+        quebrada sem ninguém perceber — foi exatamente o que aconteceu na
+        versão Qt, onde o menu emitia um sinal que ninguém ouvia.
+
+        Nada de lógica nova: chama o mesmo `Database` e o mesmo
+        `refresh_shot_links` que a Biblioteca de hoje chama.
+        """
+        d = json.loads(pedido)
+        acao = d.get("acao")
+        idxs = [int(i) for i in d.get("idxs", [])]
+        if self.ep_id is None or not idxs:
+            return json.dumps({"ok": False, "msg": "nenhuma cena escolhida"})
+
+        linhas = [self._shots[i] for i in idxs if i in self._shots]
+        if not linhas:
+            return json.dumps({"ok": False, "msg": "cena não encontrada"})
+
+        if acao in ("juntar", "desjuntar"):
+            return self._juntar(acao, linhas)
+
+        de = d.get("de") or ""
+        cid = self._id_do_personagem(de) if de else None
+        if cid is None:
+            return json.dumps({
+                "ok": False,
+                "msg": "Esta cena não está na pasta de ninguém — não há de "
+                       "onde remover nem de onde mover.",
+            })
+
+        alvo_id = None
+        if acao == "mover":
+            alvo_id = self._id_do_personagem(d.get("para") or "")
+            if alvo_id is None:
+                return json.dumps({"ok": False, "msg": "destino inválido"})
+
+        db = self.db
+        from app.storage.organizer import refresh_shot_links
+
+        for r in linhas:
+            db.remove_shot_character(int(r["id"]), cid)
+            db.record_manual(self.ep_id, int(r["idx"]), cid, "block")
+            if alvo_id is not None:
+                db.assign_character_manual(int(r["id"]), alvo_id, 1.0)
+                db.record_manual(self.ep_id, int(r["idx"]), alvo_id, "add", 1.0)
+            # as pastas reais acompanham na hora — o clipe mestre continua em
+            # shots/, quem vai e vem são os hardlinks
+            nomes = [a["name"] for a in db.characters_in_shot(int(r["id"]))]
+            try:
+                refresh_shot_links(
+                    self.raiz, self.raiz / r["file"], nomes,
+                    by_character=self.cfg.organize_by_character_enabled,
+                    by_pair=self.cfg.organize_by_pair_enabled,
+                )
+            except Exception as e:  # noqa: BLE001
+                print(f"    [python] hardlinks de {r['idx']:04d}: {e}")
+
+        quantas = len(linhas)
+        if acao == "mover":
+            msg = f"{quantas} cena(s) de {de} → {d.get('para')}"
+        else:
+            msg = f"{quantas} cena(s) fora da pasta de {de}"
+        print(f"    [python] {msg}")
+        return json.dumps({"ok": True, "msg": msg})
+
+    def _juntar(self, acao: str, linhas: list) -> str:
+        """Juntar cenas vizinhas num clipe só (ou desfazer). Mexe nas CENAS,
+        não em quem aparece nelas — vale em qualquer vista. Guardado em
+        SEGUNDOS: número de cena anda quando a detecção muda, tempo não."""
+        db = self.db
+        r = linhas[0]
+        if acao == "desjuntar":
+            meio = (float(r["start"]) + float(r["end"])) / 2.0
+            if db.remove_shot_merge(self.ep_id, meio):
+                return json.dumps({"ok": True, "msg":
+                    "Junção desfeita. As cenas voltam separadas na próxima "
+                    "análise deste episódio."})
+            return json.dumps({"ok": False, "msg": "Esta cena não faz parte de uma junção."})
+
+        if len(linhas) >= 2:
+            ini = min(float(x["start"]) for x in linhas)
+            fim = max(float(x["end"]) for x in linhas)
+        else:
+            proxima = self._shots.get(int(r["idx"]) + 1)
+            if proxima is None:
+                return json.dumps({"ok": False, "msg": "Esta é a última cena do episódio."})
+            ini, fim = float(r["start"]), float(proxima["end"])
+        db.add_shot_merge(self.ep_id, ini, fim)
+        return json.dumps({"ok": True, "msg":
+            f"Junção marcada de {ini:.1f}s a {fim:.1f}s. Vale na próxima "
+            "análise deste episódio."})
+
+    @Slot(str, result=str)
+    def apagar_do_acervo(self, pedido: str) -> str:
+        """Tira episódios do acervo — a pasta vai pra LIXEIRA, não pro nada.
+
+        Mesma lição do apagão de cache: um clique errado não pode custar
+        horas de corte. `curation.enviar_para_lixeira` move pra
+        `Output/_lixeira/<data>`; quem quiser o espaço de volta apaga na mão.
+        O personagem, as fotos de referência e o que o app aprendeu não são
+        tocados — isso é caro de refazer e não pertence a um episódio só.
+        """
+        from app.curation import enviar_para_lixeira
+
+        ids = [int(i) for i in json.loads(pedido).get("ids", [])]
+        if not ids:
+            return json.dumps({"ok": False, "msg": "nada escolhido"})
+
+        db = self.db
+        saida = self._saida()
+        movidas, apagados = 0, 0
+        with db.connect() as c:
+            linhas = c.execute(
+                """SELECT e.id, e.season, e.episode, a.title
+                     FROM episode e JOIN anime a ON a.id = e.anime_id
+                    WHERE e.id IN (%s)""" % ",".join("?" * len(ids)),
+                ids,
+            ).fetchall()
+
+        for r in linhas:
+            raiz = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
+            try:
+                if enviar_para_lixeira(raiz, saida) is not None:
+                    movidas += 1
+            except Exception as e:  # noqa: BLE001
+                print(f"    [python] lixeira de {raiz}: {e}")
+            db.delete_episode(int(r["id"]))
+            apagados += 1
+
+        if self.ep_id in ids:
+            self.ep_id = None
+        msg = (f"{apagados} episódio(s) fora do acervo · "
+               f"{movidas} pasta(s) na lixeira (Output/_lixeira)")
+        print(f"    [python] {msg}")
+        return json.dumps({"ok": True, "msg": msg})
+
     @Slot(str)
-    def menu_cena(self, acao: str) -> None:
-        """Onde os itens do menu de contexto vão cair de verdade. Hoje só
-        anota; na migração chama `library_tab._handle_shot_action`."""
-        self.cliques.append(f"menu:{acao}")
-        print(f"    [python] menu de contexto -> {acao!r}")
+    def abrir_pasta(self, qual: str) -> None:
+        """Abre no Explorer. `qual` é 'episodio' ou o nome de um personagem."""
+        import subprocess
+
+        alvo = self.raiz if qual == "episodio" else self.raiz / "by_character" / qual
+        if not alvo.exists():
+            alvo = self.raiz
+        if alvo.exists():
+            subprocess.Popen(["explorer", str(alvo)])
+            print(f"    [python] abri {alvo}")
 
     @Slot(str)
     def atalho(self, tecla: str) -> None:
@@ -406,13 +595,15 @@ class Ponte(QObject):
         # outro na árvore continuava servindo miniaturas e prévias da pasta
         # do episódio anterior — e o erro é silencioso, as imagens só somem.
         ep = con.execute(
-            """SELECT e.season, e.episode, a.title
+            """SELECT e.season, e.episode, e.anime_id, a.title
                  FROM episode e JOIN anime a ON a.id = e.anime_id
                 WHERE e.id = ?""",
             (episodio,),
         ).fetchone()
         if ep is not None:
             self.raiz = self._raiz_do_episodio(ep["title"], ep["season"], ep["episode"])
+            self.ep_id = int(episodio)
+            self.anime_id = int(ep["anime_id"])
 
         linhas = con.execute(
             """SELECT s.id, s.idx, s.file, s.keyframe, s.start, s.end
@@ -427,6 +618,11 @@ class Ponte(QObject):
         ):
             nomes.setdefault(r[0], []).append(r[1])
         con.close()
+
+        # guardado pra ação não ter que reconsultar o banco só pra descobrir
+        # em qual cena ela bate
+        self._shots = {int(r["idx"]): dict(r) for r in linhas}
+        self._donos = nomes
 
         cenas = []
         for r in linhas:

@@ -332,6 +332,31 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .menu .cab{padding:6px 10px 4px;font-family:var(--mono);font-size:10px;
            letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
 
+/* --- perguntar pra quem mover / confirmar ---------------------------- */
+.caixinha{position:fixed;inset:0;background:rgba(6,8,11,.7);display:none;
+          align-items:center;justify-content:center;z-index:90}
+.caixinha.viva{display:flex}
+.caixinha .corpo{width:420px;background:var(--bg);border:1px solid var(--line);
+                 border-radius:8px;overflow:hidden}
+.caixinha h3{margin:0;padding:14px 18px;font-family:var(--display);font-size:15px;
+             font-weight:600;border-bottom:1px solid var(--line)}
+.caixinha .texto{padding:14px 18px;font-size:13px;color:var(--dim);line-height:1.55}
+.caixinha .lista{max-height:240px;overflow:auto;padding:0 10px 10px}
+.caixinha .lista .op{height:30px;display:flex;align-items:center;padding:0 10px;
+                     border-radius:4px;font-size:13px;color:var(--txt)}
+.caixinha .lista .op:hover{background:var(--surface-2)}
+.caixinha .lista .op.viva{background:var(--accent-ink);color:var(--accent)}
+.caixinha .pe{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;
+              border-top:1px solid var(--line)}
+
+/* --- aviso curto no canto -------------------------------------------- */
+#recado{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;
+        background:var(--surface-2);border:1px solid var(--line-bright);
+        border-radius:6px;padding:9px 14px;font-size:13px;color:var(--txt);
+        z-index:95;display:none;max-width:60vw}
+#recado.viva{display:block}
+#recado.ruim{border-color:var(--danger-line);color:var(--danger)}
+
 #medidor{position:fixed;right:12px;bottom:12px;background:rgba(11,14,18,.94);
          border:1px solid var(--accent-dim);border-radius:6px;padding:10px 12px;
          font-family:var(--mono);font-size:11px;color:var(--accent);line-height:1.7;
@@ -445,7 +470,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <div class="divisor" style="margin:12px 8px"></div>
       <div class="sobrancelha">Ações</div>
       <div class="no n1" id="btn_recarregar">Atualizar lista</div>
-      <div class="no n1">Abrir pasta do episódio</div>
+      <div class="no n1" id="btn_abrir_pasta">Abrir pasta do episódio</div>
     </aside>
 
     <main class="meio">
@@ -478,9 +503,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
         <tr><td class="r">Arquivo</td><td class="v" id="i_arq">—</td></tr>
       </table>
       <div class="divisor"></div>
-      <button class="btn cheio" id="btn_ponte">Juntar com a próxima</button>
-      <div class="btn-linha">✂&nbsp; Remover desta pasta</div>
-      <div class="btn-linha">→&nbsp; Mover para outro personagem</div>
+      <button class="btn cheio" id="btn_ponte" data-acao="juntar">Juntar com a próxima</button>
+      <div class="btn-linha" data-acao="remover">✂&nbsp; Remover desta pasta</div>
+      <div class="btn-linha" data-acao="mover">→&nbsp; Mover para outro personagem</div>
       <div class="atalhos">
         <kbd>J</kbd> juntar · <kbd>M</kbd> mover · <kbd>Del</kbd> remover<br>
         <kbd>←</kbd> <kbd>→</kbd> navegar · <kbd>Ctrl</kbd>+<kbd>P</kbd> tocar
@@ -591,7 +616,29 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   <div class="item" data-acao="abrir">📂&nbsp; Mostrar no Explorer</div>
   <div class="sep"></div>
   <div class="item risco" data-acao="remover">✂&nbsp; Remover desta pasta</div>
+  <div class="item" data-acao="desjuntar">⤫&nbsp; Desfazer junção</div>
 </div>
+
+<div class="menu" id="menu_acervo">
+  <div class="cab" id="menu_acervo_cab">episódio</div>
+  <div class="item" data-acao="abrir">📂&nbsp; Abrir no Explorer</div>
+  <div class="sep"></div>
+  <div class="item risco" data-acao="apagar">🗑&nbsp; Apagar do acervo</div>
+</div>
+
+<div class="caixinha" id="caixinha">
+  <div class="corpo">
+    <h3 id="cx_titulo">—</h3>
+    <div class="texto" id="cx_texto"></div>
+    <div class="lista" id="cx_lista"></div>
+    <div class="pe">
+      <div class="btn cinza" id="cx_nao">Cancelar</div>
+      <div class="btn cheio" id="cx_sim">Confirmar</div>
+    </div>
+  </div>
+</div>
+
+<div id="recado"></div>
 
 <div id="medidor">medindo…</div>
 
@@ -711,8 +758,13 @@ document.getElementById('grade').addEventListener('click', e => {
   if (ponte) ponte.clicou('cartao_' + c.idx);
 });
 
-document.getElementById('btn_ponte').addEventListener('click',
-  () => ponte && ponte.clicou('botao_juntar'));
+// Os botões do painel entram pelo MESMO portão do menu e dos atalhos.
+document.querySelectorAll('.cena [data-acao]').forEach(b =>
+  b.addEventListener('click', () => {
+    const sel = document.querySelector('#grade .cartao.viva');
+    if (!sel) { recado('Escolha uma cena primeiro.', true); return; }
+    pedeAcao(b.dataset.acao, [+sel.dataset.idx]);
+  }));
 document.getElementById('btn_analisar').addEventListener('click',
   () => ponte && ponte.clicou('botao_analisar'));
 
@@ -737,8 +789,41 @@ function mostraPersonagem(nome){
 let cenaDoMenu = null;
 const menu = document.getElementById('menu');
 
+// O menu do acervo vale no anime, na temporada E no episódio — apagar tem
+// que funcionar igual nos três, sem três caminhos pra dar errado de três
+// jeitos. O nó guarda quais episódios estão pendurados nele.
+const menuAcervo = document.getElementById('menu_acervo');
+let alvoAcervo = null;
+
+function episodiosSob(no){
+  if (no.dataset.ep) return [{id: no.dataset.ep, rot: no.dataset.rot}];
+  // desce até os episódios seguintes com indentação maior
+  const nivel = +no.className.match(/n(\d)/)[1];
+  const fora = [];
+  let p = no.nextElementSibling;
+  while (p && +(p.className.match(/n(\d)/) || [0,9])[1] > nivel){
+    if (p.dataset.ep) fora.push({id: p.dataset.ep, rot: p.dataset.rot});
+    p = p.nextElementSibling;
+  }
+  return fora;
+}
+
 document.addEventListener('contextmenu', e => {
   e.preventDefault();
+
+  const noAcervo = e.target.closest('#arvore .no');
+  if (noAcervo){
+    menu.classList.remove('viva');
+    alvoAcervo = {no: noAcervo, eps: episodiosSob(noAcervo)};
+    document.getElementById('menu_acervo_cab').textContent =
+      alvoAcervo.eps.length === 1 ? 'episódio' : `${alvoAcervo.eps.length} episódios`;
+    menuAcervo.style.left = Math.min(e.clientX, innerWidth - 228) + 'px';
+    menuAcervo.style.top = Math.min(e.clientY, innerHeight - 130) + 'px';
+    menuAcervo.classList.add('viva');
+    return;
+  }
+  menuAcervo.classList.remove('viva');
+
   const el = e.target.closest('.cartao');
   if (!el) { menu.classList.remove('viva'); return; }
   cenaDoMenu = cenas[+el.dataset.idx];
@@ -752,12 +837,148 @@ document.addEventListener('contextmenu', e => {
   menu.classList.add('viva');
 });
 document.addEventListener('mousedown', e => {
-  if (!e.target.closest('.menu')) menu.classList.remove('viva');
+  if (e.target.closest('.menu')) return;
+  menu.classList.remove('viva');
+  menuAcervo.classList.remove('viva');
 });
+
+menuAcervo.querySelectorAll('.item').forEach(it => it.addEventListener('click', () => {
+  menuAcervo.classList.remove('viva');
+  if (!alvoAcervo || !alvoAcervo.eps.length) return;
+  if (it.dataset.acao === 'abrir'){ ponte.abrir_pasta('episodio'); return; }
+
+  const eps = alvoAcervo.eps;
+  const quais = eps.length === 1 ? `<b>${eps[0].rot}</b>`
+                                 : `<b>${eps.length}</b> episódios`;
+  pergunta({
+    titulo: 'Apagar do acervo',
+    texto: `Tirar ${quais} do acervo?<br><br>`
+         + '• A pasta vai pra <code>Output/_lixeira</code> — <b>não</b> é apagada de verdade<br>'
+         + '• O personagem, as fotos de referência e o que o app aprendeu ficam',
+    confirmar: 'Apagar',
+  }, () => ponte.apagar_do_acervo(JSON.stringify({ids: eps.map(e => e.id)}), json => {
+    const r = JSON.parse(json);
+    recado(r.msg, !r.ok);
+    epAberto = null;
+    carregaAcervo();
+  }));
+}));
 menu.querySelectorAll('.item').forEach(it => it.addEventListener('click', () => {
   menu.classList.remove('viva');
-  if (ponte && cenaDoMenu) ponte.menu_cena(it.dataset.acao + ':' + cenaDoMenu.idx);
+  if (cenaDoMenu) pedeAcao(it.dataset.acao, [cenaDoMenu.idx]);
 }));
+
+// ---- recado curto -----------------------------------------------------
+let sumir = null;
+function recado(txt, ruim){
+  const r = document.getElementById('recado');
+  r.textContent = txt;
+  r.classList.toggle('ruim', !!ruim);
+  r.classList.add('viva');
+  clearTimeout(sumir);
+  sumir = setTimeout(() => r.classList.remove('viva'), 4000);
+}
+
+// ---- caixinha de escolha / confirmação --------------------------------
+// O app usa QInputDialog e QMessageBox; aqui a pergunta é da própria página.
+function pergunta({titulo, texto, opcoes, confirmar}, entao){
+  const cx = document.getElementById('caixinha');
+  document.getElementById('cx_titulo').textContent = titulo;
+  document.getElementById('cx_texto').innerHTML = texto || '';
+  const lista = document.getElementById('cx_lista');
+  let escolhido = opcoes && opcoes.length ? opcoes[0] : null;
+  lista.innerHTML = (opcoes || []).map((o,i) =>
+    `<div class="op${i===0?' viva':''}" data-v="${o}">${o}</div>`).join('');
+  lista.onclick = e => {
+    const op = e.target.closest('.op'); if (!op) return;
+    lista.querySelectorAll('.op').forEach(x => x.classList.remove('viva'));
+    op.classList.add('viva');
+    escolhido = op.dataset.v;
+  };
+  document.getElementById('cx_sim').textContent = confirmar || 'Confirmar';
+  cx.classList.add('viva');
+  const fecha = ok => {
+    cx.classList.remove('viva');
+    document.getElementById('cx_sim').onclick = null;
+    document.getElementById('cx_nao').onclick = null;
+    if (ok) entao(escolhido);
+  };
+  document.getElementById('cx_sim').onclick = () => fecha(true);
+  document.getElementById('cx_nao').onclick = () => fecha(false);
+}
+
+// ---- o portão das ações ------------------------------------------------
+// Espelha o `_handle_shot_action` do app: menu, botão e atalho entram todos
+// por aqui. O Python é quem decide e mexe no banco; o JS só pergunta o que
+// falta (pra qual personagem mover, confirmar quando são várias).
+function donoDaCena(idx){
+  // em qual pasta a ação bate: a filtrada, se houver; senão a da cena
+  if (filtro && filtro !== '__sem__') return filtro;
+  const c = cenas[idx];
+  return c && c.quem.length ? c.quem : [];
+}
+
+function pedeAcao(acao, idxs){
+  if (!ponte || !idxs.length) return;
+
+  if (acao === 'abrir'){ ponte.abrir_pasta('episodio'); return; }
+
+  if (acao === 'juntar' || acao === 'desjuntar'){
+    ponte.acao_cena(JSON.stringify({acao, idxs}), resposta);
+    return;
+  }
+
+  const donos = donoDaCena(idxs[0]);
+  const lista = Array.isArray(donos) ? donos : [donos];
+  if (!lista.length){
+    recado('Esta cena não está na pasta de ninguém.', true);
+    return;
+  }
+
+  const seguir = de => {
+    if (acao === 'remover'){
+      if (idxs.length > 1){
+        pergunta({
+          titulo: 'Remover cenas',
+          texto: `Tirar <b>${idxs.length}</b> cenas da pasta de <b>${de}</b>?<br><br>`
+               + '• Os clipes continuam em <code>shots/</code> — nada é apagado de verdade<br>'
+               + '• O app LEMBRA: a reanálise não devolve essas cenas pra ele',
+          confirmar: 'Remover',
+        }, () => ponte.acao_cena(JSON.stringify({acao, idxs, de}), resposta));
+      } else {
+        ponte.acao_cena(JSON.stringify({acao, idxs, de}), resposta);
+      }
+      return;
+    }
+    // mover: perguntar pra quem
+    ponte.elenco_do_anime(json => {
+      const outros = JSON.parse(json).filter(n => n !== de);
+      if (!outros.length){ recado('Não há outro personagem deste anime.', true); return; }
+      pergunta({
+        titulo: 'Mover cena',
+        texto: `Tirar de <b>${de}</b> e passar para:`,
+        opcoes: outros, confirmar: 'Mover',
+      }, para => ponte.acao_cena(JSON.stringify({acao, idxs, de, para}), resposta));
+    });
+  };
+
+  // a cena está em mais de uma pasta: perguntar de qual sair
+  if (lista.length > 1){
+    pergunta({
+      titulo: 'Esta cena está em mais de uma pasta',
+      texto: acao === 'remover' ? 'Remover de qual?' : 'Mover a partir de qual?',
+      opcoes: lista, confirmar: 'Continuar',
+    }, seguir);
+  } else {
+    seguir(lista[0]);
+  }
+}
+
+function resposta(json){
+  const r = JSON.parse(json);
+  recado(r.msg, !r.ok);
+  if (r.ok && epAberto) recarregaEpisodio();
+}
 
 // ---- atalhos ----------------------------------------------------------
 // Com o foco dentro da página quem recebe a tecla é o Chromium, então os
@@ -782,7 +1003,10 @@ document.addEventListener('keydown', e => {
   if (!acao) return;
   if (k === 'p' && !e.ctrlKey) return;   // tocar é Ctrl+P
   e.preventDefault();
-  if (ponte) ponte.atalho(acao);
+  const sel = document.querySelector('#grade .cartao.viva');
+  if (!sel) { recado('Escolha uma cena primeiro.', true); return; }
+  if (acao === 'tocar') { document.getElementById('tv').play().catch(()=>{}); return; }
+  pedeAcao(acao, [+sel.dataset.idx]);
 });
 
 // ---- acervo, filtro e ordenação ---------------------------------------
@@ -873,7 +1097,39 @@ function abreEpisodio(id, rotulo, no){
   document.getElementById('tv').removeAttribute('src');
   document.getElementById('tv_vazio').style.display = '';
   filtro = null;
+  carregaCenas(id);
+}
 
+// O filtro E a cena escolhida SOBREVIVEM à recarga. Sem isso, remover uma
+// cena da pasta da Nina jogava a vista de volta pra "Todas" e ainda perdia a
+// seleção — o usuário perdia o lugar exatamente enquanto limpava a pasta
+// dela. Curadoria é cena após cena; recomeçar do zero a cada clique não é
+// aceitável. (A versão Qt já guardava o filtro; a seleção faltava nas duas.)
+function recarregaEpisodio(){
+  const guardado = filtro;
+  const escolhida = document.querySelector('#grade .cartao.viva');
+  const idxEscolhido = escolhida ? escolhida.dataset.idx : null;
+
+  carregaCenas(epAberto, () => {
+    if (guardado){
+      const p = document.querySelector(`#filtros .pilula[data-nome="${guardado}"]`);
+      if (p) p.click();
+    }
+    if (idxEscolhido === null) return;
+    // a cena pode ter saído da vista (foi removida daquela pasta): então
+    // fica a vizinha mais próxima, que é onde a mão já estava
+    const todos = [...document.querySelectorAll('#grade .cartao')];
+    if (!todos.length) return;
+    const alvo = todos.find(c => c.dataset.idx === idxEscolhido)
+              || todos.reduce((melhor, c) =>
+                   Math.abs(c.dataset.idx - idxEscolhido) < Math.abs(melhor.dataset.idx - idxEscolhido)
+                     ? c : melhor);
+    alvo.classList.add('viva');
+    alvo.scrollIntoView({block: 'nearest'});
+  });
+}
+
+function carregaCenas(id, depois){
   ponte.cenas_do_episodio(String(id), json => {
     cenas = JSON.parse(json);
     elenco = {};
@@ -921,12 +1177,16 @@ function abreEpisodio(id, rotulo, no){
     };
     imgs.forEach(i => i.complete ? conta() : (i.onload = conta, i.onerror = conta));
     setTimeout(() => imgs.forEach(i => i.loading = 'eager'), 50);
+    if (depois) depois();
   });
 }
 
 document.getElementById('btn_recarregar').addEventListener('click', () => {
   epAberto = null;
   carregaAcervo();
+});
+document.getElementById('btn_abrir_pasta').addEventListener('click', () => {
+  if (ponte) ponte.abrir_pasta('episodio');
 });
 
 new QWebChannel(qt.webChannelTransport, canal => {

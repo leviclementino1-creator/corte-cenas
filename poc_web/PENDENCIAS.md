@@ -25,14 +25,19 @@ funcionando".
 | **Ordenação** | cronológica / duvidosas / mais longas |
 | Atualizar lista | remonta a árvore |
 
+| **Juntar / desfazer junção** | `Ponte.acao_cena` → `db.add_shot_merge` / `remove_shot_merge` |
+| **Remover desta pasta** | bloqueia no banco + `refresh_shot_links`; o clipe mestre fica em `shots/` |
+| **Mover pra outro personagem** | pergunta o destino na página e regrava os hardlinks |
+| **Menu de contexto da árvore** | apagar episódio/temporada/anime, com a pasta indo pra `Output/_lixeira` |
+| Abrir no Explorer | `Ponte.abrir_pasta` |
+
+Botão do painel, item do menu e atalho de teclado entram todos pelo MESMO
+portão (`pedeAcao` → `Ponte.acao_cena`). Duas portas pra mesma ação é como
+uma delas fica quebrada sem ninguém perceber — foi o que aconteceu na versão
+Qt, onde o menu emitia um sinal que ninguém ouvia.
+
 ## Ainda é casca (desenho sem ação)
 
-- **Menu de contexto na árvore** — apagar episódio/temporada/anime não existe
-  no PoC (no app é `_apagar_do_acervo`).
-- **Botões do painel A CENA** — "Juntar com a próxima" só avisa o Python;
-  "Remover desta pasta" e "Mover pra outro personagem" não fazem nada.
-- **Itens do menu de contexto** — chegam no Python com o nome da ação e o
-  número da cena, e param aí.
 - **Ações da aba Resultados** — sincronizar, abrir pasta, exportar refs,
   reforçar refs, exportar vertical: todos parados.
 - **Aba Analisar inteira** — os campos são texto fixo (menos o Arquivo), os
