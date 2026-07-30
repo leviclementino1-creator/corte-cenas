@@ -191,6 +191,13 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .cartao .quadro{position:relative;aspect-ratio:16/9;background:var(--well-off);
                 overflow:hidden;border-radius:5px 5px 0 0}
 .cartao img{width:100%;height:100%;object-fit:cover;display:block}
+/* A prévia estilo YouTube: uma tira de 8 quadros num JPEG só, por cima da
+   miniatura. `background-size: 800% 100%` faz cada quadro ocupar o cartão
+   inteiro, e `background-position-x` escolhe qual — o mouse anda, a cena
+   anda. Sem timer e sem trocar de src (que piscava a cada quadro). */
+.cartao .tira{position:absolute;inset:0;background-size:800% 100%;
+              background-repeat:no-repeat;opacity:0;pointer-events:none}
+.cartao.espiando .tira{opacity:1}
 .cartao .tag{position:absolute;top:6px;left:6px;height:18px;display:flex;
              align-items:center;padding:0 6px;border-radius:3px;
              background:rgba(11,14,18,.82);font-family:var(--mono);font-size:10px;
@@ -298,6 +305,19 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .botoeira{padding-left:20px;display:flex;flex-wrap:wrap;gap:8px}
 .botoeira .btn-campo.perigo{color:var(--danger);border-color:var(--danger-line);
                             background:var(--danger-ink)}
+
+/* --- menu de contexto: o do Chromium foi desligado no Qt --------------- */
+.menu{position:fixed;min-width:210px;background:var(--surface-2);
+      border:1px solid var(--line-bright);border-radius:6px;padding:4px;
+      display:none;z-index:80}
+.menu.viva{display:block}
+.menu .item{display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;
+            border-radius:4px;font-size:13px;color:var(--dim)}
+.menu .item:hover{background:var(--surface-3);color:var(--txt)}
+.menu .item.risco:hover{background:var(--danger-ink);color:var(--danger)}
+.menu .sep{height:1px;background:var(--line);margin:4px 6px}
+.menu .cab{padding:6px 10px 4px;font-family:var(--mono);font-size:10px;
+           letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
 
 #medidor{position:fixed;right:12px;bottom:12px;background:rgba(11,14,18,.94);
          border:1px solid var(--accent-dim);border-radius:6px;padding:10px 12px;
@@ -544,6 +564,16 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   </div>
 </div>
 
+<div class="menu" id="menu">
+  <div class="cab" id="menu_cab">cena</div>
+  <div class="item" data-acao="juntar">⧉&nbsp; Juntar com a próxima</div>
+  <div class="item" data-acao="mover">→&nbsp; Mover pra outro personagem</div>
+  <div class="sep"></div>
+  <div class="item" data-acao="abrir">📂&nbsp; Mostrar no Explorer</div>
+  <div class="sep"></div>
+  <div class="item risco" data-acao="remover">✂&nbsp; Remover desta pasta</div>
+</div>
+
 <div id="medidor">medindo…</div>
 
 <script src="/qwebchannel.js"></script>
@@ -577,6 +607,7 @@ function cartao(c){
   el.innerHTML =
     `<div class="quadro">
        <img loading="lazy" decoding="async" src="${c.mini}" alt="">
+       <div class="tira"></div>
        <span class="tag">${String(c.idx).padStart(4,'0')}</span>
        ${c.quem.length ? '' : '<span class="selo">⚠</span>'}
        <div class="trilho"><i></i></div>
@@ -599,12 +630,43 @@ function monta(lista, onde){
   return performance.now() - t;
 }
 
-// scrub no hover — em Qt isso é um delegate com QPainter
+// ---- prévia de hover (estilo YouTube) ---------------------------------
+// A tira de 8 quadros só é pedida quando o mouse PARA em cima do cartão:
+// passar o mouse correndo por 331 cartões não vai mandar 331 pedidos.
+const QUADROS = 8;
+let espera = null, espiado = null;
+
+function pedeTira(cartao){
+  const tira = cartao.querySelector('.tira');
+  if (tira.dataset.carregada) { cartao.classList.add('espiando'); return; }
+  const c = cenas[+cartao.dataset.idx];
+  if (!c || !c.tira) return;
+  const img = new Image();
+  img.onload = () => {
+    tira.style.backgroundImage = `url("${c.tira}")`;
+    tira.dataset.carregada = '1';
+    if (cartao.matches(':hover')) cartao.classList.add('espiando');
+  };
+  img.onerror = () => console.error('tira falhou:', c.tira);
+  img.src = c.tira;
+}
+
 document.addEventListener('mousemove', e => {
-  const c = e.target.closest('.cartao'); if (!c) return;
+  const c = e.target.closest('.cartao');
+  if (c !== espiado) {
+    if (espiado) espiado.classList.remove('espiando');
+    clearTimeout(espera);
+    espiado = c;
+    if (c) espera = setTimeout(() => pedeTira(c), 120);
+  }
+  if (!c) return;
   const q = c.querySelector('.quadro'), r = q.getBoundingClientRect();
   const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
   c.querySelector('.trilho i').style.width = (f*100) + '%';
+  // qual dos 8 quadros mostrar. O -1 é porque a última posição do
+  // background é 100%, não 800/7 — sem ele o último quadro nunca aparece.
+  const k = Math.min(QUADROS - 1, Math.floor(f * QUADROS));
+  c.querySelector('.tira').style.backgroundPositionX = (k * 100 / (QUADROS - 1)) + '%';
   const d = cenas[+c.dataset.idx];
   if (d) c.querySelector('.tc').textContent = fmt(f * d.dur);
 });
@@ -649,6 +711,60 @@ function mostraPersonagem(nome){
     `<b>${lista.length}</b> cenas · <b>${relogio(total)}</b>`;
   monta(lista, 'r_grade');
 }
+
+// ---- menu de contexto -------------------------------------------------
+// O menu do Chromium foi desligado no lado Qt (NoContextMenu). Aqui o
+// botão direito seleciona a cena sob o cursor, igual ao app de hoje.
+let cenaDoMenu = null;
+const menu = document.getElementById('menu');
+
+document.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const el = e.target.closest('.cartao');
+  if (!el) { menu.classList.remove('viva'); return; }
+  cenaDoMenu = cenas[+el.dataset.idx];
+  if (!el.classList.contains('viva')) el.click();
+  document.getElementById('menu_cab').textContent =
+    'cena ' + String(cenaDoMenu.idx).padStart(4,'0');
+  // não deixa o menu vazar pra fora da janela
+  const w = 220, h = menu.offsetHeight || 190;
+  menu.style.left = Math.min(e.clientX, innerWidth - w - 8) + 'px';
+  menu.style.top = Math.min(e.clientY, innerHeight - h - 8) + 'px';
+  menu.classList.add('viva');
+});
+document.addEventListener('mousedown', e => {
+  if (!e.target.closest('.menu')) menu.classList.remove('viva');
+});
+menu.querySelectorAll('.item').forEach(it => it.addEventListener('click', () => {
+  menu.classList.remove('viva');
+  if (ponte && cenaDoMenu) ponte.menu_cena(it.dataset.acao + ':' + cenaDoMenu.idx);
+}));
+
+// ---- atalhos ----------------------------------------------------------
+// Com o foco dentro da página quem recebe a tecla é o Chromium, então os
+// atalhos vivem aqui e avisam o Python — não são QShortcut.
+const ATALHOS = {j:'juntar', m:'mover', delete:'remover', p:'tocar'};
+document.addEventListener('keydown', e => {
+  // `e.target` pode ser o próprio document (não é Element, não tem .matches)
+  const alvo = e.target;
+  if (alvo instanceof Element && alvo.matches('input,textarea,[contenteditable]')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'escape') { menu.classList.remove('viva');
+                        document.getElementById('veu').classList.remove('viva'); return; }
+  if (k === 'arrowleft' || k === 'arrowright') {
+    const atual = document.querySelector('#grade .cartao.viva');
+    const todos = [...document.querySelectorAll('#grade .cartao')];
+    const i = atual ? todos.indexOf(atual) : -1;
+    const alvo = todos[Math.max(0, Math.min(todos.length-1, i + (k==='arrowright'?1:-1)))];
+    if (alvo) { alvo.click(); alvo.scrollIntoView({block:'nearest'}); }
+    e.preventDefault(); return;
+  }
+  const acao = ATALHOS[k];
+  if (!acao) return;
+  if (k === 'p' && !e.ctrlKey) return;   // tocar é Ctrl+P
+  e.preventDefault();
+  if (ponte) ponte.atalho(acao);
+});
 
 new QWebChannel(qt.webChannelTransport, canal => {
   ponte = canal.objects.ponte;
@@ -708,6 +824,26 @@ new QWebChannel(qt.webChannelTransport, canal => {
     const c = JSON.parse(json);
     document.getElementById('c_saida').textContent = c.saida;
     document.getElementById('s_saida').textContent = c.saida;
+  });
+
+  // O episódio arrastado pra janela chega por AQUI: quem pegou o caminho
+  // foi o Qt (o objeto File do Chromium não tem caminho nenhum).
+  ponte.arquivoSolto.connect(caminho => {
+    const campo = document.getElementById('c_arquivo');
+    campo.textContent = caminho;
+    campo.classList.remove('fraco');
+    document.querySelector('[data-tela=analisar]').click();
+  });
+
+  // "Selecionar..." abre o diálogo NATIVO do Qt e recebe o caminho de volta
+  document.querySelectorAll('.btn-campo').forEach(b => {
+    if (!b.textContent.startsWith('Selecionar')) return;
+    b.addEventListener('click', () => ponte.escolher_arquivo(caminho => {
+      if (!caminho) return;
+      const campo = document.getElementById('c_arquivo');
+      campo.textContent = caminho;
+      campo.classList.remove('fraco');
+    }));
   });
 });
 </script>

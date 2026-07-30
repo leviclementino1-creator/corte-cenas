@@ -30,6 +30,9 @@ from PySide6.QtWebEngineCore import (
 ESQUEMA = b"cena"
 LARG_MINI = 292
 ALT_MINI = 164
+# Quantos quadros a prévia de hover mostra. Oito é o que o app usa hoje: dá
+# pra ver a cena andar sem que a tira fique pesada (292x8 = 2336 px de largura).
+QUADROS_TIRA = 8
 
 
 def registra_esquema() -> None:
@@ -89,6 +92,22 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
             f.close()
             return
 
+        if caminho.startswith("/tira/"):
+            alvo = caminho[len("/tira/") :]
+            dados = self.cache.get("t:" + alvo)
+            if dados is None:
+                t0 = time.perf_counter()
+                dados = self._tira(alvo)
+                self.gasto += time.perf_counter() - t0
+                self.decodificadas += 1
+                if dados is None:
+                    self.falhas += 1
+                    job.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
+                    return
+                self.cache["t:" + alvo] = dados
+            self._responde(job, b"image/jpeg", dados)
+            return
+
         if caminho.startswith("/mini/"):
             alvo = caminho[len("/mini/") :]
             dados = self.cache.get(alvo)
@@ -113,6 +132,49 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
         buf.setData(QByteArray(dados) if not isinstance(dados, QByteArray) else dados)
         buf.open(QIODevice.OpenModeFlag.ReadOnly)
         job.reply(tipo, buf)
+
+    def _tira(self, clipe: str) -> QByteArray | None:
+        """Uma tira horizontal com N quadros do clipe, num JPEG só.
+
+        É o que faz a prévia estilo YouTube: o mouse anda pelo cartão e a
+        imagem anda junto. O app de hoje faz o mesmo com o `_StripJob`,
+        cíclando QImages; aqui vira UMA imagem e o CSS escolhe o quadro com
+        `background-position` — sem timer, sem thread, sem redesenhar nada.
+        """
+        import cv2  # local: o import do cv2 é caro e nem todo hover precisa
+
+        p = Path(clipe)
+        if not p.exists():
+            return None
+        cap = cv2.VideoCapture(str(p))
+        if not cap.isOpened():
+            return None
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if total <= 0:
+            cap.release()
+            return None
+
+        quadros = []
+        for k in range(QUADROS_TIRA):
+            # espalha os quadros pelo clipe, sem pegar o primeiro nem o último
+            pos = int(total * (k + 0.5) / QUADROS_TIRA)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, min(pos, total - 1))
+            ok, quadro = cap.read()
+            if not ok:
+                continue
+            quadro = cv2.resize(quadro, (LARG_MINI, ALT_MINI), interpolation=cv2.INTER_AREA)
+            quadros.append(quadro)
+        cap.release()
+        if not quadros:
+            return None
+
+        import numpy as np
+
+        tira = np.hstack(quadros)
+        ok, buf = cv2.imencode(".jpg", tira, [int(cv2.IMWRITE_JPEG_QUALITY), 78])
+        if not ok:
+            return None
+        return QByteArray(buf.tobytes())
 
     def _reduz(self, caminho: str) -> QByteArray | None:
         p = Path(caminho)
@@ -152,6 +214,7 @@ class Ponte(QObject):
     # Python -> JS: o mesmo modelo de sinal que a UI Qt já usa hoje
     progresso = Signal(int, str)
     cenasProntas = Signal(str)
+    arquivoSolto = Signal(str)   # o episódio arrastado pra janela
 
     def __init__(self, banco: Path, raiz_saida: Path, ffmpeg: str = "ffmpeg", parent=None) -> None:
         super().__init__(parent)
@@ -161,6 +224,33 @@ class Ponte(QObject):
         self.previas = raiz_saida / "metadata" / "previas_web"
         self.cliques: list[str] = []
         self.marcas: dict[str, float] = {}
+
+    @Slot(result=str)
+    def escolher_arquivo(self) -> str:
+        """Diálogo de arquivo NATIVO, aberto pelo Qt.
+
+        O `<input type=file>` do Chromium também abriria um seletor, mas o
+        que ele devolve pro JavaScript é um objeto File sem caminho — e o
+        ffmpeg precisa do caminho. Então quem abre é o Qt, e o caminho nunca
+        sai do Python."""
+        from PySide6.QtWidgets import QFileDialog
+
+        caminho, _ = QFileDialog.getOpenFileName(
+            None, "Escolher episódio", "", "Vídeo (*.mkv *.mp4 *.avi);;Tudo (*)"
+        )
+        return caminho or ""
+
+    @Slot(str)
+    def menu_cena(self, acao: str) -> None:
+        """Onde os itens do menu de contexto vão cair de verdade. Hoje só
+        anota; na migração chama `library_tab._handle_shot_action`."""
+        self.cliques.append(f"menu:{acao}")
+        print(f"    [python] menu de contexto -> {acao!r}")
+
+    @Slot(str)
+    def atalho(self, tecla: str) -> None:
+        self.cliques.append(f"tecla:{tecla}")
+        print(f"    [python] atalho -> {tecla!r}")
 
     @Slot(result=str)
     def config(self) -> str:
@@ -244,16 +334,23 @@ class Ponte(QObject):
 
         cenas = []
         for r in linhas:
+            # O banco guarda os dois caminhos RELATIVOS à pasta do episódio
+            # ("shots\0002.mp4"). Mandar isso cru pro navegador fazia a prévia
+            # de hover pedir um arquivo que não existe — e falhar em silêncio.
             kf = r["keyframe"] or ""
             if kf and not Path(kf).is_absolute():
                 kf = str(self.raiz / kf)
+            clipe = r["file"] or ""
+            if clipe and not Path(clipe).is_absolute():
+                clipe = str(self.raiz / clipe)
             cenas.append(
                 {
                     "idx": r["idx"],
                     "dur": round((r["end"] or 0) - (r["start"] or 0), 1),
                     "quem": nomes.get(r["id"], []),
                     "mini": f"cena:/mini/{kf}" if kf else "",
-                    "clipe": "file:///" + str(r["file"]).replace("\\", "/") if r["file"] else "",
+                    "tira": f"cena:/tira/{clipe}" if clipe else "",
+                    "clipe": "file:///" + clipe.replace("\\", "/") if clipe else "",
                 }
             )
         print(f"    [python] {len(cenas)} cenas do banco em {(time.perf_counter()-t0)*1000:.0f} ms")

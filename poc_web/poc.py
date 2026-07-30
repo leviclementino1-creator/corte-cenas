@@ -34,8 +34,8 @@ else:
     PROJETO = RAIZ
 sys.path.insert(0, str(RAIZ))
 
-from PySide6.QtCore import QTimer, QUrl  # noqa: E402
-from PySide6.QtWidgets import QApplication, QMainWindow  # noqa: E402
+from PySide6.QtCore import QEvent, Qt, QTimer, QUrl  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget  # noqa: E402
 from PySide6.QtWebChannel import QWebChannel  # noqa: E402
 from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: E402
 from PySide6.QtWebEngineCore import (  # noqa: E402
@@ -98,6 +98,11 @@ class Janela(QMainWindow):
 
         self.vista = QWebEngineView(self)
         self.vista.setPage(PaginaFalante(self.vista))
+        # O Chromium tem menu de contexto próprio (Recarregar, Ver código…).
+        # Desligado: quem desenha o menu é a página.
+        self.vista.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        # O arquivo arrastado é recebido pelo QT, não pelo HTML — ver soltou().
+        self.setAcceptDrops(True)
         s = self.vista.settings()
         s.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True)
         s.setAttribute(QWebEngineSettings.WebAttribute.ShowScrollBars, True)
@@ -111,6 +116,63 @@ class Janela(QMainWindow):
         self.vista.page().setWebChannel(self.canal)
         self.setCentralWidget(self.vista)
         self.servidor = servidor
+
+        self._vigiados: set[int] = set()
+
+    def showEvent(self, ev):  # noqa: N802
+        super().showEvent(ev)
+        # O widget de render só nasce depois que a janela aparece: filtrar no
+        # __init__ pegava focusProxy() == None e o drop sumia.
+        QTimer.singleShot(0, self._vigiar_drop)
+
+    def _vigiar_drop(self) -> None:
+        """ARMADILHA: dentro do QWebEngineView quem recebe o arrastar é um
+        widget-filho de render, não a vista — e o HTML5 até recebe o drop, mas
+        o objeto File do Chromium NÃO tem caminho, e o ffmpeg precisa do
+        caminho. Então quem trata é o Qt, e o caminho nunca sai do Python."""
+        alvos = [self.vista, self.vista.focusProxy(), *self.vista.findChildren(QWidget)]
+        novos = 0
+        for a in alvos:
+            if a is None or id(a) in self._vigiados:
+                continue
+            self._vigiados.add(id(a))
+            a.setAcceptDrops(True)
+            a.installEventFilter(self)
+            novos += 1
+        if novos:
+            print(f"    [python] vigiando o arrastar em {novos} widget(s)")
+
+    def eventFilter(self, obj, ev):  # noqa: N802
+        tipo = ev.type()
+        if tipo in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+            if ev.mimeData().hasUrls():
+                ev.acceptProposedAction()
+                return True
+        elif tipo == QEvent.Type.Drop:
+            if ev.mimeData().hasUrls():
+                ev.acceptProposedAction()
+                self.soltou(ev.mimeData().urls())
+                return True
+        return super().eventFilter(obj, ev)
+
+    def soltou(self, urls) -> None:
+        for u in urls:
+            caminho = u.toLocalFile()
+            if caminho.lower().endswith((".mkv", ".mp4", ".avi")):
+                print(f"    [python] episódio solto na janela: {caminho}")
+                self.ponte.arquivoSolto.emit(caminho)
+                return
+        print("    [python] soltaram algo que não é vídeo")
+
+    # o mesmo caminho quando o drop cai fora da vista (na moldura da janela)
+    def dragEnterEvent(self, ev):  # noqa: N802
+        if ev.mimeData().hasUrls():
+            ev.acceptProposedAction()
+
+    def dropEvent(self, ev):  # noqa: N802
+        if ev.mimeData().hasUrls():
+            ev.acceptProposedAction()
+            self.soltou(ev.mimeData().urls())
 
 
 def retratos(jan, app) -> None:
@@ -139,9 +201,144 @@ def retratos(jan, app) -> None:
     passo(0)
 
 
+def testa_interacoes(jan, app) -> None:
+    """As quatro coisas que só dá pra provar DENTRO do WebEngine:
+    menu de contexto, atalhos de teclado, arrastar-soltar e diálogo nativo."""
+    from PySide6.QtCore import QMimeData, QPoint, QPointF
+    from PySide6.QtGui import QDropEvent
+    from PySide6.QtWidgets import QDialog
+
+    print("\n" + "=" * 62)
+    print("TESTE DAS INTERAÇÕES")
+    print("=" * 62)
+
+    MENU = r"""
+    (() => {
+      const c = document.querySelectorAll('.cartao')[3];
+      c.dispatchEvent(new MouseEvent('contextmenu',
+        {bubbles:true, clientX:400, clientY:300}));
+      const m = document.getElementById('menu');
+      const visivel = m.classList.contains('viva');
+      const r = m.getBoundingClientRect();
+      if (visivel) m.querySelector('[data-acao=remover]').click();
+      return `menu ${visivel ? 'apareceu' : 'NÃO apareceu'} em ${r.left.toFixed(0)},${r.top.toFixed(0)} `
+           + `(${r.width.toFixed(0)}x${r.height.toFixed(0)}) · cliquei em "remover"`;
+    })()
+    """
+
+    TECLAS = r"""
+    (() => {
+      const bate = (k, ctrl) => document.dispatchEvent(
+        new KeyboardEvent('keydown', {key:k, ctrlKey:!!ctrl, bubbles:true}));
+      const antes = document.querySelector('#grade .cartao.viva');
+      bate('ArrowRight'); bate('ArrowRight');
+      const depois = document.querySelector('#grade .cartao.viva');
+      bate('j'); bate('m'); bate('Delete'); bate('p', true);
+      return `setas: ${antes ? antes.dataset.idx : '—'} -> ${depois ? depois.dataset.idx : '—'}`
+           + ` · mandei J, M, Del e Ctrl+P`;
+    })()
+    """
+
+    # A prévia estilo YouTube: passar o mouse tem que fazer a CENA ANDAR,
+    # não só mexer a barrinha.
+    # `runJavaScript` NÃO espera Promise — devolve nulo na hora. Então o
+    # hover é disparado num passo e lido no seguinte.
+    HOVER = r"""
+    (() => {
+      const c = document.querySelectorAll('.cartao')[2];
+      const r = c.getBoundingClientRect();
+      c.dispatchEvent(new MouseEvent('mousemove',
+        {bubbles:true, clientX:r.left + r.width*0.1, clientY:r.top + r.height/2}));
+      return 'passei o mouse no cartão 2';
+    })()
+    """
+    LE_TIRA = r"""
+    (() => {
+      const c = document.querySelectorAll('.cartao')[2];
+      const t = c.querySelector('.tira');
+      const r = c.getBoundingClientRect();
+      const lidos = [];
+      for (const f of [0.05, 0.3, 0.6, 0.95]) {
+        c.dispatchEvent(new MouseEvent('mousemove',
+          {bubbles:true, clientX:r.left + r.width*f, clientY:r.top + r.height/2}));
+        lidos.push(t.style.backgroundPositionX || '0%');
+      }
+      const fundo = getComputedStyle(t).backgroundImage;
+      return `tira ${t.dataset.carregada ? 'CARREGOU' : 'não carregou'}`
+           + ` (${fundo === 'none' ? 'sem imagem' : fundo.length + ' chars de url'})`
+           + ` · quadro em 5/30/60/95% da largura: ${lidos.join('  ')}`;
+    })()
+    """
+
+    def passo0() -> None:
+        jan.vista.page().runJavaScript(HOVER, lambda s: print(f"[0] {s}"))
+        QTimer.singleShot(1800, passo0b)
+
+    def passo0b() -> None:
+        jan.vista.page().runJavaScript(LE_TIRA, lambda s: print(f"[0] {s}"))
+        QTimer.singleShot(700, passo1)
+
+    def passo1() -> None:
+        jan.vista.page().runJavaScript(MENU, lambda s: print(f"[1] {s}"))
+        QTimer.singleShot(600, passo2)
+
+    def passo2() -> None:
+        jan.vista.page().runJavaScript(TECLAS, lambda s: print(f"[2] {s}"))
+        QTimer.singleShot(600, passo3)
+
+    def passo3() -> None:
+        # Um drop de verdade: mesmo evento que o Explorer manda.
+        origem = SAIDA_EP / "shots" / "0000.mp4"
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(origem))])
+        alvo = jan.vista.focusProxy() or jan.vista
+        from PySide6.QtGui import QDragEnterEvent
+
+        entrada = QDragEnterEvent(
+            QPoint(700, 400), Qt.DropAction.CopyAction, mime,
+            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        )
+        app.sendEvent(alvo, entrada)
+        ev = QDropEvent(
+            QPointF(QPoint(700, 400)), Qt.DropAction.CopyAction, mime,
+            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        )
+        app.sendEvent(alvo, ev)
+        print(f"    [teste] mandei DragEnter+Drop pra {type(alvo).__name__}")
+        QTimer.singleShot(500, lambda: jan.vista.page().runJavaScript(
+            "document.getElementById('c_arquivo').textContent",
+            lambda s: (print(f"[3] campo Arquivo agora diz: {s[-46:]!r}"), passo4())))
+
+    def passo4() -> None:
+        # Abre o diálogo nativo e fecha sozinho — só provando que ele sobe
+        # com o WebEngine na tela sem travar a página.
+        def fecha() -> None:
+            for w in app.topLevelWidgets():
+                if isinstance(w, QDialog) and w.isVisible():
+                    print(f"[4] diálogo nativo abriu: {w.windowTitle()!r} — fechando")
+                    w.reject()
+                    return
+            print("[4] diálogo nativo NÃO apareceu")
+
+        QTimer.singleShot(900, fecha)
+        caminho = jan.ponte.escolher_arquivo()
+        print(f"    devolveu {caminho!r} (vazio = cancelado, esperado)")
+        QTimer.singleShot(400, fim)
+
+    def fim() -> None:
+        print("\nchamadas que chegaram no Python:")
+        for c in jan.ponte.cliques:
+            print(f"    · {c}")
+        print("=" * 62)
+        QTimer.singleShot(300, app.quit)
+
+    passo0()
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
     galeria = "--telas" in sys.argv
+    interacoes = "--interacoes" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -301,6 +498,10 @@ def main() -> int:
     if galeria:
         # só as fotos: sem A/B, sem teste de redimensionamento
         QTimer.singleShot(4000, lambda: retratos(jan, app))
+        return app.exec()
+
+    if interacoes:
+        QTimer.singleShot(4000, lambda: testa_interacoes(jan, app))
         return app.exec()
 
     QTimer.singleShot(4000, clica)
