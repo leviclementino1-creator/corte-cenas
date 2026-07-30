@@ -661,6 +661,77 @@ def audita(jan, app) -> None:
     jan.vista.page().runJavaScript(JS, compara)
 
 
+def testa_troca(jan, app) -> None:
+    """Abrir o episódio readotado E trocar de episódio pela interface.
+
+    A troca ficou sem prova desde o começo porque só um episódio tinha pasta
+    no disco. Agora são dois, e é aqui que se descobre se a raiz, as
+    miniaturas e a prévia acompanham a troca — ou se continuam servindo o
+    episódio anterior, que é o erro silencioso que já apareceu antes."""
+    print("\n" + "=" * 62)
+    print("TESTE DA TROCA DE EPISÓDIO")
+    print("=" * 62)
+
+    ESTADO = r"""
+    (() => {
+      const viva = document.querySelector('#arvore .no.viva');
+      const cartoes = document.querySelectorAll('#grade .cartao');
+      const img = document.querySelector('#grade .cartao img');
+      const prontas = [...document.querySelectorAll('#grade img')]
+        .filter(i => i.complete && i.naturalWidth > 0).length;
+      return `${viva ? viva.dataset.rot : 'nenhum'} · ${cartoes.length} cartões · `
+           + `${prontas} miniaturas prontas · 1ª mini: ${img ? img.getAttribute('src').split('\\\\').pop() : '—'}`;
+    })()
+    """
+
+    def clica_ep(qual):
+        return f"""
+        (() => {{
+          const eps = [...document.querySelectorAll('#arvore .no[data-ep]')];
+          const alvo = eps.find(e => e.textContent.includes('{qual}'));
+          if (!alvo) return 'não achei o episódio {qual}';
+          alvo.click();
+          return 'cliquei em ' + alvo.dataset.rot;
+        }})()
+        """
+
+    CLICA_CENA = r"""
+    (() => {
+      const c = document.querySelectorAll('#grade .cartao')[5];
+      c.click();
+      return 'cliquei na cena ' + c.dataset.idx;
+    })()
+    """
+    VIDEO = r"""
+    (() => {
+      const v = document.getElementById('tv');
+      return `prévia: ${v.currentSrc ? v.currentSrc.split('/').pop() : '(vazia)'} `
+           + `pronto=${v.readyState}/4 tocando=${!v.paused}`;
+    })()
+    """
+
+    def js(codigo, rotulo, prox, espera=3000):
+        jan.vista.page().runJavaScript(codigo, lambda s: print(f"{rotulo} {s}"))
+        QTimer.singleShot(espera, prox)
+
+    def p1(): js(ESTADO, "[1] de saída:", p2, 500)
+    def p2(): js(clica_ep("Episódio 01"), "[2]", p3, 6000)
+    def p3(): js(ESTADO, "[3] no ep 01:", p4, 500)
+    def p4(): js(CLICA_CENA, "[4]", p5, 3000)
+    def p5(): js(VIDEO, "[5]", p6, 500)
+    def p6(): js(clica_ep("Episódio 02"), "[6] voltando:", p7, 6000)
+    def p7(): js(ESTADO, "[7] no ep 02:", p8, 500)
+    def p8(): js(CLICA_CENA, "[8]", p9, 3000)
+    def p9(): js(VIDEO, "[9]", fim, 500)
+
+    def fim():
+        print(f"[10] servidor: {jan.servidor.resumo()}")
+        print("=" * 62)
+        QTimer.singleShot(400, app.quit)
+
+    p1()
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
     galeria = "--telas" in sys.argv
@@ -669,6 +740,7 @@ def main() -> int:
     acoes = "--acoes" in sys.argv
     progresso = "--progresso" in sys.argv
     auditoria = "--auditoria" in sys.argv
+    troca = "--troca" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -848,6 +920,10 @@ def main() -> int:
 
     if auditoria:
         QTimer.singleShot(4500, lambda: audita(jan, app))
+        return app.exec()
+
+    if troca:
+        QTimer.singleShot(6000, lambda: testa_troca(jan, app))
         return app.exec()
 
     QTimer.singleShot(4000, clica)
