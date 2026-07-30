@@ -1202,12 +1202,12 @@ function carregaAcervo(){
       return;
     }
     arv.innerHTML = animes.map(a =>
-      `<div class="no n1"><span class="seta">▾</span>${a.titulo}<span class="conta">${a.cenas}</span></div>` +
+      `<div class="no n1" title="${a.oficial}"><span class="seta">▾</span>${a.titulo}<span class="conta">${a.cenas}</span></div>` +
       a.temporadas.map(t =>
         `<div class="no n2"><span class="seta">▾</span>Temporada ${t.temporada}<span class="conta">${t.cenas}</span></div>` +
         t.eps.map(e =>
           `<div class="no n3${e.ok ? '' : ' sumido'}" data-ep="${e.id}"
-                data-rot="${a.titulo} — S${String(e.temporada).padStart(2,'0')}E${String(e.episodio).padStart(2,'0')}">` +
+                data-rot="${e.titulo} — S${String(e.temporada).padStart(2,'0')}E${String(e.episodio).padStart(2,'0')}">` +
           `Episódio ${String(e.episodio).padStart(2,'0')}${e.ok ? '' : '  (sumiu)'}` +
           `<span class="conta">${e.cenas}</span></div>`).join('')
       ).join('')

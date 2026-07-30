@@ -300,11 +300,29 @@ class Ponte(QObject):
         }
         con.close()
 
+        # AGRUPA PELA PASTA, não pelo título do banco.
+        #
+        # No AniList/MAL cada temporada é um registro com título próprio
+        # ("Mushoku Tensei III: Isekai Ittara Honki Dasu" é a T3, não a
+        # série). Agrupar por ali punha o nome de UMA temporada como nome da
+        # série inteira, e ainda partia o mesmo show em vários galhos.
+        #
+        # A pasta é melhor chave: é o nome que o usuário DIGITOU, é curto, é
+        # o que ele vê no Explorer, e junta as temporadas que ele arquivou
+        # junto. Quando a pasta sumiu do disco sobra o palpite (o nome que
+        # ela teria), que é o melhor que dá pra fazer.
         animes: dict[str, dict] = {}
         for r in linhas:
             raiz = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
             existe = (raiz / "shots").exists()
-            a = animes.setdefault(r["title"], {"titulo": r["title"], "temporadas": {}})
+            pasta = raiz.parent.name
+            a = animes.setdefault(pasta, {
+                "titulo": pasta,
+                # o título oficial não se perde: vira a dica do nó
+                "oficiais": set(),
+                "temporadas": {},
+            })
+            a["oficiais"].add(r["title"])
             t = a["temporadas"].setdefault(r["season"], [])
             t.append({
                 "id": int(r["id"]),
@@ -324,9 +342,11 @@ class Ponte(QObject):
             ]
             fora.append({
                 "titulo": a["titulo"],
+                "oficial": " · ".join(sorted(a["oficiais"])),
                 "temporadas": temps,
                 "cenas": sum(t["cenas"] for t in temps),
             })
+        fora.sort(key=lambda x: x["titulo"].lower())
         return json.dumps(fora)
 
     @Slot(result=str)
