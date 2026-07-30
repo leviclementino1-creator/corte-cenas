@@ -174,6 +174,8 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 /* pasta ausente: itálico apagado, mas continua na lista — quem apagou
    merece ver que apagou (mesma regra do app) */
 .no.sumido{color:var(--ghost);font-style:italic}
+.no.orfaos{color:var(--time);font-size:12px}
+.no.orfaos:hover{background:var(--surface-2)}
 .cabeca{padding:16px 20px 12px;border-bottom:1px solid var(--line)}
 .cabeca .titulo-linha{display:flex;align-items:center;gap:16px;margin-bottom:6px}
 .cabeca h1{font-family:var(--display);font-size:19px;font-weight:600;margin:0;
@@ -490,6 +492,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <div class="sobrancelha">Ações</div>
       <div class="no n1" id="btn_recarregar">↻&nbsp;&nbsp;Atualizar lista</div>
       <div class="no n1" id="btn_abrir_pasta">📂&nbsp;&nbsp;Abrir pasta do episódio</div>
+      <div class="no n1 orfaos" id="aviso_orfaos" style="display:none"></div>
     </aside>
 
     <main class="meio">
@@ -1195,7 +1198,13 @@ document.querySelector('.ordem .trilho').addEventListener('click', e => {
 
 function carregaAcervo(){
   ponte.acervo(json => {
-    const animes = JSON.parse(json);
+    const resp = JSON.parse(json);
+    const animes = resp.animes;
+    // registro no banco sem pasta no disco: não entra na árvore (a biblioteca
+    // mostra o que EXISTE), mas também não some calado
+    const av = document.getElementById('aviso_orfaos');
+    av.style.display = resp.orfaos ? '' : 'none';
+    av.textContent = `⚠ ${resp.orfaos} episódio(s) sem pasta — limpar do banco`;
     const arv = document.getElementById('arvore');
     if (!animes.length) {
       arv.innerHTML = '<div class="no n1" style="font-style:italic">Nada cortado ainda</div>';
@@ -1327,6 +1336,20 @@ document.getElementById('btn_recarregar').addEventListener('click', () => {
 });
 document.getElementById('btn_abrir_pasta').addEventListener('click', () => {
   if (ponte) ponte.abrir_pasta('episodio');
+});
+document.getElementById('aviso_orfaos').addEventListener('click', () => {
+  pergunta({
+    titulo: 'Episódios sem pasta',
+    texto: 'A pasta desses episódios não existe mais no disco.<br><br>'
+         + '• Some só o registro morto — não há pasta pra mandar pra lixeira<br>'
+         + '• O personagem, as fotos de referência e o que o app aprendeu ficam',
+    confirmar: 'Limpar',
+  }, () => ponte.limpar_orfaos(json => {
+    const r = JSON.parse(json);
+    recado(r.msg, !r.ok);
+    epAberto = null;
+    carregaAcervo();
+  }));
 });
 
 new QWebChannel(qt.webChannelTransport, canal => {

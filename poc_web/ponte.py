@@ -311,10 +311,20 @@ class Ponte(QObject):
         # o que ele vê no Explorer, e junta as temporadas que ele arquivou
         # junto. Quando a pasta sumiu do disco sobra o palpite (o nome que
         # ela teria), que é o melhor que dá pra fazer.
+        # A BIBLIOTECA MOSTRA O QUE EXISTE. Episódio cuja pasta sumiu do disco
+        # não aparece — biblioteca que lista o que não está lá mente sobre o
+        # acervo. (A versão Qt mantinha em itálico "pra quem apagou ver que
+        # apagou"; na prática vira lixo permanente na árvore.) O registro não
+        # é apagado escondido: fica contado em `orfaos` e as AÇÕES oferecem a
+        # limpeza.
+        self.orfaos = []
         animes: dict[str, dict] = {}
         for r in linhas:
             raiz = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
             existe = (raiz / "shots").exists()
+            if not existe:
+                self.orfaos.append(int(r["id"]))
+                continue
             pasta = raiz.parent.name
             a = animes.setdefault(pasta, {
                 "titulo": pasta,
@@ -347,7 +357,7 @@ class Ponte(QObject):
                 "cenas": sum(t["cenas"] for t in temps),
             })
         fora.sort(key=lambda x: x["titulo"].lower())
-        return json.dumps(fora)
+        return json.dumps({"animes": fora, "orfaos": len(self.orfaos)})
 
     @Slot(result=str)
     def escolher_arquivo(self) -> str:
@@ -585,6 +595,25 @@ class Ponte(QObject):
         if t is not None and t.isRunning():
             t.requestInterruption()
             print("    [python] cancelamento pedido")
+
+    @Slot(result=str)
+    def limpar_orfaos(self) -> str:
+        """Apaga do banco os episódios cuja pasta não existe mais.
+
+        Não há pasta pra mandar pra lixeira — ela já sumiu. O que some aqui é
+        só o registro morto: cenas que apontam pra arquivos inexistentes. O
+        personagem, as fotos de referência e o que o app aprendeu ficam, que
+        é a parte cara e não pertence a um episódio só."""
+        if not self.orfaos:
+            return json.dumps({"ok": True, "msg": "nada a limpar"})
+        db = self.db
+        for ep in self.orfaos:
+            db.delete_episode(ep)
+        n = len(self.orfaos)
+        self.orfaos = []
+        msg = f"{n} episódio(s) sem pasta apagados do banco"
+        print(f"    [python] {msg}")
+        return json.dumps({"ok": True, "msg": msg})
 
     @Slot(str)
     def abrir_pasta(self, qual: str) -> None:
