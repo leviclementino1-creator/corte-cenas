@@ -499,6 +499,16 @@ class LibraryTab(QWidget):
         self.btn_open.setEnabled(False)
         self.btn_open.clicked.connect(self._open_folder)
         lv.addWidget(self.btn_open)
+        # Só aparece quando há o que fazer: pasta com clipes que o banco não
+        # conhece (reorganizou no Explorer, trocou de banco, apagou do acervo
+        # sem levar a pasta). Sem isso a Biblioteca esconde clipes que estão
+        # ali — mente sobre o acervo tanto quanto listando o que não existe.
+        self.btn_readotar = QPushButton()
+        self.btn_readotar.setStyleSheet(theme.button("ghost"))
+        self.btn_readotar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_readotar.setVisible(False)
+        self.btn_readotar.clicked.connect(self._readotar)
+        lv.addWidget(self.btn_readotar)
         split.addWidget(left)
 
         # --- meio: cenas + personagens
@@ -754,8 +764,62 @@ class LibraryTab(QWidget):
         item.setToolTip(0, rotulo)
         return item
 
+    def _ver_esquecidas(self) -> None:
+        """Atualiza o aviso de pasta que o banco não conhece."""
+        from ..storage import readocao
+
+        try:
+            achadas = readocao.orfas(self.config.output_path, self.db)
+        except Exception:  # noqa: BLE001 — aviso não pode derrubar a aba
+            achadas = []
+        self._esquecidas = achadas
+        if achadas:
+            clipes = sum(o["clipes"] for o in achadas)
+            self.btn_readotar.setText(
+                f"＋   {len(achadas)} pasta(s) esquecida(s), {clipes} clipes"
+            )
+            self.btn_readotar.setToolTip(
+                "Estas pastas têm clipes no disco mas o banco não as conhece.\n"
+                "Trazer pro acervo NÃO reanalisa nada — o mapa das cenas sai do\n"
+                "metadata que a análise deixou."
+            )
+        self.btn_readotar.setVisible(bool(achadas))
+
+    def _readotar(self) -> None:
+        from ..storage import readocao
+
+        achadas = getattr(self, "_esquecidas", [])
+        if not achadas:
+            return
+        linhas = "\n".join(
+            f"• {o['anime']} T{o['temporada']}E{o['episodio']:02d} — {o['clipes']} clipes"
+            for o in achadas[:6]
+        )
+        if len(achadas) > 6:
+            linhas += f"\n• … e mais {len(achadas) - 6}"
+        if quiet.question(
+            self, "Pastas esquecidas",
+            f"{linhas}\n\n"
+            "Trazer pro acervo?\n\n"
+            "• NADA é reanalisado — o mapa das cenas sai do metadata\n"
+            "• Personagem que o banco não conhece fica de fora; a cena volta "
+            "sem dono",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        total = 0
+        for o in achadas:
+            r = readocao.readotar(self.db, Path(o["pasta"]))
+            if r["ok"]:
+                total += r["cenas"]
+        quiet.information(
+            self, "Pronto",
+            f"{len(achadas)} episódio(s) de volta no acervo, {total} cenas.",
+        )
+        self.reload()
+
     def reload(self) -> None:
         """(Re)monta anime → temporada → episódio a partir do banco."""
+        self._ver_esquecidas()
         self.tree.clear()
         with self.db.connect() as c:
             rows = c.execute(
