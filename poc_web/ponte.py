@@ -211,9 +211,11 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
 class Ponte(QObject):
     """O que o JavaScript enxerga do Python."""
 
-    # Python -> JS: o mesmo modelo de sinal que a UI Qt já usa hoje
-    progresso = Signal(int, str)
-    cenasProntas = Signal(str)
+    # Python -> JS. `progresso` tem a MESMA assinatura do
+    # PipelineWorker.stage do app — (stage_id, fração, mensagem) — pra ligar
+    # o worker de verdade ser um `connect`, não uma tradução.
+    progresso = Signal(str, float, str)
+    terminou = Signal(str)
     arquivoSolto = Signal(str)   # o episódio arrastado pra janela
 
     def __init__(self, banco: Path, raiz_saida: Path, ffmpeg: str = "ffmpeg", parent=None) -> None:
@@ -509,6 +511,60 @@ class Ponte(QObject):
                f"{movidas} pasta(s) na lixeira (Output/_lixeira)")
         print(f"    [python] {msg}")
         return json.dumps({"ok": True, "msg": msg})
+
+    # ---- progresso --------------------------------------------------------
+    @Slot(result=str)
+    def etapas(self) -> str:
+        """As etapas vêm de `app/pipeline_types.py`, não de uma lista escrita
+        de novo no HTML — uma etapa nova no pipeline tem que aparecer na tela
+        sozinha, sem ninguém lembrar de editar dois lugares."""
+        from app.pipeline_types import STAGES
+
+        return json.dumps([{"id": i, "rotulo": r} for i, r in STAGES])
+
+    @Slot()
+    def ensaiar(self) -> None:
+        """Ensaio do progresso: percorre as etapas REAIS numa thread de fundo
+        emitindo o mesmo sinal que o `PipelineWorker` emite.
+
+        Não analisa nada — não toca em vídeo, banco nem pasta. Serve pra
+        provar a única coisa que faltava saber da arquitetura: que sinal de
+        thread de fundo chega na página e que ela continua respondendo
+        enquanto isso. Ligar o worker de verdade é trocar este ensaio por um
+        `worker.stage.connect(self.progresso)`.
+        """
+        from PySide6.QtCore import QThread
+
+        from app.pipeline_types import STAGES
+
+        ponte = self
+
+        class Ensaio(QThread):
+            def run(self) -> None:  # noqa: D102
+                for k, (sid, rotulo) in enumerate(STAGES):
+                    passos = 8
+                    for p in range(passos + 1):
+                        if self.isInterruptionRequested():
+                            ponte.terminou.emit("cancelado")
+                            return
+                        fracao = (k + p / passos) / len(STAGES)
+                        ponte.progresso.emit(
+                            sid, fracao,
+                            f"{rotulo} {p * 40}/{passos * 40}" if p else rotulo,
+                        )
+                        self.msleep(45)
+                ponte.terminou.emit("pronto")
+
+        self._ensaio = Ensaio()
+        self._ensaio.start()
+        print("    [python] ensaio do progresso começou (thread de fundo)")
+
+    @Slot()
+    def cancelar(self) -> None:
+        t = getattr(self, "_ensaio", None)
+        if t is not None and t.isRunning():
+            t.requestInterruption()
+            print("    [python] cancelamento pedido")
 
     @Slot(str)
     def abrir_pasta(self, qual: str) -> None:

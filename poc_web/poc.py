@@ -499,12 +499,62 @@ def testa_acoes(jan, app) -> None:
     p1()
 
 
+def testa_progresso(jan, app) -> None:
+    """A última incógnita da arquitetura: sinal de thread de fundo chega na
+    página, e ela continua respondendo enquanto isso."""
+    print("\n" + "=" * 62)
+    print("TESTE DO PROGRESSO (thread de fundo -> página)")
+    print("=" * 62)
+
+    LE = r"""
+    (() => {
+      const e = [...document.querySelectorAll('.etapa')];
+      return `${document.getElementById('p_pct').textContent} · `
+           + `${e.filter(x => x.classList.contains('feita')).length} feitas, `
+           + `${e.filter(x => x.classList.contains('rodando')).length} rodando de ${e.length} · `
+           + `"${document.getElementById('p_titulo').textContent}" `
+           + `decorrido ${document.querySelector('.tempos .v').textContent}`;
+    })()
+    """
+    # se a página travasse, este clique não daria resposta nenhuma
+    RESPONDE = r"""
+    (() => {
+      const t0 = performance.now();
+      document.querySelector('[data-tela=biblioteca]').click();
+      document.querySelector('[data-tela=analisar]').click();
+      return `troquei de aba duas vezes em ${(performance.now()-t0).toFixed(1)} ms`;
+    })()
+    """
+
+    jan.vista.page().runJavaScript(
+        "document.querySelector('[data-tela=analisar]').click(); "
+        "document.getElementById('btn_analisar').click(); 'comecei'",
+        lambda s: print(f"    {s}"))
+
+    def olha(n):
+        def _():
+            jan.vista.page().runJavaScript(LE, lambda s: print(f"[{n}] {s}"))
+        return _
+
+    for i, quando in enumerate([1200, 2600, 4200, 6000], start=1):
+        QTimer.singleShot(quando, olha(i))
+    QTimer.singleShot(3200, lambda: jan.vista.page().runJavaScript(
+        RESPONDE, lambda s: print(f"[R] página viva? {s}")))
+    QTimer.singleShot(2400, lambda: (
+        jan.grab().save(str(PROJETO / "poc_web" / "web_analisando.png")),
+        print("    retrato: web_analisando.png")))
+    QTimer.singleShot(7200, lambda: jan.vista.page().runJavaScript(
+        LE, lambda s: (print(f"[fim] {s}"), print("=" * 62),
+                       QTimer.singleShot(400, app.quit))))
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
     galeria = "--telas" in sys.argv
     interacoes = "--interacoes" in sys.argv
     acervo = "--acervo" in sys.argv
     acoes = "--acoes" in sys.argv
+    progresso = "--progresso" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -676,6 +726,10 @@ def main() -> int:
 
     if acoes:
         QTimer.singleShot(4500, lambda: testa_acoes(jan, app))
+        return app.exec()
+
+    if progresso:
+        QTimer.singleShot(4000, lambda: testa_progresso(jan, app))
         return app.exec()
 
     QTimer.singleShot(4000, clica)

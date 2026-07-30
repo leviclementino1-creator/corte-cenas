@@ -449,15 +449,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
             <div class="btn fantasma">📂&nbsp; Abrir pasta de saída</div>
           </div>
         </div>
-        <div class="etapas">
-          <div class="etapa feita"><span class="marca">✓</span>Lendo arquivo<span class="n">0:04</span></div>
-          <div class="etapa feita"><span class="marca">✓</span>Detectando shots<span class="n">0:38</span></div>
-          <div class="etapa rodando"><span class="marca">▸</span>Cortando<span class="n">214/331</span></div>
-          <div class="etapa"><span class="marca">○</span>Extraindo keyframes</div>
-          <div class="etapa"><span class="marca">○</span>Baixando referências</div>
-          <div class="etapa"><span class="marca">○</span>Reconhecendo</div>
-          <div class="etapa"><span class="marca">○</span>Organizando pastas</div>
-        </div>
+        <div class="etapas" id="etapas"></div>
       </div>
     </div>
   </div>
@@ -765,8 +757,80 @@ document.querySelectorAll('.cena [data-acao]').forEach(b =>
     if (!sel) { recado('Escolha uma cena primeiro.', true); return; }
     pedeAcao(b.dataset.acao, [+sel.dataset.idx]);
   }));
-document.getElementById('btn_analisar').addEventListener('click',
-  () => ponte && ponte.clicou('botao_analisar'));
+// ---- progresso ---------------------------------------------------------
+// A lista de etapas vem do pipeline (Ponte.etapas), não escrita de novo no
+// HTML: etapa nova aparece sozinha. O relógio e o ritmo são calculados aqui;
+// quem manda o que está acontecendo é o Python.
+let etapas = [], t0Analise = null, feitas = new Set(), ritmo = null;
+
+function montaEtapas(){
+  ponte.etapas(json => {
+    etapas = JSON.parse(json);
+    document.getElementById('etapas').innerHTML = etapas.map(e =>
+      `<div class="etapa" data-id="${e.id}">` +
+      `<span class="marca">○</span>${e.rotulo}<span class="n"></span></div>`).join('');
+  });
+}
+
+function zeraProgresso(){
+  feitas = new Set(); t0Analise = performance.now(); ritmo = null;
+  document.querySelectorAll('.etapa').forEach(e => {
+    e.className = 'etapa';
+    e.querySelector('.marca').textContent = '○';
+    e.querySelector('.n').textContent = '';
+  });
+}
+
+function pinta(sid, fracao, msg){
+  const pct = Math.round(fracao * 100);
+  document.getElementById('p_pct').textContent = pct + '%';
+  document.querySelector('.barra i').style.width = pct + '%';
+  document.querySelector('.barra i.pale').style.width =
+    Math.min(6, 100 - pct) + '%';
+
+  // "Cortando cena 214 de 331" -> título em cima, contagem embaixo
+  const m = msg.match(/^(.*?)\s+(\d+)\s*[\/de]+\s*(\d+)\s*$/);
+  document.getElementById('p_titulo').textContent = m ? m[1] : msg;
+  document.getElementById('p_conta').innerHTML =
+    m ? `<b>${m[2]}</b> de <b>${m[3]}</b>` : '';
+
+  document.querySelectorAll('.etapa').forEach(e => {
+    if (e.dataset.id === sid){
+      e.className = 'etapa rodando';
+      e.querySelector('.marca').textContent = '▸';
+      if (m) e.querySelector('.n').textContent = `${m[2]}/${m[3]}`;
+      feitas.forEach(f => {});
+    } else if (feitas.has(e.dataset.id)){
+      e.className = 'etapa feita';
+      e.querySelector('.marca').textContent = '✓';
+    }
+  });
+  // tudo que veio ANTES desta etapa já passou
+  const i = etapas.findIndex(e => e.id === sid);
+  etapas.slice(0, Math.max(0, i)).forEach(e => feitas.add(e.id));
+
+  const decorrido = (performance.now() - t0Analise) / 1000;
+  const falta = fracao > 0.01 ? decorrido * (1 - fracao) / fracao : 0;
+  document.querySelector('.tempos .v').textContent = relogio(decorrido);
+  document.querySelectorAll('.tempos .v')[1].textContent = relogio(falta);
+  if (m) {
+    const n = +m[2];
+    if (ritmo && n > ritmo.n)
+      document.querySelectorAll('.tempos .v')[2].textContent =
+        ((n - ritmo.n) / Math.max(0.001, decorrido - ritmo.t)).toFixed(1) + ' cena/s';
+    if (!ritmo || n < ritmo.n) ritmo = {n, t: decorrido};
+  }
+  document.querySelector('.arquivo-atual').textContent = msg;
+}
+
+document.getElementById('btn_analisar').addEventListener('click', () => {
+  if (!ponte) return;
+  zeraProgresso();
+  ponte.ensaiar();
+  recado('Ensaio do progresso — não analisa nada, só prova a plumbing.');
+});
+document.querySelector('.btn.perigo').addEventListener('click',
+  () => ponte && ponte.cancelar());
 
 // ---- Resultados -------------------------------------------------------
 function mostraPersonagem(nome){
@@ -1203,6 +1267,20 @@ new QWebChannel(qt.webChannelTransport, canal => {
 
   // O episódio arrastado pra janela chega por AQUI: quem pegou o caminho
   // foi o Qt (o objeto File do Chromium não tem caminho nenhum).
+  montaEtapas();
+  ponte.progresso.connect(pinta);
+  ponte.terminou.connect(como => {
+    recado(como === 'cancelado' ? 'Análise cancelada.' : 'Análise terminada.');
+    if (como !== 'cancelado'){
+      document.getElementById('p_pct').textContent = '100%';
+      document.querySelector('.barra i').style.width = '100%';
+      document.querySelectorAll('.etapa').forEach(e => {
+        e.className = 'etapa feita';
+        e.querySelector('.marca').textContent = '✓';
+      });
+    }
+  });
+
   ponte.arquivoSolto.connect(caminho => {
     const campo = document.getElementById('c_arquivo');
     campo.textContent = caminho;

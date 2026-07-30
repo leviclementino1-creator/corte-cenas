@@ -14,22 +14,22 @@ funcionando".
 | Clicar num cartão | seleciona, preenche A CENA e pede a prévia |
 | Prévia em loop | `Ponte.previa` transcodifica WebM sob demanda (0,14 s) |
 | Prévia de hover | tira de 8 quadros por `cena:/tira/`, o mouse escolhe o quadro |
-| Menu do botão direito | menu do Chromium desligado, o nosso aparece e chama `Ponte.menu_cena` |
-| Atalhos J / M / Del / Ctrl+P / setas | `Ponte.atalho`, com as setas andando na grade |
+| Menu do botão direito | menu do Chromium desligado; o nosso chama `Ponte.acao_cena` |
+| Atalhos J / M / Del / Ctrl+P / setas | mesmo portão dos botões; as setas andam na grade |
 | Arrastar o episódio | tratado no Qt (o File do Chromium não tem caminho) |
 | "Selecionar..." | `QFileDialog` nativo, chamado do Python |
 | Elenco (aba Resultados) | clicar troca a grade e o cabeçalho |
 | Trocar de aba / abrir Configurações | funciona |
-| **Árvore do ACERVO** | montada do banco por `Ponte.acervo`; clicar num episódio troca a grade, e a pasta que sumiu do disco aparece em itálico apagado |
-| **Filtro por personagem** | as pílulas filtram a grade de verdade (331 → 91 no teste) |
-| **Ordenação** | cronológica / duvidosas / mais longas |
+| Árvore do ACERVO | montada do banco por `Ponte.acervo`; clicar troca o episódio, e a pasta que sumiu aparece em itálico apagado |
+| Filtro por personagem | as pílulas filtram a grade de verdade (331 → 91 no teste) |
+| Ordenação | cronológica / duvidosas / mais longas |
 | Atualizar lista | remonta a árvore |
-
-| **Juntar / desfazer junção** | `Ponte.acao_cena` → `db.add_shot_merge` / `remove_shot_merge` |
-| **Remover desta pasta** | bloqueia no banco + `refresh_shot_links`; o clipe mestre fica em `shots/` |
-| **Mover pra outro personagem** | pergunta o destino na página e regrava os hardlinks |
-| **Menu de contexto da árvore** | apagar episódio/temporada/anime, com a pasta indo pra `Output/_lixeira` |
+| Juntar / desfazer junção | `Ponte.acao_cena` → `db.add_shot_merge` / `remove_shot_merge` |
+| Remover desta pasta | bloqueia no banco + `refresh_shot_links`; o clipe mestre fica em `shots/` |
+| Mover pra outro personagem | pergunta o destino na página e regrava os hardlinks |
+| Menu de contexto da árvore | apagar episódio/temporada/anime, com a pasta indo pra `Output/_lixeira` |
 | Abrir no Explorer | `Ponte.abrir_pasta` |
+| Progresso da análise | as 10 etapas vêm de `pipeline_types.STAGES`; `Ponte.progresso` tem a MESMA assinatura do `PipelineWorker.stage` |
 
 Botão do painel, item do menu e atalho de teclado entram todos pelo MESMO
 portão (`pedeAcao` → `Ponte.acao_cena`). Duas portas pra mesma ação é como
@@ -38,11 +38,18 @@ Qt, onde o menu emitia um sinal que ninguém ouvia.
 
 ## Ainda é casca (desenho sem ação)
 
+- **Rodar a análise de verdade.** O progresso está todo ligado, mas o botão
+  dispara um ENSAIO (`Ponte.ensaiar`) que percorre as etapas reais numa
+  thread de fundo sem tocar em vídeo, banco ou pasta. Ligar o pipeline é
+  trocar o ensaio por `worker.stage.connect(self.progresso)` — a assinatura
+  já é a mesma de propósito. Falta ainda o que vem junto: refs faltando,
+  anime não encontrado (oferta do Modo Descoberta) e a tela de batismo.
 - **Ações da aba Resultados** — sincronizar, abrir pasta, exportar refs,
-  reforçar refs, exportar vertical: todos parados.
-- **Aba Analisar inteira** — os campos são texto fixo (menos o Arquivo), os
-  giros de Temporada/Ep não giram, e os três botões de análise não analisam.
-  O progresso mostrado é o da maquete, não de uma análise real.
+  reforçar refs, exportar vertical: todos parados. `_sync_from_disk` é o
+  mais trabalhoso: está preso ao widget (pergunta com `QMessageBox` quando
+  uma pasta inteira sumiu) e precisa sair de lá antes.
+- **Campos da aba Analisar** — arquivo e saída são reais, o resto é texto
+  fixo: os giros de Temporada/Ep não giram e o OP/ED não é editável.
 - **Configurações** — radios e caixas não guardam nada; Salvar não salva.
 
 ## O que cada um precisa
