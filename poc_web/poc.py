@@ -335,10 +335,96 @@ def testa_interacoes(jan, app) -> None:
     passo0()
 
 
+def testa_acervo(jan, app) -> None:
+    """Árvore do acervo, troca de episódio, filtro por personagem e
+    ordenação — os controles que até agora eram só desenho."""
+    print("\n" + "=" * 62)
+    print("TESTE DO ACERVO, FILTRO E ORDEM")
+    print("=" * 62)
+
+    ARVORE = r"""
+    (() => {
+      const eps = [...document.querySelectorAll('#arvore .no[data-ep]')];
+      const viva = document.querySelector('#arvore .no.viva');
+      return `${document.querySelectorAll('#arvore .no').length} nós, `
+           + `${eps.length} episódios (${eps.filter(e => e.classList.contains('sumido')).length} sumidos)`
+           + ` · aberto: ${viva ? viva.dataset.rot : 'NENHUM'}`
+           + ` · grade com ${document.querySelectorAll('#grade .cartao').length} cartões`;
+    })()
+    """
+
+    FILTRA = r"""
+    (() => {
+      const pilulas = [...document.querySelectorAll('#filtros .pilula')];
+      const alvo = pilulas.find(p => p.dataset.nome && p.dataset.nome !== '__sem__');
+      if (!alvo) return 'sem pílulas de personagem';
+      const antes = document.querySelectorAll('#grade .cartao').length;
+      alvo.click();
+      const depois = document.querySelectorAll('#grade .cartao').length;
+      const nome = alvo.dataset.nome;
+      const so = [...document.querySelectorAll('#grade .cartao .nome')]
+        .every(n => n.textContent.includes(nome.split(',')[0]));
+      return `filtrei por "${nome}": ${antes} -> ${depois} cartões · `
+           + `todos são dele? ${so ? 'sim' : 'NÃO'}`;
+    })()
+    """
+
+    ORDENA = r"""
+    (() => {
+      const fora = [];
+      for (const modo of ['duvidosas', 'longas', 'crono']) {
+        document.querySelector(`.ordem .opcao[data-ordem=${modo}]`).click();
+        const tres = [...document.querySelectorAll('#grade .cartao')].slice(0,3)
+          .map(c => c.querySelector('.dur').textContent);
+        fora.push(`${modo}: ${tres.join(' ')}`);
+      }
+      return fora.join(' · ');
+    })()
+    """
+
+    TROCA = r"""
+    (() => {
+      const eps = [...document.querySelectorAll('#arvore .no[data-ep]:not(.sumido)')];
+      if (eps.length < 2) return `só ${eps.length} episódio com pasta — não dá pra testar a troca`;
+      const outro = eps[1];
+      outro.click();
+      return `cliquei em ${outro.dataset.rot}`;
+    })()
+    """
+
+    def p1() -> None:
+        jan.vista.page().runJavaScript(ARVORE, lambda s: print(f"[1] árvore: {s}"))
+        QTimer.singleShot(700, p2)
+
+    def p2() -> None:
+        jan.vista.page().runJavaScript(FILTRA, lambda s: print(f"[2] {s}"))
+        QTimer.singleShot(700, p3)
+
+    def p3() -> None:
+        jan.vista.page().runJavaScript(ORDENA, lambda s: print(f"[3] ordem — {s}"))
+        QTimer.singleShot(700, p4)
+
+    def p4() -> None:
+        jan.vista.page().runJavaScript(TROCA, lambda s: print(f"[4] {s}"))
+        QTimer.singleShot(2500, p5)
+
+    def p5() -> None:
+        jan.vista.page().runJavaScript(ARVORE, lambda s: print(f"[5] depois da troca: {s}"))
+        QTimer.singleShot(600, fim)
+
+    def fim() -> None:
+        print(f"[6] servidor: {jan.servidor.resumo()}")
+        print("=" * 62)
+        QTimer.singleShot(300, app.quit)
+
+    p1()
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
     galeria = "--telas" in sys.argv
     interacoes = "--interacoes" in sys.argv
+    acervo = "--acervo" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -502,6 +588,10 @@ def main() -> int:
 
     if interacoes:
         QTimer.singleShot(4000, lambda: testa_interacoes(jan, app))
+        return app.exec()
+
+    if acervo:
+        QTimer.singleShot(4500, lambda: testa_acervo(jan, app))
         return app.exec()
 
     QTimer.singleShot(4000, clica)

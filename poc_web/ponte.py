@@ -219,11 +219,97 @@ class Ponte(QObject):
     def __init__(self, banco: Path, raiz_saida: Path, ffmpeg: str = "ffmpeg", parent=None) -> None:
         super().__init__(parent)
         self.banco = banco
+        # `raiz` é a pasta do episódio ABERTO — muda quando o usuário escolhe
+        # outro na árvore. Começa no que veio pronto pra não abrir vazio.
         self.raiz = raiz_saida
         self.ffmpeg = ffmpeg
-        self.previas = raiz_saida / "metadata" / "previas_web"
         self.cliques: list[str] = []
         self.marcas: dict[str, float] = {}
+
+    @property
+    def previas(self) -> Path:
+        """Pasta das prévias WebM do episódio aberto. É propriedade e não
+        atributo porque a raiz muda quando se troca de episódio — guardar o
+        caminho no __init__ fazia a prévia do segundo episódio ir parar na
+        pasta do primeiro."""
+        return self.raiz / "metadata" / "previas_web"
+
+    def _saida(self) -> Path:
+        from app.config import Config
+
+        return Path(Config.load().output_path)
+
+    def _raiz_do_episodio(self, titulo: str, temporada: int, episodio: int) -> Path:
+        """Mesma regra do app: o nome da pasta vem do que o usuário DIGITOU,
+        não do título oficial, então além do palpite direto procura qualquer
+        pasta que tenha a temporada/episódio certos.
+
+        SEMPRE devolve um caminho, mesmo que a pasta não exista. Devolver None
+        pra pasta sumida fazia a raiz FICAR NO EPISÓDIO ANTERIOR: abrir um
+        episódio apagado continuava servindo as miniaturas do último aberto,
+        sem nenhum aviso. Melhor apontar pra pasta certa e a imagem faltar."""
+        from app.storage.organizer import sanitize
+
+        slug = f"S{temporada:02d}E{episodio:02d}"
+        saida = self._saida()
+        direto = saida / sanitize(titulo) / slug
+        if direto.exists():
+            return direto
+        try:
+            for pasta in saida.iterdir():
+                cand = pasta / slug
+                if pasta.is_dir() and cand.exists():
+                    return cand
+        except OSError:
+            pass
+        return direto
+
+    @Slot(result=str)
+    def acervo(self) -> str:
+        """A árvore anime → temporada → episódio, do banco."""
+        con = sqlite3.connect(self.banco)
+        con.row_factory = sqlite3.Row
+        linhas = con.execute(
+            """SELECT e.id, e.season, e.episode, a.title
+                 FROM episode e JOIN anime a ON a.id = e.anime_id
+                ORDER BY a.title, e.season, e.episode"""
+        ).fetchall()
+        # numa consulta só: uma por episódio deixaria a árvore lenta assim
+        # que o acervo crescesse
+        n_cenas = {
+            int(r[0]): int(r[1])
+            for r in con.execute("SELECT episode_id, COUNT(*) FROM shot GROUP BY episode_id")
+        }
+        con.close()
+
+        animes: dict[str, dict] = {}
+        for r in linhas:
+            raiz = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
+            existe = (raiz / "shots").exists()
+            a = animes.setdefault(r["title"], {"titulo": r["title"], "temporadas": {}})
+            t = a["temporadas"].setdefault(r["season"], [])
+            t.append({
+                "id": int(r["id"]),
+                "episodio": int(r["episode"]),
+                "temporada": int(r["season"]),
+                "titulo": r["title"],
+                "cenas": n_cenas.get(int(r["id"]), 0),
+                "ok": bool(existe),
+            })
+
+        fora = []
+        for a in animes.values():
+            temps = [
+                {"temporada": t, "eps": sorted(eps, key=lambda e: e["episodio"]),
+                 "cenas": sum(e["cenas"] for e in eps)}
+                for t, eps in sorted(a["temporadas"].items())
+            ]
+            fora.append({
+                "titulo": a["titulo"],
+                "temporadas": temps,
+                "cenas": sum(t["cenas"] for t in temps),
+            })
+        return json.dumps(fora)
 
     @Slot(result=str)
     def escolher_arquivo(self) -> str:
@@ -257,10 +343,7 @@ class Ponte(QObject):
         """O que a tela de Analisar e o diálogo de Configurações mostram nos
         campos. Vem do Config real do app, não de texto fixo."""
         try:
-            from app.config import Config
-
-            c = Config.load()
-            return json.dumps({"saida": str(c.output_path)})
+            return json.dumps({"saida": str(self._saida())})
         except Exception as e:  # noqa: BLE001 — o PoC não pode morrer por isso
             return json.dumps({"saida": str(self.raiz.parent.parent), "erro": str(e)})
 
@@ -318,6 +401,19 @@ class Ponte(QObject):
         t0 = time.perf_counter()
         con = sqlite3.connect(self.banco)
         con.row_factory = sqlite3.Row
+
+        # A raiz TEM que acompanhar o episódio pedido: sem isto, escolher
+        # outro na árvore continuava servindo miniaturas e prévias da pasta
+        # do episódio anterior — e o erro é silencioso, as imagens só somem.
+        ep = con.execute(
+            """SELECT e.season, e.episode, a.title
+                 FROM episode e JOIN anime a ON a.id = e.anime_id
+                WHERE e.id = ?""",
+            (episodio,),
+        ).fetchone()
+        if ep is not None:
+            self.raiz = self._raiz_do_episodio(ep["title"], ep["season"], ep["episode"])
+
         linhas = con.execute(
             """SELECT s.id, s.idx, s.file, s.keyframe, s.start, s.end
                  FROM shot s JOIN episode e ON e.id = s.episode_id

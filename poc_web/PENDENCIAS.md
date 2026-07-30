@@ -20,16 +20,15 @@ funcionando".
 | "Selecionar..." | `QFileDialog` nativo, chamado do Python |
 | Elenco (aba Resultados) | clicar troca a grade e o cabeçalho |
 | Trocar de aba / abrir Configurações | funciona |
+| **Árvore do ACERVO** | montada do banco por `Ponte.acervo`; clicar num episódio troca a grade, e a pasta que sumiu do disco aparece em itálico apagado |
+| **Filtro por personagem** | as pílulas filtram a grade de verdade (331 → 91 no teste) |
+| **Ordenação** | cronológica / duvidosas / mais longas |
+| Atualizar lista | remonta a árvore |
 
 ## Ainda é casca (desenho sem ação)
 
-- **Árvore do ACERVO** — anime/temporada/episódio são HTML fixo. Não clicam,
-  não carregam outro episódio, não têm menu de contexto. O PoC sempre abre o
-  Mushoku T3 E2.
-- **Pílulas de filtro por personagem** (Biblioteca) — aparecem com a
-  contagem certa, mas clicar não filtra a grade.
-- **Controle de ordenação** — nem existe no PoC. A grade é sempre
-  cronológica.
+- **Menu de contexto na árvore** — apagar episódio/temporada/anime não existe
+  no PoC (no app é `_apagar_do_acervo`).
 - **Botões do painel A CENA** — "Juntar com a próxima" só avisa o Python;
   "Remover desta pasta" e "Mover pra outro personagem" não fazem nada.
 - **Itens do menu de contexto** — chegam no Python com o nome da ação e o
@@ -56,9 +55,19 @@ Quase tudo é religar em `Ponte` o que já existe. Nada de lógica nova:
 | Exportar refs | `results_tab._export_refs` |
 | Rodar a análise | `ui/worker.py` (é o único que precisa de sinal de volta, pro progresso) |
 
-## Armadilha que já custou tempo
+## Armadilhas que já custaram tempo
 
-O banco guarda `shot.file` e `shot.keyframe` **relativos** à pasta do
-episódio (`shots\0002.mp4`). Mandar isso cru pro navegador faz o pedido
-falhar em silêncio — foi o que quebrou a prévia de hover. Todo caminho que
-sai da `Ponte` tem que ser absoluto.
+**Caminho relativo no banco.** `shot.file` e `shot.keyframe` são relativos à
+pasta do episódio (`shots\0002.mp4`). Mandar isso cru pro navegador faz o
+pedido falhar em silêncio — foi o que quebrou a prévia de hover. Todo caminho
+que sai da `Ponte` tem que ser absoluto.
+
+**Raiz que não acompanha o episódio.** `_raiz_do_episodio` devolvia `None`
+quando a pasta não existia, e o chamador só trocava a raiz se viesse algo.
+Resultado: abrir um episódio apagado continuava servindo as miniaturas do
+último aberto, sem aviso nenhum. Agora sempre devolve o caminho esperado — se
+a pasta sumiu, a imagem falta, que é honesto. Quem decide se existe é o `ok`
+do `acervo()`, olhando a pasta `shots`.
+
+**Pasta das prévias tem que ser propriedade, não atributo.** Guardada no
+`__init__`, as prévias do segundo episódio iam parar na pasta do primeiro.

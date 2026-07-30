@@ -149,6 +149,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .no .seta{width:9px;color:var(--off);font-size:9px}
 .no .conta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--time)}
 .no.n1{padding-left:10px}.no.n2{padding-left:24px}.no.n3{padding-left:38px}
+/* pasta ausente: itálico apagado, mas continua na lista — quem apagou
+   merece ver que apagou (mesma regra do app) */
+.no.sumido{color:var(--ghost);font-style:italic}
 .cabeca{padding:16px 20px 12px;border-bottom:1px solid var(--line)}
 .cabeca h1{font-family:var(--display);font-size:19px;font-weight:600;margin:0 0 6px;
            letter-spacing:-.01em}
@@ -165,6 +168,16 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .pilula.viva{background:var(--accent-ink);border-color:var(--accent-dim);color:var(--accent)}
 .pilula .n{font-family:var(--mono);font-size:11px;color:var(--time)}
 .pilula.viva .n{color:var(--accent)}
+
+/* --- ordenação: controle segmentado, sem a palavra "primeiro" --------- */
+.ordem{display:flex;align-items:center;gap:10px;margin-top:10px}
+.ordem .rotulo{font-size:11px;color:var(--faint)}
+.ordem .trilho{display:flex;gap:1px;background:var(--line-soft);
+               border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.ordem .opcao{height:26px;display:flex;align-items:center;padding:0 11px;
+              background:var(--surface);font-size:12px;color:var(--dim)}
+.ordem .opcao:hover{background:var(--surface-2);color:var(--txt)}
+.ordem .opcao.viva{background:var(--accent-ink);color:var(--accent);font-weight:600}
 
 .grade{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px 20px;align-content:start}
 .grade .pista{
@@ -428,20 +441,26 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   <div class="tela viva" id="biblioteca">
     <aside class="acervo">
       <div class="sobrancelha">Acervo</div>
-      <div class="no n1"><span class="seta">▾</span>Mushoku Tensei III<span class="conta">331</span></div>
-      <div class="no n2"><span class="seta">▾</span>Temporada 3<span class="conta">331</span></div>
-      <div class="no n3 viva">Episódio 2<span class="conta">331</span></div>
+      <div id="arvore"></div>
       <div class="divisor" style="margin:12px 8px"></div>
       <div class="sobrancelha">Ações</div>
-      <div class="no n1">Atualizar lista</div>
+      <div class="no n1" id="btn_recarregar">Atualizar lista</div>
       <div class="no n1">Abrir pasta do episódio</div>
     </aside>
 
     <main class="meio">
       <div class="cabeca">
-        <h1 id="titulo">Mushoku Tensei III · T3 E2</h1>
+        <h1 id="titulo">—</h1>
         <div class="meta" id="meta">carregando…</div>
         <div class="filtros" id="filtros"></div>
+        <div class="ordem">
+          <span class="rotulo">ordem</span>
+          <div class="trilho">
+            <span class="opcao viva" data-ordem="crono">⏱ cronológica</span>
+            <span class="opcao" data-ordem="duvidosas">⚠ duvidosas</span>
+            <span class="opcao" data-ordem="longas">⏳ mais longas</span>
+          </div>
+        </div>
       </div>
       <div class="grade"><div class="pista" id="grade"></div></div>
     </main>
@@ -701,12 +720,12 @@ document.getElementById('btn_analisar').addEventListener('click',
 function mostraPersonagem(nome){
   document.querySelectorAll('.pessoa').forEach(p =>
     p.classList.toggle('viva', p.dataset.nome === nome));
-  const lista = nome === '\u0000'
+  const lista = nome === '__sem__'
     ? cenas.filter(c => !c.quem.length)
     : cenas.filter(c => c.quem.includes(nome));
   const total = lista.reduce((s,c) => s + c.dur, 0);
   document.getElementById('r_quem').textContent =
-    nome === '\u0000' ? 'sem identificação' : nome;
+    nome === '__sem__' ? 'sem identificação' : nome;
   document.getElementById('r_sub').innerHTML =
     `<b>${lista.length}</b> cenas · <b>${relogio(total)}</b>`;
   monta(lista, 'r_grade');
@@ -766,25 +785,110 @@ document.addEventListener('keydown', e => {
   if (ponte) ponte.atalho(acao);
 });
 
-new QWebChannel(qt.webChannelTransport, canal => {
-  ponte = canal.objects.ponte;
-  ponte.marca('canal_pronto', performance.now() - T0);
+// ---- acervo, filtro e ordenação ---------------------------------------
+// A grade é sempre desenhada por AQUI: filtro e ordem são estado, não dois
+// caminhos separados de montar cartão. Assim trocar de episódio, filtrar por
+// personagem e reordenar não podem discordar entre si.
+let filtro = null;      // null = todas · '__sem__' = sem identificação
+let ordem = 'crono';
+let epAberto = null;
 
-  ponte.cenas_do_episodio('3', json => {
+function desenhaGrade(){
+  let lista = cenas;
+  if (filtro === '__sem__') lista = cenas.filter(c => !c.quem.length);
+  else if (filtro) lista = cenas.filter(c => c.quem.includes(filtro));
+  if (ordem === 'duvidosas')
+    lista = [...lista].sort((a,b) => (a.quem.length?1:0) - (b.quem.length?1:0));
+  else if (ordem === 'longas')
+    lista = [...lista].sort((a,b) => b.dur - a.dur);
+  const ms = monta(lista, 'grade');
+  document.getElementById('meta').innerHTML = resumo(lista);
+  return ms;
+}
+
+function resumo(lista){
+  const semDono = lista.filter(c => !c.quem.length).length;
+  const quantos = new Set(lista.flatMap(c => c.quem)).size;
+  const quem = filtro === '__sem__' ? 'sem identificação' : (filtro || 'todas');
+  return `<b>${lista.length}</b> cenas · <b>${quantos}</b> personagens · `
+       + `<span class="duv">${semDono} duvidosas</span>`
+       + (filtro ? ` · filtrando por <b>${quem}</b>` : '');
+}
+
+document.getElementById('filtros').addEventListener('click', e => {
+  const p = e.target.closest('.pilula'); if (!p) return;
+  document.querySelectorAll('.pilula').forEach(x => x.classList.remove('viva'));
+  p.classList.add('viva');
+  filtro = p.dataset.nome || null;
+  desenhaGrade();
+});
+document.querySelector('.ordem .trilho').addEventListener('click', e => {
+  const o = e.target.closest('.opcao'); if (!o) return;
+  document.querySelectorAll('.ordem .opcao').forEach(x => x.classList.remove('viva'));
+  o.classList.add('viva');
+  ordem = o.dataset.ordem;
+  desenhaGrade();
+});
+
+function carregaAcervo(){
+  ponte.acervo(json => {
+    const animes = JSON.parse(json);
+    const arv = document.getElementById('arvore');
+    if (!animes.length) {
+      arv.innerHTML = '<div class="no n1" style="font-style:italic">Nada cortado ainda</div>';
+      return;
+    }
+    arv.innerHTML = animes.map(a =>
+      `<div class="no n1"><span class="seta">▾</span>${a.titulo}<span class="conta">${a.cenas}</span></div>` +
+      a.temporadas.map(t =>
+        `<div class="no n2"><span class="seta">▾</span>Temporada ${t.temporada}<span class="conta">${t.cenas}</span></div>` +
+        t.eps.map(e =>
+          `<div class="no n3${e.ok ? '' : ' sumido'}" data-ep="${e.id}"
+                data-rot="${a.titulo} · T${e.temporada} E${e.episodio}">` +
+          `Episódio ${String(e.episodio).padStart(2,'0')}${e.ok ? '' : '  (sumiu do disco)'}` +
+          `<span class="conta">${e.cenas}</span></div>`).join('')
+      ).join('')
+    ).join('');
+
+    arv.addEventListener('click', ev => {
+      const no = ev.target.closest('.no[data-ep]'); if (!no) return;
+      abreEpisodio(no.dataset.ep, no.dataset.rot, no);
+    });
+
+    // abre sozinho o primeiro que ainda existe no disco
+    const primeiro = arv.querySelector('.no[data-ep]:not(.sumido)');
+    if (primeiro) abreEpisodio(primeiro.dataset.ep, primeiro.dataset.rot, primeiro);
+  });
+}
+
+function abreEpisodio(id, rotulo, no){
+  if (epAberto === id) return;
+  epAberto = id;
+  document.querySelectorAll('#arvore .no').forEach(x => x.classList.remove('viva'));
+  if (no) no.classList.add('viva');
+  document.getElementById('titulo').textContent = rotulo;
+  document.getElementById('r_titulo').textContent = rotulo;
+  document.getElementById('meta').textContent = 'carregando…';
+  // some com a cena aberta: ela é do episódio ANTERIOR
+  document.getElementById('tv').removeAttribute('src');
+  document.getElementById('tv_vazio').style.display = '';
+  filtro = null;
+
+  ponte.cenas_do_episodio(String(id), json => {
     cenas = JSON.parse(json);
-    const ms = monta(cenas, 'grade');
+    elenco = {};
+    for (const c of cenas) for (const q of c.quem) elenco[q] = (elenco[q]||0)+1;
+    const nomes = Object.entries(elenco).sort((a,b) => b[1]-a[1]);
     const semDono = cenas.filter(c => !c.quem.length).length;
     const total = cenas.reduce((s,c) => s + c.dur, 0);
 
-    for (const c of cenas) for (const q of c.quem) elenco[q] = (elenco[q]||0)+1;
-    const nomes = Object.entries(elenco).sort((a,b) => b[1]-a[1]);
-
-    document.getElementById('meta').innerHTML =
-      `<b>${cenas.length}</b> cenas · <b>${nomes.length}</b> personagens · ` +
-      `<span class="duv">${semDono} duvidosas</span>`;
     document.getElementById('filtros').innerHTML =
       `<div class="pilula viva">Todas <span class="n">${cenas.length}</span></div>` +
-      nomes.map(([n,k]) => `<div class="pilula">${n} <span class="n">${k}</span></div>`).join('');
+      nomes.map(([n,k]) =>
+        `<div class="pilula" data-nome="${n}">${n} <span class="n">${k}</span></div>`).join('') +
+      (semDono ? `<div class="pilula" data-nome="__sem__">sem identificação <span class="n">${semDono}</span></div>` : '');
+
+    const ms = desenhaGrade();
 
     // duplas mais frequentes
     const duplas = {};
@@ -793,14 +897,13 @@ new QWebChannel(qt.webChannelTransport, canal => {
     const topo = Object.entries(duplas).sort((a,b)=>b[1]-a[1]).slice(0,2);
     document.getElementById('r_meta').innerHTML =
       `<b>${cenas.length}</b> shots · <b>${nomes.length}</b> personagens · <b>${relogio(total)}</b>` +
-      (topo.length ? '<br>top duplas: ' + topo.map(([d,k]) =>
-        `${d.replace(/\+/,'+')} <b>${k}</b>`).join(' · ') : '');
+      (topo.length ? '<br>top duplas: ' + topo.map(([d,k]) => `${d} <b>${k}</b>`).join(' · ') : '');
 
     document.getElementById('r_elenco').innerHTML =
       nomes.map(([n,k]) =>
         `<div class="pessoa" data-nome="${n}"><span class="nome">${n}</span><span class="n">${k}</span></div>`
       ).join('') +
-      `<div class="pessoa orfa" data-nome="&#0;"><span class="nome">sem identificação</span><span class="n">${semDono}</span></div>`;
+      `<div class="pessoa orfa" data-nome="__sem__"><span class="nome">sem identificação</span><span class="n">${semDono}</span></div>`;
     document.querySelectorAll('.pessoa').forEach(p =>
       p.addEventListener('click', () => mostraPersonagem(p.dataset.nome)));
     if (nomes.length) mostraPersonagem(nomes[0][0]);
@@ -819,6 +922,18 @@ new QWebChannel(qt.webChannelTransport, canal => {
     imgs.forEach(i => i.complete ? conta() : (i.onload = conta, i.onerror = conta));
     setTimeout(() => imgs.forEach(i => i.loading = 'eager'), 50);
   });
+}
+
+document.getElementById('btn_recarregar').addEventListener('click', () => {
+  epAberto = null;
+  carregaAcervo();
+});
+
+new QWebChannel(qt.webChannelTransport, canal => {
+  ponte = canal.objects.ponte;
+  ponte.marca('canal_pronto', performance.now() - T0);
+
+  carregaAcervo();
 
   ponte.config(json => {
     const c = JSON.parse(json);
