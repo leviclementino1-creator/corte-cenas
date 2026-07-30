@@ -667,12 +667,14 @@ class Ponte(QObject):
                 WHERE e.id = ? ORDER BY s.idx""",
             (episodio,),
         ).fetchall()
-        nomes = {}
+        nomes: dict[int, list[str]] = {}
+        confs: dict[int, list[float]] = {}
         for r in con.execute(
-            """SELECT sc.shot_id, c.name FROM shot_character sc
+            """SELECT sc.shot_id, c.name, sc.confidence FROM shot_character sc
                  JOIN character c ON c.id = sc.character_id"""
         ):
             nomes.setdefault(r[0], []).append(r[1])
+            confs.setdefault(r[0], []).append(round(float(r[2] or 0), 2))
         con.close()
 
         # guardado pra ação não ter que reconsultar o banco só pra descobrir
@@ -694,8 +696,12 @@ class Ponte(QObject):
             cenas.append(
                 {
                     "idx": r["idx"],
+                    "ini": round(r["start"] or 0, 1),
+                    "fim": round(r["end"] or 0, 1),
                     "dur": round((r["end"] or 0) - (r["start"] or 0), 1),
                     "quem": nomes.get(r["id"], []),
+                    # a maquete mostra a confiança na cena escolhida ("0.91 / 0.78")
+                    "conf": confs.get(r["id"], []),
                     "mini": f"cena:/mini/{kf}" if kf else "",
                     "tira": f"cena:/tira/{clipe}" if clipe else "",
                     "clipe": "file:///" + clipe.replace("\\", "/") if clipe else "",

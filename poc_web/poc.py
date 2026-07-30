@@ -587,6 +587,80 @@ def testa_progresso(jan, app) -> None:
                        QTimer.singleShot(400, app.quit))))
 
 
+def audita(jan, app) -> None:
+    """Compara, texto por texto, o que a maquete DESENHA com o que o PoC
+    MOSTRA. Foi assim que apareceu o 'Só cortar' que eu tinha trazido do Qt
+    sem conferir — e o que sobrar aqui é da mesma família."""
+    import json as _json
+
+    gabarito = Path(
+        r"C:\Users\levic\AppData\Local\Temp\claude\G--App-Corte-Cenas"
+        r"\04b39ddd-dd70-4a56-9e1e-6075f689de6e\scratchpad\maquete_textos.json"
+    )
+    if not gabarito.exists():
+        print("rode textos_maquete.py primeiro")
+        app.quit()
+        return
+    maquete = _json.loads(gabarito.read_text(encoding="utf-8"))
+
+    # Texto que muda com os dados (nomes, contagens, tempos) não entra na
+    # comparação: o que interessa é rótulo de controle, não conteúdo.
+    import re as _re
+
+    def limpa(linhas):
+        fora = set()
+        for t in linhas:
+            t = t.strip()
+            if not t or len(t) > 60:
+                continue
+            if _re.fullmatch(r"[#\d\s.,:/%+×–—-]*", t):    # só número/pontuação
+                continue
+            if _re.fullmatch(r"\d+[.,]?\d*\s*s", t):        # "2.4s"
+                continue
+            fora.add(_re.sub(r"\s+", " ", t).lower())
+        return fora
+
+    JS = r"""
+    (() => {
+      const out = {};
+      for (const nome of ['analisar', 'biblioteca', 'resultados']) {
+        document.querySelector(`[data-tela=${nome}]`).click();
+        out[nome] = document.getElementById(nome).innerText
+          .split('\n').map(s => s.trim()).filter(Boolean);
+      }
+      document.getElementById('abrir_config').click();
+      out.configuracoes = document.querySelector('#veu .dialogo').innerText
+        .split('\n').map(s => s.trim()).filter(Boolean);
+      document.getElementById('fechar_config').click();
+      return JSON.stringify(out);
+    })()
+    """
+
+    def compara(bruto) -> None:
+        poc = _json.loads(bruto)
+        print("\n" + "=" * 66)
+        print("AUDITORIA — maquete (gabarito) vs PoC")
+        print("=" * 66)
+        for tela in ("analisar", "biblioteca", "resultados"):
+            g = limpa(maquete.get(tela) or [])
+            p = limpa(poc.get(tela) or [])
+            sobra = sorted(p - g)
+            falta = sorted(g - p)
+            print(f"\n### {tela.upper()}   maquete {len(g)} · PoC {len(p)}")
+            print(f"  NO POC E NÃO NA MAQUETE ({len(sobra)}):")
+            for t in sobra:
+                print(f"    + {t}")
+            print(f"  NA MAQUETE E NÃO NO POC ({len(falta)}):")
+            for t in falta:
+                print(f"    - {t}")
+        print(f"\n### CONFIGURAÇÕES — a maquete não desenha esta tela; "
+              f"{len(limpa(poc.get('configuracoes') or []))} rótulos no PoC")
+        print("=" * 66)
+        QTimer.singleShot(300, app.quit)
+
+    jan.vista.page().runJavaScript(JS, compara)
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
     galeria = "--telas" in sys.argv
@@ -594,6 +668,7 @@ def main() -> int:
     acervo = "--acervo" in sys.argv
     acoes = "--acoes" in sys.argv
     progresso = "--progresso" in sys.argv
+    auditoria = "--auditoria" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -769,6 +844,10 @@ def main() -> int:
 
     if progresso:
         QTimer.singleShot(4000, lambda: testa_progresso(jan, app))
+        return app.exec()
+
+    if auditoria:
+        QTimer.singleShot(4500, lambda: audita(jan, app))
         return app.exec()
 
     QTimer.singleShot(4000, clica)

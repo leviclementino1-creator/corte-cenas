@@ -175,8 +175,10 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
    merece ver que apagou (mesma regra do app) */
 .no.sumido{color:var(--ghost);font-style:italic}
 .cabeca{padding:16px 20px 12px;border-bottom:1px solid var(--line)}
-.cabeca h1{font-family:var(--display);font-size:19px;font-weight:600;margin:0 0 6px;
-           letter-spacing:-.01em}
+.cabeca .titulo-linha{display:flex;align-items:center;gap:16px;margin-bottom:6px}
+.cabeca h1{font-family:var(--display);font-size:19px;font-weight:600;margin:0;
+           letter-spacing:-.01em;flex:1;min-width:0;overflow:hidden;
+           text-overflow:ellipsis;white-space:nowrap}
 .cabeca .meta{font-size:12px;color:var(--dim)}
 .cabeca .meta b{font-family:var(--mono);color:var(--time);font-weight:400}
 .cabeca .meta .duv{color:var(--danger)}
@@ -192,7 +194,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .pilula.viva .n{color:var(--accent)}
 
 /* --- ordenação: controle segmentado, sem a palavra "primeiro" --------- */
-.ordem{display:flex;align-items:center;gap:10px;margin-top:10px}
+.ordem{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .ordem .rotulo{font-size:11px;color:var(--faint)}
 .ordem .trilho{display:flex;gap:1px;background:var(--line-soft);
                border:1px solid var(--line);border-radius:4px;overflow:hidden}
@@ -259,6 +261,12 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .cena .tv video{width:100%;height:100%;display:block;object-fit:contain}
 .cena .tv .vazio{position:absolute;inset:0;display:flex;align-items:center;
                  justify-content:center;color:var(--ghost);font-size:12px;text-align:center}
+/* selo que a maquete tem e eu não: diz que o preview roda em loop, e continua
+   visível ENQUANTO toca (era só texto de placeholder aqui) */
+.cena .tv .loop{position:absolute;left:8px;bottom:8px;display:flex;align-items:center;
+                gap:5px;height:20px;padding:0 8px;border-radius:10px;
+                background:rgba(11,14,18,.82);border:1px solid var(--time-line);
+                font-size:11px;color:var(--time)}
 .cena table{width:100%;border-collapse:collapse;font-size:12px}
 .cena td{padding:3px 0;vertical-align:top}
 .cena td.r{width:66px;color:var(--faint)}
@@ -480,23 +488,27 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <div id="arvore"></div>
       <div class="divisor" style="margin:12px 8px"></div>
       <div class="sobrancelha">Ações</div>
-      <div class="no n1" id="btn_recarregar">Atualizar lista</div>
-      <div class="no n1" id="btn_abrir_pasta">Abrir pasta do episódio</div>
+      <div class="no n1" id="btn_recarregar">↻&nbsp;&nbsp;Atualizar lista</div>
+      <div class="no n1" id="btn_abrir_pasta">📂&nbsp;&nbsp;Abrir pasta do episódio</div>
     </aside>
 
     <main class="meio">
+      <!-- Ordem da maquete: título e ordenação na MESMA linha, depois a meta,
+           depois as pílulas. Eu tinha posto a ordenação por último. -->
       <div class="cabeca">
-        <h1 id="titulo">—</h1>
-        <div class="meta" id="meta">carregando…</div>
-        <div class="filtros" id="filtros"></div>
-        <div class="ordem">
-          <span class="rotulo">ordem</span>
-          <div class="trilho">
-            <span class="opcao viva" data-ordem="crono">⏱ cronológica</span>
-            <span class="opcao" data-ordem="duvidosas">⚠ duvidosas</span>
-            <span class="opcao" data-ordem="longas">⏳ mais longas</span>
+        <div class="titulo-linha">
+          <h1 id="titulo">—</h1>
+          <div class="ordem">
+            <span class="rotulo">ordem</span>
+            <div class="trilho">
+              <span class="opcao viva" data-ordem="crono">⏱ cronológica</span>
+              <span class="opcao" data-ordem="duvidosas">⚠ duvidosas</span>
+              <span class="opcao" data-ordem="longas">⏳ mais longas</span>
+            </div>
           </div>
         </div>
+        <div class="meta" id="meta">carregando…</div>
+        <div class="filtros" id="filtros"></div>
       </div>
       <div class="grade"><div class="pista" id="grade"></div></div>
     </main>
@@ -505,21 +517,25 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <div class="sobrancelha" style="padding:0 0 4px">A cena</div>
       <div class="tv">
         <video id="tv" muted loop playsinline></video>
-        <div class="vazio" id="tv_vazio">clique numa cena<br>pra ela tocar aqui, em loop</div>
+        <div class="vazio" id="tv_vazio">clique numa cena<br>pra ela tocar aqui</div>
+        <div class="loop" id="tv_loop" style="display:none">▸ em loop</div>
       </div>
+      <!-- Os cinco campos da maquete, nesta ordem. "Arquivo" era invenção
+           minha; tempo e confiança faltavam. -->
       <table>
-        <tr><td class="r">Cena</td><td class="v num" id="i_num">—</td></tr>
-        <tr><td class="r">Duração</td><td class="v num" id="i_dur">—</td></tr>
-        <tr><td class="r">Quem</td><td class="v" id="i_quem">—</td></tr>
-        <tr><td class="r">Arquivo</td><td class="v" id="i_arq">—</td></tr>
+        <tr><td class="r">cena</td><td class="v num" id="i_num">—</td></tr>
+        <tr><td class="r">tempo</td><td class="v num" id="i_tempo">—</td></tr>
+        <tr><td class="r">duração</td><td class="v num" id="i_dur">—</td></tr>
+        <tr><td class="r">quem</td><td class="v" id="i_quem">—</td></tr>
+        <tr><td class="r">confiança</td><td class="v num" id="i_conf">—</td></tr>
       </table>
       <div class="divisor"></div>
-      <button class="btn cheio" id="btn_ponte" data-acao="juntar">Juntar com a próxima</button>
-      <div class="btn-linha" data-acao="remover">✂&nbsp; Remover desta pasta</div>
-      <div class="btn-linha" data-acao="mover">→&nbsp; Mover para outro personagem</div>
+      <button class="btn cheio" id="btn_ponte" data-acao="juntar">⛓&nbsp; Juntar com a próxima</button>
+      <div class="btn-linha" data-acao="mover">↗&nbsp; Mover pra outro personagem</div>
+      <div class="btn-linha" data-acao="remover">⤫&nbsp; Remover desta pasta</div>
       <div class="atalhos">
-        <kbd>J</kbd> juntar · <kbd>M</kbd> mover · <kbd>Del</kbd> remover<br>
-        <kbd>←</kbd> <kbd>→</kbd> navegar · <kbd>Ctrl</kbd>+<kbd>P</kbd> tocar
+        Atalhos: <kbd>J</kbd> juntar · <kbd>M</kbd> mover · <kbd>Del</kbd> remover ·
+        <kbd>←</kbd><kbd>→</kbd> cena anterior/próxima
       </div>
     </aside>
   </div>
@@ -690,7 +706,7 @@ function cartao(c){
     `<div class="quadro">
        <img loading="lazy" decoding="async" src="${c.mini}" alt="">
        <div class="tira"></div>
-       <span class="tag">${String(c.idx).padStart(4,'0')}</span>
+       <span class="tag">#${String(c.idx).padStart(4,'0')}</span>
        ${c.quem.length ? '' : '<span class="selo">⚠</span>'}
        <div class="trilho"><i></i></div>
        <span class="tc">0:00.0</span>
@@ -758,10 +774,12 @@ document.getElementById('grade').addEventListener('click', e => {
   document.querySelectorAll('#grade .cartao.viva').forEach(x => x.classList.remove('viva'));
   el.classList.add('viva');
   const c = cenas[+el.dataset.idx]; if (!c) return;
-  document.getElementById('i_num').textContent = String(c.idx).padStart(4,'0');
+  document.getElementById('i_num').textContent = '#' + String(c.idx).padStart(4,'0');
+  document.getElementById('i_tempo').textContent = `${fmt(c.ini)} → ${fmt(c.fim)}`;
   document.getElementById('i_dur').textContent = c.dur.toFixed(1) + 's';
   document.getElementById('i_quem').textContent = c.quem.length ? c.quem.join(', ') : '—';
-  document.getElementById('i_arq').textContent = c.clipe.split('/').pop();
+  document.getElementById('i_conf').textContent =
+    c.conf && c.conf.length ? c.conf.map(x => x.toFixed(2)).join(' / ') : '—';
   document.getElementById('tv_vazio').textContent = 'preparando…';
   // O clipe é H.264 e este Chromium não toca — o Python devolve uma prévia
   // WebM feita na hora (ver Ponte.previa).
@@ -770,6 +788,7 @@ document.getElementById('grade').addEventListener('click', e => {
     if (!url) { document.getElementById('tv_vazio').textContent = 'sem prévia'; return; }
     tv.src = url; tv.play().catch(()=>{});
     document.getElementById('tv_vazio').style.display = 'none';
+    document.getElementById('tv_loop').style.display = '';
   });
   if (ponte) ponte.clicou('cartao_' + c.idx);
 });
@@ -1152,7 +1171,9 @@ function resumo(lista){
   const semDono = lista.filter(c => !c.quem.length).length;
   const quantos = new Set(lista.flatMap(c => c.quem)).size;
   const quem = filtro === '__sem__' ? 'sem identificação' : (filtro || 'todas');
+  const total = lista.reduce((s,c) => s + c.dur, 0);
   return `<b>${lista.length}</b> cenas · <b>${quantos}</b> personagens · `
+       + `<b>${relogio(total)}</b> · `
        + `<span class="duv">${semDono} duvidosas</span>`
        + (filtro ? ` · filtrando por <b>${quem}</b>` : '');
 }
@@ -1186,8 +1207,8 @@ function carregaAcervo(){
         `<div class="no n2"><span class="seta">▾</span>Temporada ${t.temporada}<span class="conta">${t.cenas}</span></div>` +
         t.eps.map(e =>
           `<div class="no n3${e.ok ? '' : ' sumido'}" data-ep="${e.id}"
-                data-rot="${a.titulo} · T${e.temporada} E${e.episodio}">` +
-          `Episódio ${String(e.episodio).padStart(2,'0')}${e.ok ? '' : '  (sumiu do disco)'}` +
+                data-rot="${a.titulo} — S${String(e.temporada).padStart(2,'0')}E${String(e.episodio).padStart(2,'0')}">` +
+          `Episódio ${String(e.episodio).padStart(2,'0')}${e.ok ? '' : '  (sumiu)'}` +
           `<span class="conta">${e.cenas}</span></div>`).join('')
       ).join('')
     ).join('');
@@ -1214,6 +1235,7 @@ function abreEpisodio(id, rotulo, no){
   // some com a cena aberta: ela é do episódio ANTERIOR
   document.getElementById('tv').removeAttribute('src');
   document.getElementById('tv_vazio').style.display = '';
+  document.getElementById('tv_loop').style.display = 'none';
   filtro = null;
   carregaCenas(id);
 }
@@ -1257,7 +1279,7 @@ function carregaCenas(id, depois){
     const total = cenas.reduce((s,c) => s + c.dur, 0);
 
     document.getElementById('filtros').innerHTML =
-      `<div class="pilula viva">Todas <span class="n">${cenas.length}</span></div>` +
+      `<div class="pilula viva">📼 Todas <span class="n">${cenas.length}</span></div>` +
       nomes.map(([n,k]) =>
         `<div class="pilula" data-nome="${n}">${n} <span class="n">${k}</span></div>`).join('') +
       (semDono ? `<div class="pilula" data-nome="__sem__">sem identificação <span class="n">${semDono}</span></div>` : '');
