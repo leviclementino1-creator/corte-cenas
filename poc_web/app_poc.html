@@ -125,10 +125,15 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .etapas{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:1px;
         background:var(--line-soft);border:1px solid var(--line-soft);
         border-radius:4px;overflow:hidden}
-.etapa{height:30px;display:flex;align-items:center;gap:8px;padding:0 10px;
-       background:var(--well);font-size:12.5px;color:var(--faint)}
-.etapa .marca{width:12px;text-align:center;font-size:11px}
-.etapa .n{margin-left:auto;font-family:var(--mono);font-size:11px}
+/* min-height, e o rótulo NÃO quebra: "Gerando embeddings das referências"
+   passava pra duas linhas, a fileira crescia e a lista inteira pulava a cada
+   troca de etapa — era metade do tremido. */
+.etapa{min-height:30px;height:30px;display:flex;align-items:center;gap:8px;
+       padding:0 10px;background:var(--well);font-size:12.5px;color:var(--faint)}
+.etapa .marca{width:12px;flex:0 0 12px;text-align:center;font-size:11px}
+.etapa .rotulo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+               white-space:nowrap}
+.etapa .n{margin-left:auto;flex:0 0 auto;font-family:var(--mono);font-size:11px}
 .etapa.feita{color:var(--dim)} .etapa.feita .marca{color:var(--ok)}
 .etapa.feita .n{color:var(--faint)}
 .etapa.rodando{background:var(--accent-ink);color:var(--txt);font-weight:600}
@@ -761,19 +766,35 @@ document.querySelectorAll('.cena [data-acao]').forEach(b =>
 // A lista de etapas vem do pipeline (Ponte.etapas), não escrita de novo no
 // HTML: etapa nova aparece sozinha. O relógio e o ritmo são calculados aqui;
 // quem manda o que está acontecendo é o Python.
-let etapas = [], t0Analise = null, feitas = new Set(), ritmo = null;
+let etapas = [], t0Analise = null, ritmo = null;
+let ultimo = null, pintando = false;   // último aviso recebido / rAF agendado
+const pintado = {};                    // o que JÁ está escrito na tela
+
+// Escreve só se MUDOU. O progresso chega ~20x por segundo; reescrever texto e
+// className que já estão certos é o que fazia a tela tremer.
+// A chave é dada de fora: os três blocos de tempo têm a MESMA classe, e usar
+// a classe como chave faria um sobrescrever a memória do outro.
+function poe(chave, el, prop, valor){
+  if (!el) return;
+  if (pintado[chave] === valor) return;
+  pintado[chave] = valor;
+  if (prop === 'w') el.style.width = valor;
+  else if (prop === 'html') el.innerHTML = valor;
+  else el.textContent = valor;
+}
 
 function montaEtapas(){
   ponte.etapas(json => {
     etapas = JSON.parse(json);
     document.getElementById('etapas').innerHTML = etapas.map(e =>
-      `<div class="etapa" data-id="${e.id}">` +
-      `<span class="marca">○</span>${e.rotulo}<span class="n"></span></div>`).join('');
+      `<div class="etapa" data-id="${e.id}"><span class="marca">○</span>` +
+      `<span class="rotulo">${e.rotulo}</span><span class="n"></span></div>`).join('');
   });
 }
 
 function zeraProgresso(){
-  feitas = new Set(); t0Analise = performance.now(); ritmo = null;
+  t0Analise = performance.now(); ritmo = null; ultimo = null;
+  for (const k in pintado) delete pintado[k];
   document.querySelectorAll('.etapa').forEach(e => {
     e.className = 'etapa';
     e.querySelector('.marca').textContent = '○';
@@ -781,46 +802,60 @@ function zeraProgresso(){
   });
 }
 
+// O sinal do Python só ANOTA; quem desenha é o próximo quadro do navegador.
+// Assim vários avisos dentro do mesmo quadro viram um desenho só.
 function pinta(sid, fracao, msg){
+  ultimo = {sid, fracao, msg};
+  if (pintando) return;
+  pintando = true;
+  requestAnimationFrame(desenhaProgresso);
+}
+
+function desenhaProgresso(){
+  pintando = false;
+  if (!ultimo) return;
+  const {sid, fracao, msg} = ultimo;
   const pct = Math.round(fracao * 100);
-  document.getElementById('p_pct').textContent = pct + '%';
-  document.querySelector('.barra i').style.width = pct + '%';
-  document.querySelector('.barra i.pale').style.width =
-    Math.min(6, 100 - pct) + '%';
+
+  poe('pct', document.getElementById('p_pct'), 'txt', pct + '%');
+  poe('barra', document.querySelector('.barra i'), 'w', pct + '%');
+  poe('barra2', document.querySelector('.barra i.pale'), 'w', Math.min(6, 100 - pct) + '%');
 
   // "Cortando cena 214 de 331" -> título em cima, contagem embaixo
   const m = msg.match(/^(.*?)\s+(\d+)\s*[\/de]+\s*(\d+)\s*$/);
-  document.getElementById('p_titulo').textContent = m ? m[1] : msg;
-  document.getElementById('p_conta').innerHTML =
-    m ? `<b>${m[2]}</b> de <b>${m[3]}</b>` : '';
+  poe('titulo', document.getElementById('p_titulo'), 'txt', m ? m[1] : msg);
+  poe('conta', document.getElementById('p_conta'), 'html',
+      m ? `<b>${m[2]}</b> de <b>${m[3]}</b>` : '');
 
-  document.querySelectorAll('.etapa').forEach(e => {
-    if (e.dataset.id === sid){
-      e.className = 'etapa rodando';
-      e.querySelector('.marca').textContent = '▸';
-      if (m) e.querySelector('.n').textContent = `${m[2]}/${m[3]}`;
-      feitas.forEach(f => {});
-    } else if (feitas.has(e.dataset.id)){
-      e.className = 'etapa feita';
-      e.querySelector('.marca').textContent = '✓';
+  // O índice da etapa decide TUDO: antes dela é feita, ela é a que roda,
+  // depois é pendente. Calcular isso primeiro evita o quadro em que duas
+  // etapas apareciam rodando ao mesmo tempo.
+  const i = etapas.findIndex(e => e.id === sid);
+  document.querySelectorAll('.etapa').forEach((e, k) => {
+    const classe = k < i ? 'etapa feita' : (k === i ? 'etapa rodando' : 'etapa');
+    if (e.className !== classe) e.className = classe;
+    const marca = k < i ? '✓' : (k === i ? '▸' : '○');
+    const mk = e.querySelector('.marca');
+    if (mk.textContent !== marca) mk.textContent = marca;
+    if (k === i && m){
+      const n = e.querySelector('.n'), v = `${m[2]}/${m[3]}`;
+      if (n.textContent !== v) n.textContent = v;
     }
   });
-  // tudo que veio ANTES desta etapa já passou
-  const i = etapas.findIndex(e => e.id === sid);
-  etapas.slice(0, Math.max(0, i)).forEach(e => feitas.add(e.id));
 
   const decorrido = (performance.now() - t0Analise) / 1000;
   const falta = fracao > 0.01 ? decorrido * (1 - fracao) / fracao : 0;
-  document.querySelector('.tempos .v').textContent = relogio(decorrido);
-  document.querySelectorAll('.tempos .v')[1].textContent = relogio(falta);
+  const tempos = document.querySelectorAll('.tempos .v');
+  poe('t0', tempos[0], 'txt', relogio(decorrido));
+  poe('t1', tempos[1], 'txt', relogio(falta));
   if (m) {
     const n = +m[2];
     if (ritmo && n > ritmo.n)
-      document.querySelectorAll('.tempos .v')[2].textContent =
-        ((n - ritmo.n) / Math.max(0.001, decorrido - ritmo.t)).toFixed(1) + ' cena/s';
+      poe('t2', tempos[2], 'txt',
+          ((n - ritmo.n) / Math.max(0.001, decorrido - ritmo.t)).toFixed(1) + ' cena/s');
     if (!ritmo || n < ritmo.n) ritmo = {n, t: decorrido};
   }
-  document.querySelector('.arquivo-atual').textContent = msg;
+  poe('arquivo', document.querySelector('.arquivo-atual'), 'txt', msg);
 }
 
 document.getElementById('btn_analisar').addEventListener('click', () => {

@@ -506,6 +506,28 @@ def testa_progresso(jan, app) -> None:
     print("TESTE DO PROGRESSO (thread de fundo -> página)")
     print("=" * 62)
 
+    # O que fazia a tela tremer era a fileira mudando de altura quando o
+    # rótulo longo quebrava em duas linhas. Isso é medível e estável: se só
+    # aparecer UMA altura durante o processo inteiro, nada pulou.
+    ESPIA = r"""
+    (() => {
+      window.__alturas = new Set();
+      window.__timer = setInterval(() => {
+        document.querySelectorAll('.etapa').forEach(e =>
+          window.__alturas.add(Math.round(e.getBoundingClientRect().height)));
+      }, 60);
+      return 'medindo a altura das fileiras';
+    })()
+    """
+    VEREDITO = r"""
+    (() => {
+      clearInterval(window.__timer);
+      const a = [...window.__alturas].sort((x,y) => x-y);
+      return `alturas de fileira durante todo o processo: [${a.join(', ')}]`
+           + (a.length === 1 ? ' — nada pulou' : ' — AINDA PULA');
+    })()
+    """
+
     LE = r"""
     (() => {
       const e = [...document.querySelectorAll('.etapa')];
@@ -526,10 +548,13 @@ def testa_progresso(jan, app) -> None:
     })()
     """
 
+    jan.vista.page().runJavaScript(ESPIA, lambda s: print(f"    {s}"))
     jan.vista.page().runJavaScript(
         "document.querySelector('[data-tela=analisar]').click(); "
         "document.getElementById('btn_analisar').click(); 'comecei'",
         lambda s: print(f"    {s}"))
+    QTimer.singleShot(6400, lambda: jan.vista.page().runJavaScript(
+        VEREDITO, lambda s: print(f"[T] {s}")))
 
     def olha(n):
         def _():
