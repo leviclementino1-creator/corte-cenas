@@ -11,6 +11,8 @@ from . import __version__
 from .applog import get_logger, setup as setup_logging
 from .config import Config
 from .deps_check import cuda_available, ffmpeg_available, missing_optional_deps
+
+_log = __import__('logging').getLogger('cortecenas')
 from .ui.deps_dialog import FFmpegMissingDialog, MissingDepsDialog, NoGpuDialog
 from .ui.main_window import MainWindow
 from .updater import check_and_offer_update, fetch_release
@@ -165,10 +167,39 @@ def _force_foreground(win: QWidget) -> None:
         pass  # pior caso: continua o comportamento antigo (piscar na barra)
 
 
+def _quer_interface_classica() -> bool:
+    """A interface antiga (QWidgets) continua alcançável por uma release.
+
+    A nova é a padrão, mas se ela quebrar na máquina de alguém o app não
+    pode virar tijolo: `CORTECENAS_UI=classico` (ou `--classico`) traz a
+    velha de volta sem reinstalar nada.
+    """
+    import os
+
+    return (
+        "--classico" in sys.argv
+        or os.environ.get("CORTECENAS_UI", "").lower() in ("classico", "qt", "classic")
+    )
+
+
 def main() -> int:
     setup_logging()  # no-op if run.py already did it
     from .no_console import harden_subprocess
     harden_subprocess()  # no-op if run.py already did it
+
+    # O esquema `cena:` TEM que ser registrado antes de existir QApplication —
+    # o Chromium tranca a lista de esquemas quando inicializa, e depois disso
+    # todo pedido de miniatura é barrado antes de chegar no Python.
+    classico = _quer_interface_classica()
+    if not classico:
+        try:
+            from .ui.web import registra_esquema
+
+            registra_esquema()
+        except Exception:
+            _log.exception("QtWebEngine indisponível — caindo pra interface clássica")
+            classico = True
+
     app = QApplication(sys.argv)
     app.setApplicationName("Corte Cenas")
     app.setWindowIcon(_load_app_icon())
@@ -213,7 +244,14 @@ def main() -> int:
     ffmpeg_ok = ffmpeg_available()
 
     status("Abrindo…")
-    win = MainWindow(cfg)
+    if classico:
+        win = MainWindow(cfg)
+    else:
+        from .ui.web import JanelaWeb
+
+        from .ffmpeg_locate import ffmpeg_binary
+
+        win = JanelaWeb(cfg, ffmpeg=ffmpeg_binary())
     win.show()
     if splash is not None:
         splash.finish(win)

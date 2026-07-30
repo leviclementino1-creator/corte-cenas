@@ -31,6 +31,13 @@ hidden += collect_submodules("PIL")
 hidden += collect_submodules("onnxruntime")
 
 # Extra imports for model registries / tokenizer files these libs pull lazily.
+# QtWebEngine: o PyInstaller acha os binários sozinho, mas os módulos
+# Python do PySide6 só entram se pedidos.
+hidden += [
+    "PySide6.QtWebEngineCore",
+    "PySide6.QtWebEngineWidgets",
+    "PySide6.QtWebChannel",
+]
 hidden += [
     "ftfy",
     "regex",
@@ -57,6 +64,10 @@ datas += [("apply_update.ps1", ".")]
 # deps diferentes = delta entregaria app quebrado -> forca setup completo.
 datas += [("app/deps_fingerprint.txt", "app")]
 # App icon (all sizes) — needed at runtime for QApplication.setWindowIcon().
+# A interface inteira é UM arquivo HTML — sem ele o app abre uma janela em
+# branco, e o erro só aparece em runtime.
+datas += [("app/ui/web/interface.html", "app/ui/web")]
+
 datas += [("app/assets/icon.ico", "app/assets")]
 datas += [("app/assets/icon_256.png", "app/assets")]
 datas += [("app/assets/icon_128.png", "app/assets")]

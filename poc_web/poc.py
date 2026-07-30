@@ -44,11 +44,12 @@ from PySide6.QtWebEngineCore import (  # noqa: E402
     QWebEngineSettings,
 )
 
-from poc_web.ponte import Ponte, ServidorMiniatura, registra_esquema  # noqa: E402
+# uma fonte só: o laboratório usa o MESMO código do app
+from app.ui.web.ponte import Ponte, ServidorMiniatura, registra_esquema  # noqa: E402
 
 EPISODIO = "3"
 SAIDA_EP = PROJETO / "Output" / "Mushoku" / "S03E02"
-PAGINA = RECURSOS / "poc_web" / "app_poc.html"
+PAGINA = RECURSOS / "app" / "ui" / "web" / "interface.html"
 
 
 def acha_ffmpeg() -> str:
