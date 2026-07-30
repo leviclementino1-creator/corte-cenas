@@ -563,6 +563,82 @@ class Ponte(QObject):
 
         return json.dumps([{"id": i, "rotulo": r} for i, r in STAGES])
 
+    @Slot(str, result=str)
+    def analisar(self, pedido: str) -> str:
+        """Roda a análise DE VERDADE, com o mesmo PipelineWorker do app.
+
+        O sinal do worker tem a mesma assinatura de `self.progresso`, então
+        ligar é um `connect` — nenhuma tradução no meio, nenhum risco de a
+        interface e o pipeline discordarem sobre o que é "60%".
+
+        Os casos especiais (refs faltando, anime não encontrado) chegam como
+        `terminou` com o motivo: a tela de batismo e o Modo Descoberta ainda
+        moram no app Qt, e fingir que existem aqui seria pior que dizer que
+        não existem.
+        """
+        from PySide6.QtCore import QThread
+
+        from app.pipeline_types import AIMode
+        from app.ui.worker import PipelineWorker
+        from app.video_ingest import EpisodeInfo, parse_mmss
+
+        if getattr(self, "_thread", None) is not None:
+            return json.dumps({"ok": False, "msg": "já tem uma análise rodando"})
+
+        d = json.loads(pedido)
+        arquivo = Path(d.get("arquivo") or "")
+        if not arquivo.exists():
+            return json.dumps({"ok": False, "msg": "escolha um episódio primeiro"})
+
+        try:
+            info = EpisodeInfo(
+                anime=(d.get("anime") or "").strip(),
+                season=int(d.get("temporada") or 1),
+                episode=int(d.get("episodio") or 1),
+                source=arquivo,
+                # o mesmo parser de "MM:SS" do app, pra OP e ED
+                skip_head_seconds=parse_mmss(d.get("op") or ""),
+                skip_tail_seconds=parse_mmss(d.get("ed") or ""),
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"ok": False, "msg": f"dados do episódio: {e}"})
+        if not info.anime:
+            return json.dumps({"ok": False, "msg": "falta o nome do anime"})
+
+        self._thread = QThread()
+        self._worker = PipelineWorker(
+            self.cfg, info,
+            use_ai_recognition=bool(d.get("ia")),
+            ai_mode=AIMode.FULL,
+            ai_review_ambiguous=bool(d.get("revisar")),
+            discovery=False,
+            cut_only=bool(d.get("so_cortar")),
+        )
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.stage.connect(self.progresso)          # mesma assinatura
+        self._worker.finished.connect(lambda _r: self._fim_da_analise("pronto"))
+        self._worker.failed.connect(lambda m: self._fim_da_analise(f"falhou: {m}"))
+        self._worker.cancelled.connect(lambda: self._fim_da_analise("cancelado"))
+        self._worker.refs_missing.connect(
+            lambda m, _p: self._fim_da_analise(f"refs faltando: {m}"))
+        self._worker.anime_not_found.connect(
+            lambda m: self._fim_da_analise(
+                f"anime não encontrado: {m} — use o Modo Descoberta no app atual"))
+        self._thread.start()
+        print(f"    [python] análise começou: {info.anime} S{info.season:02d}E{info.episode:02d}")
+        return json.dumps({"ok": True, "msg": f"Analisando {info.anime}…"})
+
+    def _fim_da_analise(self, motivo: str) -> None:
+        t = getattr(self, "_thread", None)
+        if t is not None:
+            t.quit()
+            t.wait(4000)
+        self._thread = None
+        self._worker = None
+        print(f"    [python] análise terminou: {motivo}")
+        self.terminou.emit(motivo)
+
     @Slot()
     def ensaiar(self) -> None:
         """Ensaio do progresso: percorre as etapas REAIS numa thread de fundo
@@ -602,10 +678,16 @@ class Ponte(QObject):
 
     @Slot()
     def cancelar(self) -> None:
+        # o worker de verdade tem o pedido dele; o ensaio usa interrupção
+        w = getattr(self, "_worker", None)
+        if w is not None:
+            w.request_cancel()
+            print("    [python] cancelamento pedido à análise")
+            return
         t = getattr(self, "_ensaio", None)
         if t is not None and t.isRunning():
             t.requestInterruption()
-            print("    [python] cancelamento pedido")
+            print("    [python] cancelamento pedido ao ensaio")
 
     @Slot(result=str)
     def readotar(self) -> str:

@@ -732,6 +732,76 @@ def testa_troca(jan, app) -> None:
     p1()
 
 
+def testa_analise(jan, app) -> None:
+    """Roda uma análise DE VERDADE e cancela antes de reescrever nada.
+
+    O objetivo é provar que o PipelineWorker do app roda por trás da página e
+    que o progresso dele chega na tela — não terminar a análise. Cancelar
+    cedo deixa o episódio do Levi como estava: a gravação no banco só
+    acontece no fim."""
+    print()
+    print("=" * 62)
+    print("TESTE DA ANÁLISE DE VERDADE (cancelada no meio)")
+    print("=" * 62)
+
+    fonte = PROJETO / "Output" / "Mushoku" / "S03E02" / "shots" / "0000.mp4"
+    PREENCHE = f"""
+    (() => {{
+      document.querySelector('[data-tela=analisar]').click();
+      const a = document.getElementById('c_arquivo');
+      a.textContent = String.raw`{fonte}`;
+      a.classList.remove('fraco');
+      document.getElementById('c_anime').textContent = 'ZZ Teste Descartavel';
+      document.querySelector('.giro[data-giro=temporada] .v').textContent = '9';
+      document.querySelector('.giro[data-giro=episodio] .v').textContent = '99';
+      document.getElementById('c_op').textContent = '';
+      document.getElementById('c_ed').textContent = '';
+      const so = document.querySelector('[data-cfg=so_cortar]');
+      if (!so.classList.contains('marcada')) so.click();   // só cortar: sem rede, sem IA
+      return 'preenchi com um clipe curto, anime de teste, só cortar';
+    }})()
+    """
+    LE = r"""
+    (() => {
+      const e = [...document.querySelectorAll('.etapa')];
+      return `${document.getElementById('p_pct').textContent} · `
+           + `${e.filter(x => x.classList.contains('feita')).length} feitas · `
+           + `"${document.getElementById('p_titulo').textContent}" · `
+           + `recado: "${document.getElementById('recado').textContent}"`;
+    })()
+    """
+
+    def js(codigo, rot, prox, espera=2500):
+        jan.vista.page().runJavaScript(codigo, lambda s: print(f"{rot} {s}"))
+        QTimer.singleShot(espera, prox)
+
+    def p1(): js(PREENCHE, "[1]", p2, 800)
+    def p2(): js("document.getElementById('btn_analisar').click(); 'cliquei em Analisar'", "[2]", p3, 4000)
+    def p3(): js(LE, "[3] rodando:", p4, 3000)
+    def p4(): js(LE, "[4] rodando:", p5, 500)
+
+    def p5():
+        print("[5] cancelando ANTES de gravar qualquer coisa")
+        jan.ponte.cancelar()
+        QTimer.singleShot(6000, p6)
+
+    def p6(): js(LE, "[6] depois do cancelar:", fim, 500)
+
+    def fim():
+        from pathlib import Path as _P
+
+        lixo = _P(jan.ponte._saida()) / "ZZ Teste Descartavel"
+        print(f"[7] pasta de teste criada? {lixo.exists()}")
+        if lixo.exists():
+            import shutil
+            shutil.rmtree(lixo, ignore_errors=True)
+            print("     apagada (era do teste, não do acervo)")
+        print("=" * 62)
+        QTimer.singleShot(400, app.quit)
+
+    p1()
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
     galeria = "--telas" in sys.argv
@@ -741,6 +811,7 @@ def main() -> int:
     progresso = "--progresso" in sys.argv
     auditoria = "--auditoria" in sys.argv
     troca = "--troca" in sys.argv
+    analise = "--analise" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -924,6 +995,10 @@ def main() -> int:
 
     if troca:
         QTimer.singleShot(6000, lambda: testa_troca(jan, app))
+        return app.exec()
+
+    if analise:
+        QTimer.singleShot(5000, lambda: testa_analise(jan, app))
         return app.exec()
 
     QTimer.singleShot(4000, clica)
