@@ -40,3 +40,7 @@ _build_all.bat
 # gerado pelo gen_deps_fingerprint.py a cada build
 app/deps_fingerprint.txt
 benchmarks/perf_last.json
+
+# saida do build de teste do PoC web (poc_web/build_poc.spec)
+poc_web/dist/
+poc_web/build/

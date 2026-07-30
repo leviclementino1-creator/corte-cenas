@@ -20,7 +20,18 @@ from pathlib import Path
 
 T_IMPORT = time.perf_counter()
 
-RAIZ = Path(__file__).resolve().parent.parent
+# Congelado, `__file__` aponta pro descompactado temporário: os dados (banco,
+# Output) continuam na pasta do projeto, mas a PÁGINA viaja dentro do exe.
+CONGELADO = getattr(sys, "frozen", False)
+if CONGELADO:
+    RAIZ = Path(sys.executable).resolve().parent
+    RECURSOS = Path(getattr(sys, "_MEIPASS", RAIZ))
+    # o PoC lê o banco e os clipes do projeto, não da pasta do exe
+    PROJETO = Path(r"G:\App Corte Cenas")
+else:
+    RAIZ = Path(__file__).resolve().parent.parent
+    RECURSOS = RAIZ
+    PROJETO = RAIZ
 sys.path.insert(0, str(RAIZ))
 
 from PySide6.QtCore import QTimer, QUrl  # noqa: E402
@@ -36,8 +47,8 @@ from PySide6.QtWebEngineCore import (  # noqa: E402
 from poc_web.ponte import Ponte, ServidorMiniatura, registra_esquema  # noqa: E402
 
 EPISODIO = "3"
-SAIDA_EP = RAIZ / "Output" / "Mushoku" / "S03E02"
-PAGINA = RAIZ / "poc_web" / "app_poc.html"
+SAIDA_EP = PROJETO / "Output" / "Mushoku" / "S03E02"
+PAGINA = RECURSOS / "poc_web" / "app_poc.html"
 
 
 def acha_ffmpeg() -> str:
@@ -46,7 +57,7 @@ def acha_ffmpeg() -> str:
     exe = shutil.which("ffmpeg")
     if exe:
         return exe
-    for c in (RAIZ / "ffmpeg" / "bin" / "ffmpeg.exe", RAIZ / "ffmpeg.exe"):
+    for c in (PROJETO / "ffmpeg" / "bin" / "ffmpeg.exe", PROJETO / "ffmpeg.exe"):
         if c.exists():
             return str(c)
     return "ffmpeg"
@@ -94,7 +105,7 @@ class Janela(QMainWindow):
         s.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
         s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
 
-        self.ponte = Ponte(RAIZ / "cache" / "index.db", SAIDA_EP, ffmpeg=FFMPEG)
+        self.ponte = Ponte(PROJETO / "cache" / "index.db", SAIDA_EP, ffmpeg=FFMPEG)
         self.canal = QWebChannel(self)
         self.canal.registerObject("ponte", self.ponte)
         self.vista.page().setWebChannel(self.canal)
@@ -120,7 +131,7 @@ def retratos(jan, app) -> None:
         jan.vista.page().runJavaScript(js)
         # dá tempo do layout assentar e das miniaturas chegarem
         QTimer.singleShot(2200, lambda: (
-            jan.grab().save(str(RAIZ / "poc_web" / f"{nome}.png")),
+            jan.grab().save(str(PROJETO / "poc_web" / f"{nome}.png")),
             print(f"  {nome}.png"),
             passo(i + 1),
         ))
@@ -302,8 +313,8 @@ def main() -> int:
             jan.resize(1600, 940)
             if foto:
                 QTimer.singleShot(600, lambda: (
-                    jan.grab().save(str(RAIZ / "poc_web" / "retrato.png")),
-                    print(f"retrato: {RAIZ / 'poc_web' / 'retrato.png'}"),
+                    jan.grab().save(str(PROJETO / "poc_web" / "retrato.png")),
+                    print(f"retrato: {PROJETO / 'poc_web' / 'retrato.png'}"),
                     QTimer.singleShot(300, app.quit),
                 ))
 

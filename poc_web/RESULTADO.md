@@ -69,10 +69,42 @@ apareceram, e as duas estão comentadas no `app_poc.html`:
 Instalador vai de ~2,0 GB pra ~2,3 GB. O delta update de 55 MB carrega isso
 uma vez só.
 
+## O build — PASSOU (30/07)
+
+Era o risco que podia matar o plano, então foi testado antes de converter
+qualquer tela. `poc_web/build_poc.spec` monta um exe mínimo (só o PoC, sem
+torch/YOLO/ONNX) pra responder em um minuto em vez dos quinze do build
+completo:
+
+    pyinstaller poc_web/build_poc.spec --noconfirm --clean \
+        --distpath poc_web/dist --workpath poc_web/build
+
+Resultado: **69 s de build, 553 MB, e o exe roda inteiro.** O PyInstaller
+achou sozinho o `QtWebEngineProcess.exe`, o `qtwebengine_resources.pak`, o
+`icudtl.dat` e os 53 locales — não precisou de hook manual nenhum.
+
+Congelado, medido:
+
+| | fonte | exe |
+|---|---|---|
+| import + QApplication | 123 ms | **45 ms** |
+| HTML carregado | 153 ms | 153 ms |
+| 331 cartões no DOM | 9 ms | 8 ms |
+| 331 miniaturas | 1425 ms | 1441 ms |
+| memória | ~320 MB | 342 MB |
+| ponte JS→Python | ok | ok |
+| prévia em loop | ok | ok (`readyState 4/4`) |
+| colunas e respiro | 20/20 em todas | idêntico |
+
+Divisão do peso: 340 MB de QtWebEngine + 213 MB de Python/Qt. Dos 340, uns
+42 MB são idiomas que a gente não usa e dá pra cortar no spec.
+
 ## O que ainda NÃO foi provado
 
-- **O build.** PyInstaller + QtWebEngine no Windows exige empacotar
-  `QtWebEngineProcess.exe`, ICU e locales. O `build.spec` e o delta update
-  precisam ser refeitos e re-testados. É o maior risco que sobra.
-- Menu de contexto, arrastar-soltar e diálogos nativos — hoje tudo em Qt.
-- As abas Analisar e Resultados (o PoC só tem a Biblioteca).
+- Menu de contexto (o Chromium tem o dele, precisa desligar e pôr o nosso),
+  arrastar o episódio pra janela, atalhos de teclado com o foco na página e
+  os diálogos de arquivo (esses continuam Qt, chamados do Python).
+- Os botões ligados de verdade: hoje só dois passam pela ponte, o resto é
+  casca. O trabalho é religar em `Ponte` o que já existe em `library_tab` e
+  `results_tab` — sem lógica nova.
+- O `build.spec` de VERDADE (com torch junto) e o delta update de 55 MB.
