@@ -80,6 +80,11 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
     def __init__(self, pagina: Path, parent=None) -> None:
         super().__init__(parent)
         self.pagina = pagina
+        # Os crops do batismo chegam como BYTES na memória, não arquivos — o
+        # clustering monta os grupos e nada é gravado até o usuário nomear.
+        # Escrever num temporário só pra poder mostrar seria trabalho e lixo
+        # à toa: a ponte deixa os bytes aqui e o servidor entrega direto.
+        self.grupos: dict[str, bytes] = {}
         self.cache: dict[str, QByteArray] = {}
         self.servidas = 0
         self.decodificadas = 0
@@ -101,6 +106,15 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
             f.open(QIODevice.OpenModeFlag.ReadOnly)
             self._responde(job, b"application/javascript", bytes(f.readAll()))
             f.close()
+            return
+
+        if caminho.startswith("/grupo/"):
+            dados = self.grupos.get(caminho[len("/grupo/") :])
+            if dados is None:
+                self.falhas += 1
+                job.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
+                return
+            self._responde(job, b"image/jpeg", dados)
             return
 
         if caminho.startswith("/tira/"):
@@ -228,10 +242,14 @@ class Ponte(QObject):
     progresso = Signal(str, float, str)
     terminou = Signal(str)
     arquivoSolto = Signal(str)   # o episódio arrastado pra janela
+    descobriu = Signal(str)      # DiscoveryResult -> tela de batismo
 
     def __init__(self, banco: Path, raiz_saida: Path, ffmpeg: str = "ffmpeg", parent=None) -> None:
         super().__init__(parent)
         self.banco = banco
+        # o servidor publica os crops do batismo, que só existem em memória
+        self.servidor = None
+        self._descoberta = None
         # `raiz` é a pasta do episódio ABERTO — muda quando o usuário escolhe
         # outro na árvore. Começa no que veio pronto pra não abrir vazio.
         self.raiz = raiz_saida
@@ -611,7 +629,7 @@ class Ponte(QObject):
             use_ai_recognition=bool(d.get("ia")),
             ai_mode=AIMode.FULL,
             ai_review_ambiguous=bool(d.get("revisar")),
-            discovery=False,
+            discovery=bool(d.get("descoberta")),
             cut_only=bool(d.get("so_cortar")),
         )
         self._worker.moveToThread(self._thread)
@@ -623,11 +641,105 @@ class Ponte(QObject):
         self._worker.refs_missing.connect(
             lambda m, _p: self._fim_da_analise(f"refs faltando: {m}"))
         self._worker.anime_not_found.connect(
-            lambda m: self._fim_da_analise(
-                f"anime não encontrado: {m} — use o Modo Descoberta no app atual"))
+            lambda m: self._fim_da_analise(f"anime não encontrado: {m}"))
+        self._worker.discovery_ready.connect(self._guarda_descoberta)
         self._thread.start()
         print(f"    [python] análise começou: {info.anime} S{info.season:02d}E{info.episode:02d}")
         return json.dumps({"ok": True, "msg": f"Analisando {info.anime}…"})
+
+    # ---- Modo Descoberta e batismo ---------------------------------------
+    @Slot(str, result=str)
+    def descobrir(self, pedido: str) -> str:
+        """Modo Descoberta: corta o episódio e agrupa os rostos por
+        semelhança, sem saber quem é ninguém. O resultado vai pra tela de
+        batismo, onde o usuário dá nome aos grupos."""
+        d = json.loads(pedido)
+        d["descoberta"] = True
+        return self.analisar(json.dumps(d))
+
+    def _guarda_descoberta(self, disc) -> None:
+        """Recebe o DiscoveryResult e o abre pra página.
+
+        O objeto inteiro fica AQUI, no Python: ele carrega embeddings e
+        centroides que o JavaScript não tem o que fazer com. Pro navegador
+        vai só o que a tela precisa desenhar, e as fotos viram URLs no
+        servidor `cena:/grupo/`.
+        """
+        self._descoberta = disc
+        self.servidor.grupos.clear()
+
+        grupos = []
+        for g in disc.groups:
+            fotos = []
+            for i, jpg in enumerate(g.thumbs_jpg):
+                chave = f"{g.key}/{i}"
+                self.servidor.grupos[chave] = jpg
+                fotos.append(f"cena:/grupo/{chave}")
+            grupos.append({
+                "key": int(g.key),
+                "cenas": int(g.n_shots),
+                "rostos": int(g.n_faces),
+                "fotos": fotos,
+                "sugerido": g.suggested_name or "",
+                "confianca": round(float(g.suggested_sim or 0), 2),
+            })
+        # o maior grupo primeiro: quem aparece mais é quem o usuário
+        # reconhece mais rápido, e nomear ele já resolve a maior parte
+        grupos.sort(key=lambda x: -x["cenas"])
+
+        payload = {
+            "titulo": disc.anime_title,
+            "temporada": int(disc.season),
+            "episodio": int(disc.episode),
+            "cenas": len(disc.shots),
+            "rostos": int(disc.total_faces),
+            "elenco": list(disc.roster or []),
+            "grupos": grupos,
+        }
+        print(f"    [python] descoberta: {len(grupos)} grupos, "
+              f"{disc.total_faces} rostos, elenco com {len(disc.roster or [])} nomes")
+        self.descobriu.emit(json.dumps(payload))
+
+    @Slot(str, result=str)
+    def batizar(self, pedido: str) -> str:
+        """Fecha o Modo Descoberta com os nomes dados.
+
+        `nomes`: {key do grupo: nome}. Grupo sem nome é ignorado; dois grupos
+        com o MESMO nome fundem — é assim que o usuário conserta o clustering
+        que partiu uma pessoa em dois.
+        `tiradas`: {key: [índices]} das fotos que ele marcou como intrusas —
+        rosto alheio no grupo não pode virar referência, senão contamina o
+        banco do personagem.
+        """
+        from PySide6.QtCore import QThread
+
+        from app.ui.worker import DiscoveryCommitWorker
+
+        disc = getattr(self, "_descoberta", None)
+        if disc is None:
+            return json.dumps({"ok": False, "msg": "nenhuma descoberta aberta"})
+        if getattr(self, "_thread", None) is not None:
+            return json.dumps({"ok": False, "msg": "já tem trabalho rodando"})
+
+        d = json.loads(pedido)
+        nomes = {int(k): v.strip() for k, v in (d.get("nomes") or {}).items()
+                 if (v or "").strip()}
+        tiradas = {int(k): [int(i) for i in v]
+                   for k, v in (d.get("tiradas") or {}).items()}
+        if not nomes:
+            return json.dumps({"ok": False, "msg": "nenhum grupo foi nomeado"})
+
+        self._thread = QThread()
+        self._worker = DiscoveryCommitWorker(self.cfg, disc, nomes, tiradas)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.stage.connect(self.progresso)
+        self._worker.finished.connect(lambda _r: self._fim_da_analise("batizado"))
+        self._worker.failed.connect(lambda m: self._fim_da_analise(f"falhou: {m}"))
+        self._thread.start()
+        print(f"    [python] batismo de {len(nomes)} grupo(s): "
+              f"{', '.join(sorted(nomes.values()))}")
+        return json.dumps({"ok": True, "msg": f"Salvando {len(nomes)} personagem(ns)…"})
 
     def _fim_da_analise(self, motivo: str) -> None:
         t = getattr(self, "_thread", None)

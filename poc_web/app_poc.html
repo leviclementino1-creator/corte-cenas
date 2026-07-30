@@ -396,6 +396,37 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 #recado.viva{display:block}
 #recado.ruim{border-color:var(--danger-line);color:var(--danger)}
 
+/* --- batismo: um grupo por linha, fotos que dá pra descartar --------- */
+.dialogo.batismo{width:880px;max-height:90vh}
+.dialogo .topo .sub{margin-left:auto;font-family:var(--mono);font-size:11px;
+                    color:var(--faint);font-weight:400}
+.dialogo .rodape .dica{margin-right:auto;font-size:11.5px;color:var(--faint)}
+.grupo{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.grupo:last-child{border-bottom:none}
+.grupo .fotos{display:flex;gap:6px;flex-wrap:wrap;flex:1;min-width:0}
+.grupo .foto{width:64px;height:64px;border-radius:4px;overflow:hidden;
+             position:relative;border:1px solid var(--line);flex:0 0 64px}
+.grupo .foto img{width:100%;height:100%;object-fit:cover;display:block}
+/* rosto alheio infiltrado no grupo: clicar tira ele das referências, senão
+   contamina o banco do personagem pra sempre */
+.grupo .foto.fora img{opacity:.25;filter:grayscale(1)}
+.grupo .foto.fora::after{content:"✕";position:absolute;inset:0;display:flex;
+                         align-items:center;justify-content:center;
+                         color:var(--danger);font-size:20px}
+.grupo .foto:hover{border-color:var(--line-bright)}
+.grupo .lado{width:280px;flex:0 0 280px;display:flex;flex-direction:column;gap:6px}
+.grupo .conta{font-family:var(--mono);font-size:11px;color:var(--time)}
+.grupo .nome{height:32px;padding:0 10px;background:var(--well);
+             border:1px solid var(--line);border-radius:4px;font-size:13px;
+             color:var(--txt);display:flex;align-items:center}
+.grupo .nome:focus{outline:none;border-color:var(--accent-dim)}
+.grupo .sugestoes{display:flex;gap:5px;flex-wrap:wrap}
+.grupo .sug{height:22px;display:flex;align-items:center;padding:0 8px;
+            border-radius:11px;background:var(--surface-2);
+            border:1px solid var(--line);font-size:11.5px;color:var(--dim)}
+.grupo .sug:hover{border-color:var(--accent-dim);color:var(--accent)}
+.grupo .sug.forte{border-color:var(--accent-dim);color:var(--accent)}
+
 #medidor{position:fixed;right:12px;bottom:12px;background:rgba(11,14,18,.94);
          border:1px solid var(--accent-dim);border-radius:6px;padding:10px 12px;
          font-family:var(--mono);font-size:11px;color:var(--accent);line-height:1.7;
@@ -667,6 +698,22 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   <div class="item" data-acao="abrir">📂&nbsp; Abrir no Explorer</div>
   <div class="sep"></div>
   <div class="item risco" data-acao="apagar">🗑&nbsp; Apagar do acervo</div>
+</div>
+
+<!-- ===================== BATISMO ===================== -->
+<div class="veu" id="veu_batismo">
+  <div class="dialogo batismo">
+    <div class="topo">
+      Quem são estes?
+      <span class="sub" id="bat_meta"></span>
+    </div>
+    <div class="miolo" id="bat_grupos"></div>
+    <div class="rodape">
+      <span class="dica" id="bat_dica"></span>
+      <div class="btn cinza" id="bat_nao">Cancelar</div>
+      <div class="btn cheio" id="bat_sim">Salvar</div>
+    </div>
+  </div>
 </div>
 
 <div class="caixinha" id="caixinha">
@@ -952,13 +999,89 @@ function comeca(extra){
 }
 
 document.getElementById('btn_analisar').addEventListener('click', () => comeca());
+
+// ---- tela de batismo ---------------------------------------------------
+// O clustering achou grupos de rostos e não sabe quem é ninguém. Aqui o
+// usuário dá nome. Duas coisas que a tela precisa deixar fácil, porque são
+// as que consertam o clustering:
+//   · dois grupos com o MESMO nome fundem (a pessoa foi partida em dois)
+//   · foto que não é daquela pessoa pode ser descartada antes de virar ref
+let elencoOficial = [], tiradas = {};
+
+function abreBatismo(dados){
+  elencoOficial = dados.elenco || [];
+  tiradas = {};
+  document.getElementById('bat_meta').textContent =
+    `${dados.titulo} · T${dados.temporada} E${dados.episodio} · `
+    + `${dados.grupos.length} grupos em ${dados.rostos} rostos`;
+  document.getElementById('bat_dica').textContent =
+    'Mesmo nome em dois grupos junta os dois · clique numa foto pra tirar ela das referências';
+
+  document.getElementById('bat_grupos').innerHTML = dados.grupos.map(g => {
+    const sugestoes = [];
+    if (g.sugerido)
+      sugestoes.push(`<span class="sug forte" data-nome="${g.sugerido}">`
+        + `${g.sugerido} · ${g.confianca}</span>`);
+    for (const n of elencoOficial.slice(0, 8))
+      if (n !== g.sugerido) sugestoes.push(`<span class="sug" data-nome="${n}">${n}</span>`);
+    return `<div class="grupo" data-key="${g.key}">
+      <div class="fotos">${g.fotos.map((f, i) =>
+        `<div class="foto" data-i="${i}"><img src="${f}" alt=""></div>`).join('')}</div>
+      <div class="lado">
+        <span class="conta">${g.cenas} cenas · ${g.rostos} rostos</span>
+        <div class="nome" contenteditable spellcheck="false"
+             data-key="${g.key}">${g.sugerido || ''}</div>
+        <div class="sugestoes">${sugestoes.join('')}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const caixa = document.getElementById('bat_grupos');
+  caixa.querySelectorAll('.foto').forEach(f => f.addEventListener('click', () => {
+    const k = f.closest('.grupo').dataset.key, i = +f.dataset.i;
+    f.classList.toggle('fora');
+    tiradas[k] = tiradas[k] || [];
+    if (f.classList.contains('fora')) tiradas[k].push(i);
+    else tiradas[k] = tiradas[k].filter(x => x !== i);
+  }));
+  caixa.querySelectorAll('.sug').forEach(b => b.addEventListener('click', () => {
+    b.closest('.grupo').querySelector('.nome').textContent = b.dataset.nome;
+  }));
+  caixa.querySelectorAll('.nome').forEach(n =>
+    n.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); }));
+
+  document.getElementById('veu_batismo').classList.add('viva');
+}
+
+document.getElementById('bat_nao').addEventListener('click', () =>
+  document.getElementById('veu_batismo').classList.remove('viva'));
+
+document.getElementById('bat_sim').addEventListener('click', () => {
+  const nomes = {};
+  document.querySelectorAll('#bat_grupos .nome').forEach(n => {
+    const v = n.textContent.trim();
+    if (v) nomes[n.dataset.key] = v;
+  });
+  if (!Object.keys(nomes).length){
+    recado('Dê nome a pelo menos um grupo.', true);
+    return;
+  }
+  ponte.batizar(JSON.stringify({nomes, tiradas}), json => {
+    const r = JSON.parse(json);
+    recado(r.msg, !r.ok);
+    if (r.ok) document.getElementById('veu_batismo').classList.remove('viva');
+  });
+});
 document.querySelectorAll('.acoes .btn').forEach(b => {
   if (b.id === 'btn_analisar') return;
   if (b.textContent.includes('IA')) b.addEventListener('click', () => comeca({ia: true}));
-  // Modo Descoberta continua no app Qt: a tela de batismo não foi migrada,
-  // e oferecer o botão sem ela seria prometer o que não existe
-  else b.addEventListener('click', () =>
-    recado('Modo Descoberta ainda não migrado — use o app atual.', true));
+  else b.addEventListener('click', () => {
+    zeraProgresso();
+    ponte.descobrir(JSON.stringify(pedidoDaAnalise()), json => {
+      const r = JSON.parse(json);
+      recado(r.ok ? 'Procurando rostos — o batismo abre no fim.' : r.msg, !r.ok);
+    });
+  });
 });
 document.querySelector('.btn.perigo').addEventListener('click',
   () => ponte && ponte.cancelar());
@@ -1536,6 +1659,8 @@ new QWebChannel(qt.webChannelTransport, canal => {
       });
     }
   });
+
+  ponte.descobriu.connect(json => abreBatismo(JSON.parse(json)));
 
   ponte.arquivoSolto.connect(caminho => {
     const campo = document.getElementById('c_arquivo');

@@ -111,6 +111,7 @@ class Janela(QMainWindow):
         s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
 
         self.ponte = Ponte(PROJETO / "cache" / "index.db", SAIDA_EP, ffmpeg=FFMPEG)
+        self.ponte.servidor = servidor   # pra publicar os crops do batismo
         self.canal = QWebChannel(self)
         self.canal.registerObject("ponte", self.ponte)
         self.vista.page().setWebChannel(self.canal)
@@ -802,6 +803,110 @@ def testa_analise(jan, app) -> None:
     p1()
 
 
+def testa_batismo(jan, app) -> None:
+    """A tela de batismo com um DiscoveryResult montado à mão.
+
+    Rodar a descoberta de verdade levaria minutos de GPU e gravaria no
+    acervo. O que precisa ser provado aqui é a TELA: os crops chegam da
+    memória pelo servidor, o elenco vira sugestão, tirar foto e dar nome
+    produzem o pedido certo. O commit em si é o `DiscoveryCommitWorker` do
+    app, que já é testado por ele mesmo.
+    """
+    from dataclasses import dataclass, field
+
+    print()
+    print("=" * 62)
+    print("TESTE DA TELA DE BATISMO")
+    print("=" * 62)
+
+    # crops de verdade: keyframes do episódio servem como rosto de mentira
+    kfs = sorted((SAIDA_EP / "keyframes").glob("*.jpg"))[:14]
+    jpgs = [k.read_bytes() for k in kfs]
+    print(f"    {len(jpgs)} crops reais carregados dos keyframes")
+
+    @dataclass
+    class Grupo:
+        key: int
+        n_faces: int
+        n_shots: int
+        thumbs_jpg: list
+        suggested_name: str = ""
+        suggested_sim: float = 0.0
+
+    @dataclass
+    class Disc:
+        anime_title: str = "Mushoku Tensei III"
+        season: int = 3
+        episode: int = 2
+        total_faces: int = 218
+        shots: list = field(default_factory=lambda: [None] * 331)
+        roster: list = field(default_factory=list)
+        groups: list = field(default_factory=list)
+
+    disc = Disc(
+        roster=["Greyrat, Eris Boreas", "Farion, Nina", "Cruel, Isolte",
+                "Farion, Gull", "Ryia, Reida", "Greyrat, Rudeus"],
+        groups=[
+            Grupo(0, 88, 61, jpgs[:5], "Greyrat, Eris Boreas", 0.91),
+            Grupo(1, 54, 39, jpgs[5:10], "Farion, Nina", 0.77),
+            Grupo(2, 21, 14, jpgs[10:14]),
+        ],
+    )
+    jan.ponte._guarda_descoberta(disc)
+
+    LE = r"""
+    (() => {
+      const v = document.getElementById('veu_batismo');
+      const g = [...document.querySelectorAll('#bat_grupos .grupo')];
+      const fotos = document.querySelectorAll('#bat_grupos .foto img');
+      const prontas = [...fotos].filter(i => i.complete && i.naturalWidth > 0).length;
+      return `tela ${v.classList.contains('viva') ? 'abriu' : 'NÃO abriu'} · `
+           + `${g.length} grupos · ${prontas}/${fotos.length} crops carregados · `
+           + `sugestões no 1º: ${g[0] ? g[0].querySelectorAll('.sug').length : 0} · `
+           + `nome pré-preenchido: "${g[0] ? g[0].querySelector('.nome').textContent : ''}"`;
+    })()
+    """
+    MEXE = r"""
+    (() => {
+      const g = [...document.querySelectorAll('#bat_grupos .grupo')];
+      // tira duas fotos do primeiro grupo (rosto alheio infiltrado)
+      g[0].querySelectorAll('.foto')[1].click();
+      g[0].querySelectorAll('.foto')[3].click();
+      // o terceiro grupo recebe o MESMO nome do segundo: tem que fundir
+      g[2].querySelector('.nome').textContent = g[1].querySelector('.nome').textContent;
+      // e escolhe pela sugestão em vez de digitar
+      g[1].querySelectorAll('.sug')[1].click();
+      return 'tirei 2 fotos do grupo 0, dei ao grupo 2 o nome do 1, e usei sugestão no 1';
+    })()
+    """
+    PEDIDO = r"""
+    (() => {
+      const nomes = {};
+      document.querySelectorAll('#bat_grupos .nome').forEach(n => {
+        const v = n.textContent.trim(); if (v) nomes[n.dataset.key] = v;
+      });
+      return JSON.stringify({nomes, tiradas});
+    })()
+    """
+
+    def js(codigo, rot, prox, espera=1500):
+        jan.vista.page().runJavaScript(codigo, lambda s: print(f"{rot} {s}"))
+        QTimer.singleShot(espera, prox)
+
+    def p1(): js(LE, "[1]", p2, 2000)
+    def p2(): js(MEXE, "[2]", p3, 900)
+    def p3(): js(PEDIDO, "[3] pedido que iria pro Python:", p4, 900)
+
+    def p4():
+        jan.grab().save(str(PROJETO / "poc_web" / "web_batismo.png"))
+        print("     retrato: web_batismo.png")
+        print(f"[4] servidor: {jan.servidor.resumo()}")
+        print("=" * 62)
+        QTimer.singleShot(400, app.quit)
+
+    p1()
+
+
 def main() -> int:
     foto = "--foto" in sys.argv
     galeria = "--telas" in sys.argv
@@ -812,6 +917,7 @@ def main() -> int:
     auditoria = "--auditoria" in sys.argv
     troca = "--troca" in sys.argv
     analise = "--analise" in sys.argv
+    batismo = "--batismo" in sys.argv
 
     registra_esquema()  # ANTES do QApplication
     t_app = time.perf_counter()
@@ -999,6 +1105,10 @@ def main() -> int:
 
     if analise:
         QTimer.singleShot(5000, lambda: testa_analise(jan, app))
+        return app.exec()
+
+    if batismo:
+        QTimer.singleShot(4500, lambda: testa_batismo(jan, app))
         return app.exec()
 
     QTimer.singleShot(4000, clica)
