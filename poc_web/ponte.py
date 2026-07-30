@@ -597,6 +597,44 @@ class Ponte(QObject):
             print("    [python] cancelamento pedido")
 
     @Slot(result=str)
+    def readotar(self) -> str:
+        """Traz pro banco as pastas de episódio que ele não conhece.
+
+        É a inversa do órfão: lá o registro sobrevive à pasta, aqui a pasta
+        sobrevive ao registro. Uma biblioteca que esconde 393 clipes que
+        estão no disco mente tanto quanto uma que lista o que não existe.
+        Nada é reanalisado — o mapa das cenas sai do `metadata/shots.json`
+        que toda análise deixa."""
+        from app.storage import readocao
+
+        db = self.db
+        achadas = readocao.orfas(self._saida(), db)
+        if not achadas:
+            return json.dumps({"ok": True, "msg": "nenhuma pasta esquecida"})
+        cenas = 0
+        for o in achadas:
+            r = readocao.readotar(db, Path(o["pasta"]))
+            if r["ok"]:
+                cenas += r["cenas"]
+            print(f"    [python] {o['pasta']}: {r['msg']}")
+        msg = f"{len(achadas)} episódio(s) readotados · {cenas} cenas de volta"
+        return json.dumps({"ok": True, "msg": msg})
+
+    @Slot(result=str)
+    def esquecidas(self) -> str:
+        """Quantas pastas o banco não conhece — pra árvore poder avisar."""
+        from app.storage import readocao
+
+        try:
+            achadas = readocao.orfas(self._saida(), self.db)
+        except Exception:  # noqa: BLE001
+            return json.dumps({"n": 0, "cenas": 0})
+        return json.dumps({
+            "n": len(achadas),
+            "cenas": sum(o["clipes"] for o in achadas),
+        })
+
+    @Slot(result=str)
     def limpar_orfaos(self) -> str:
         """Apaga do banco os episódios cuja pasta não existe mais.
 

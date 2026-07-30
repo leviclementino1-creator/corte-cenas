@@ -176,6 +176,8 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .no.sumido{color:var(--ghost);font-style:italic}
 .no.orfaos{color:var(--time);font-size:12px}
 .no.orfaos:hover{background:var(--surface-2)}
+.no.achadas{color:var(--accent);font-size:12px}
+.no.achadas:hover{background:var(--surface-2)}
 .cabeca{padding:16px 20px 12px;border-bottom:1px solid var(--line)}
 .cabeca .titulo-linha{display:flex;align-items:center;gap:16px;margin-bottom:6px}
 .cabeca h1{font-family:var(--display);font-size:19px;font-weight:600;margin:0;
@@ -493,6 +495,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <div class="no n1" id="btn_recarregar">↻&nbsp;&nbsp;Atualizar lista</div>
       <div class="no n1" id="btn_abrir_pasta">📂&nbsp;&nbsp;Abrir pasta do episódio</div>
       <div class="no n1 orfaos" id="aviso_orfaos" style="display:none"></div>
+      <div class="no n1 achadas" id="aviso_esquecidas" style="display:none"></div>
     </aside>
 
     <main class="meio">
@@ -1205,6 +1208,13 @@ function carregaAcervo(){
     const av = document.getElementById('aviso_orfaos');
     av.style.display = resp.orfaos ? '' : 'none';
     av.textContent = `⚠ ${resp.orfaos} episódio(s) sem pasta — limpar do banco`;
+    // pasta no disco que o banco nao conhece — a inversa do orfao
+    ponte.esquecidas(j2 => {
+      const e = JSON.parse(j2);
+      const el = document.getElementById('aviso_esquecidas');
+      el.style.display = e.n ? '' : 'none';
+      el.textContent = `＋ ${e.n} pasta(s) esquecida(s), ${e.cenas} clipes — trazer pro acervo`;
+    });
     const arv = document.getElementById('arvore');
     if (!animes.length) {
       arv.innerHTML = '<div class="no n1" style="font-style:italic">Nada cortado ainda</div>';
@@ -1336,6 +1346,20 @@ document.getElementById('btn_recarregar').addEventListener('click', () => {
 });
 document.getElementById('btn_abrir_pasta').addEventListener('click', () => {
   if (ponte) ponte.abrir_pasta('episodio');
+});
+document.getElementById('aviso_esquecidas').addEventListener('click', () => {
+  pergunta({
+    titulo: 'Pastas esquecidas',
+    texto: 'Estas pastas têm clipes no disco mas o banco não as conhece.<br><br>'
+         + '• <b>Nada é reanalisado</b> — o mapa das cenas sai do metadata que a análise deixou<br>'
+         + '• Personagem que o banco não conhece fica de fora; a cena volta sem dono',
+    confirmar: 'Trazer pro acervo',
+  }, () => ponte.readotar(json => {
+    const r = JSON.parse(json);
+    recado(r.msg, !r.ok);
+    epAberto = null;
+    carregaAcervo();
+  }));
 });
 document.getElementById('aviso_orfaos').addEventListener('click', () => {
   pergunta({
