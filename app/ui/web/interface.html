@@ -2200,12 +2200,16 @@ function carregaAcervo(){
     if (animes.length > 1)
       arv.querySelectorAll('.no.n1.ramo').forEach(n => recolhe(n, true));
 
-    arv.addEventListener('click', ev => {
-      const ramo = ev.target.closest('.no.ramo');
-      if (ramo){ recolhe(ramo, !ramo.classList.contains('fechado')); return; }
-      const no = ev.target.closest('.no[data-ep]'); if (!no) return;
-      abreEpisodio(no.dataset.ep, no.dataset.rot, no);
-    });
+    // O listener da árvore é ligado UMA VEZ, em `ligaArvore()` lá embaixo —
+    // não aqui. Ele morava neste ponto e o `carregaAcervo` é chamado de OITO
+    // lugares (arranque, fim de análise, apagar, readotar, limpar órfãos,
+    // trocar a saída, apagar cache, atualizar lista): cada chamada empilhava
+    // mais um listener no mesmo `#arvore`, que não é recriado.
+    //
+    // Com DOIS listeners o recolher parava de funcionar sem erro nenhum: o
+    // primeiro lê "não está fechado" e fecha; o segundo, no MESMO clique, lê
+    // "está fechado" e reabre. Número ímpar de listeners funcionava, par não
+    // — por isso o bug ia e voltava conforme eu adicionava chamadas.
 
     // Abre sozinho o primeiro que ainda existe no disco — mas SÓ se a
     // Biblioteca estiver na frente. A árvore é uma consulta de milissegundos;
@@ -2220,6 +2224,19 @@ function carregaAcervo(){
       mostraBiblioteca();
   });
 }
+
+// UMA vez, na carga da página. `#arvore` sobrevive a toda recarga do acervo
+// (só o innerHTML dele troca), então o listener é delegado e não precisa —
+// nem pode — ser religado a cada `carregaAcervo`.
+function ligaArvore(){
+  document.getElementById('arvore').addEventListener('click', ev => {
+    const ramo = ev.target.closest('.no.ramo');
+    if (ramo){ recolhe(ramo, !ramo.classList.contains('fechado')); return; }
+    const no = ev.target.closest('.no[data-ep]'); if (!no) return;
+    abreEpisodio(no.dataset.ep, no.dataset.rot, no);
+  });
+}
+ligaArvore();
 
 // O que a Biblioteca deixou pendurado pra quando ela aparecer.
 let aoAbrirBiblioteca = null;
