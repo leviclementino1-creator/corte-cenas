@@ -46,6 +46,21 @@ _CAMPO_DO_PRESET = {
 QUADROS_TIRA = 8
 
 
+def _pasta_dos_logs() -> Path:
+    """Onde os logs REALMENTE ficam — perguntado pra quem escreve neles.
+
+    Duas fontes pro mesmo caminho é como elas divergem. O `applog` resolve
+    via `platformdirs` e o `run.py` põe o crash.log no mesmo lugar; qualquer
+    palpite aqui vira uma pasta vazia que parece "o app não tem log".
+    """
+    try:
+        from app.applog import log_dir
+
+        return log_dir()
+    except Exception:  # noqa: BLE001 — sem log_dir, o mesmo palpite do applog
+        return Path.home() / "AppData" / "Local" / "CorteCenas" / "logs"
+
+
 def registra_esquema() -> None:
     """Precisa rodar ANTES de existir um QApplication — o Chromium tranca a
     lista de esquemas quando inicializa.
@@ -2012,7 +2027,15 @@ class Ponte(QObject):
             "refs": refs_root(c.cache_path),
             "cache": c.cache_path,
             "saida": Path(c.output_path),
-            "logs": Path(c.cache_path) / "logs",
+            # A PASTA DE VERDADE, perguntada pra quem escreve nela. Isto
+            # apontava pra `cache/logs`, que não existe e nunca existiu: o
+            # `applog` grava em `%LOCALAPPDATA%\\CorteCenas\\CorteCenas\\Logs`
+            # (via platformdirs) e o `run.py` põe o crash.log no mesmo lugar.
+            # O botão criava uma pasta vazia com `mkdir(exist_ok=True)`, abria
+            # ela e dizia "Abri ...". Quem estivesse atrás de um log pra me
+            # mandar encontrava uma pasta vazia e concluía que o app não tem
+            # log nenhum.
+            "logs": _pasta_dos_logs(),
         }
         p = alvos.get(qual)
         if p is None:
