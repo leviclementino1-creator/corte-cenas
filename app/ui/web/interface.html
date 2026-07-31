@@ -191,6 +191,8 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
     color:var(--dim);gap:6px}
 .no:hover{background:var(--surface)}
 .no.viva{background:var(--surface-2);color:var(--txt);box-shadow:inset 3px 0 0 var(--accent)}
+/* o nó sob o menu do botão direito: o que a ação vai pegar */
+.no.alvo{background:var(--surface-2);outline:1px solid var(--accent);outline-offset:-1px}
 .no .seta{width:9px;color:var(--off);font-size:9px;flex:0 0 9px}
 .no.ramo{cursor:default}
 .no.ramo:hover .seta{color:var(--accent)}
@@ -830,6 +832,20 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 <script>
 const T0 = performance.now();
 let ponte = null, cenas = [], elenco = {};
+// A CENA PELO NÚMERO DELA. `cenas` é uma LISTA na ordem em que veio do banco,
+// e o `data-idx` do cartão é o número da cena — os dois só coincidem quando o
+// episódio começa na cena 0 e não tem buraco nenhum. Num episódio com OP
+// pulado as cenas começam na #0022: `cenas[22]` é a #0044.
+//
+// Isso fazia o menu do botão direito operar na cena ERRADA. O usuário clicava
+// na #0022, o menu dizia "cena 0044" e o app removia a #0044 da pasta — uma
+// cena que ele nunca tocou, com `record_manual` gravando o bloqueio pra
+// sempre. Da cadeira dele: "removi e não removeu".
+let porIdx = {};
+function indexaCenas(){
+  porIdx = {};
+  for (const c of cenas) porIdx[c.idx] = c;
+}
 
 const fmt = s => { const m = Math.floor(s/60), r = (s%60).toFixed(1);
                    return `${m}:${r.padStart(4,'0')}`; };
@@ -898,7 +914,7 @@ let espera = null, espiado = null;
 function pedeTira(cartao){
   const tira = cartao.querySelector('.tira');
   if (tira.dataset.carregada) { cartao.classList.add('espiando'); return; }
-  const c = cenas[+cartao.dataset.idx];
+  const c = porIdx[+cartao.dataset.idx];
   if (!c || !c.tira) return;
   const img = new Image();
   img.onload = () => {
@@ -926,7 +942,7 @@ document.addEventListener('mousemove', e => {
   // background é 100%, não 800/7 — sem ele o último quadro nunca aparece.
   const k = Math.min(QUADROS - 1, Math.floor(f * QUADROS));
   c.querySelector('.tira').style.backgroundPositionX = (k * 100 / (QUADROS - 1)) + '%';
-  const d = cenas[+c.dataset.idx];
+  const d = porIdx[+c.dataset.idx];
   if (d) c.querySelector('.tc').textContent = fmt(f * d.dur);
 });
 
@@ -934,7 +950,12 @@ document.addEventListener('mousemove', e => {
 // remover/mover tudo de uma vez — os caminhos plurais já existiam no
 // `pedeAcao` e eram código MORTO, porque a grade só deixava escolher uma.
 function selecionadas(){
-  return [...document.querySelectorAll('#grade .cartao.viva')]
+  // A grade ATIVA, não sempre a da Biblioteca. Isto lia só `#grade`, e a
+  // marcação de lá SOBREVIVE à troca de aba (trocar de aba só mexe em
+  // `.aba`/`.tela`). Resultado: com a Resultados na frente, o Del agia num
+  // cartão invisível de outra aba — e `record_manual` grava o bloqueio pra
+  // sempre, na cena errada e no personagem errado.
+  return [...document.querySelectorAll(`#${gradeDaAcao} .cartao.viva`)]
     .map(x => +x.dataset.idx);
 }
 
@@ -944,9 +965,15 @@ let ancora = null;   // pro Shift: de onde o intervalo começa
 // que dá pra marcar várias.
 let cenaNoPainel = null;
 
-document.getElementById('grade').addEventListener('click', e => {
+// As DUAS grades escolhem cena. `#r_grade` não tinha listener nenhum: clicar
+// num cartão dos Resultados não marcava nada, o `el.click()` que o menu de
+// contexto usa pra marcar o cartão sob o cursor era inerte ali, e a seleção
+// múltipla não existia naquela aba.
+['grade', 'r_grade'].forEach(qual =>
+document.getElementById(qual).addEventListener('click', e => {
   const el = e.target.closest('.cartao'); if (!el) return;
-  const todos = [...document.querySelectorAll('#grade .cartao')];
+  gradeDaAcao = qual;
+  const todos = [...document.querySelectorAll(`#${qual} .cartao`)];
 
   if (e.shiftKey && ancora){
     // intervalo: da âncora até aqui, na ordem em que estão na tela
@@ -969,7 +996,7 @@ document.getElementById('grade').addEventListener('click', e => {
     n > 1 ? `${n} cenas escolhidas · as ações valem pras ${n}` : '';
   // com várias marcadas o painel mostra a última clicada, mas a ação é do
   // conjunto — dizer isso é o que evita apagar 12 achando que era 1
-  const c = cenas[+el.dataset.idx]; if (!c) return;
+  const c = porIdx[+el.dataset.idx]; if (!c) return;
   document.getElementById('i_num').textContent = '#' + String(c.idx).padStart(4,'0');
   document.getElementById('i_tempo').textContent = `${fmt(c.ini)} → ${fmt(c.fim)}`;
   document.getElementById('i_dur').textContent = c.dur.toFixed(1) + 's';
@@ -1017,7 +1044,7 @@ document.getElementById('grade').addEventListener('click', e => {
     document.getElementById('tv_loop').style.display = '';
   });
   if (ponte) ponte.clicou('cartao_' + c.idx);
-});
+}));
 
 // Os botões do painel entram pelo MESMO portão do menu e dos atalhos.
 document.querySelectorAll('.cena [data-acao]').forEach(b =>
@@ -1805,9 +1832,22 @@ document.addEventListener('contextmenu', e => {
   const noAcervo = e.target.closest('#arvore .no');
   if (noAcervo){
     menu.classList.remove('viva');
-    alvoAcervo = {no: noAcervo, eps: episodiosSob(noAcervo)};
+    // O NOME do que está sob o cursor, não só a contagem. O menu dizia
+    // "12 episódios" e a caixinha de apagar dizia "12 episódios" — em nenhum
+    // dos dois aparecia de QUAL anime. Pior: o nó clicado não ficava marcado,
+    // então quem seguia destacado na árvore era o episódio ABERTO, que podia
+    // ser de outro anime. Dava pra apagar uma temporada inteira olhando o
+    // realce do anime errado.
+    const rot = noAcervo.querySelector('.rot');
+    alvoAcervo = {no: noAcervo, eps: episodiosSob(noAcervo),
+                  rotulo: (rot ? rot.textContent : noAcervo.textContent).trim()};
+    document.querySelectorAll('#arvore .no.alvo').forEach(x =>
+      x.classList.remove('alvo'));
+    noAcervo.classList.add('alvo');
     document.getElementById('menu_acervo_cab').textContent =
-      alvoAcervo.eps.length === 1 ? 'episódio' : `${alvoAcervo.eps.length} episódios`;
+      alvoAcervo.eps.length === 1
+        ? alvoAcervo.rotulo
+        : `${alvoAcervo.rotulo} · ${alvoAcervo.eps.length} episódios`;
     menuAcervo.style.left = Math.min(e.clientX, innerWidth - 228) + 'px';
     menuAcervo.style.top = Math.min(e.clientY, innerHeight - 130) + 'px';
     menuAcervo.classList.add('viva');
@@ -1818,7 +1858,7 @@ document.addEventListener('contextmenu', e => {
   const el = e.target.closest('.cartao');
   if (!el) { menu.classList.remove('viva'); return; }
   gradeDaAcao = el.closest('#r_grade') ? 'r_grade' : 'grade';
-  cenaDoMenu = cenas[+el.dataset.idx];
+  cenaDoMenu = porIdx[+el.dataset.idx];
   // "Desfazer junção" só existe pra cena QUE FOI juntada. O item aparecia em
   // todas, e clicar respondia "Esta cena não faz parte de uma junção" — dizer
   // depois o que dava pra saber antes. Mesma coisa pro "Remover desta pasta"
@@ -1840,6 +1880,8 @@ document.addEventListener('mousedown', e => {
   if (e.target.closest('.menu')) return;
   menu.classList.remove('viva');
   menuAcervo.classList.remove('viva');
+  document.querySelectorAll('#arvore .no.alvo').forEach(x =>
+    x.classList.remove('alvo'));
 });
 
 menuAcervo.querySelectorAll('.item').forEach(it => it.addEventListener('click', () => {
@@ -1847,8 +1889,12 @@ menuAcervo.querySelectorAll('.item').forEach(it => it.addEventListener('click', 
   if (!alvoAcervo || !alvoAcervo.eps.length) return;
   // o episódio que ele CLICOU, não o que está aberto no meio da tela
   if (it.dataset.acao === 'abrir'){
+    // No nó do EPISÓDIO abre a pasta dele; no do anime ou da temporada abre
+    // a pasta do anime. Isto mandava sempre `ep:<primeiro>`: o menu dizia
+    // "12 episódios" e o Explorer abria dentro do S03E01, sem avisar.
     const alvo = alvoAcervo && alvoAcervo.eps.length ? alvoAcervo.eps[0].id : null;
-    ponte.abrir_pasta(alvo ? 'ep:' + alvo : 'episodio', json => {
+    const modo = alvoAcervo && alvoAcervo.eps.length > 1 ? 'anime:' : 'ep:';
+    ponte.abrir_pasta(alvo ? modo + alvo : 'episodio', json => {
       const r = JSON.parse(json);
       if (!r.ok) recado(r.msg, true);
     });
@@ -1857,8 +1903,9 @@ menuAcervo.querySelectorAll('.item').forEach(it => it.addEventListener('click', 
 
   const eps = alvoAcervo.eps;
   const ids = eps.map(e => e.id);
-  const quais = eps.length === 1 ? `<b>${eps[0].rot}</b>`
-                                 : `<b>${eps.length}</b> episódios`;
+  const quais = eps.length === 1
+    ? `<b>${eps[0].rot}</b>`
+    : `<b>${eps.length}</b> episódios de <b>${alvoAcervo.rotulo}</b>`;
   // O TAMANHO do estrago vem antes da pergunta. "O que o app aprendeu fica"
   // era meia verdade: o `delete_episode` apaga o `manual_override` DAQUELE
   // episódio, que é justamente a memória de curadoria dele — e arrastar a
@@ -1891,7 +1938,10 @@ menu.querySelectorAll('.item').forEach(it => it.addEventListener('click', () => 
   if (!cenaDoMenu) return;
   // se a cena do menu está no meio de uma seleção múltipla, a ação vale pra
   // TODAS — senão o botão direito faria coisa diferente do painel do lado
-  const sel = gradeDaAcao === 'grade' ? selecionadas() : [];
+  // Agora as duas grades têm seleção de verdade, então isto lê a que está em
+  // uso — antes, no menu dos Resultados, `sel` era sempre vazio de propósito,
+  // porque naquela grade nada nunca ficava marcado.
+  const sel = selecionadas();
   pedeAcao(it.dataset.acao,
            sel.includes(cenaDoMenu.idx) && sel.length > 1 ? sel : [cenaDoMenu.idx]);
 }));
@@ -2021,7 +2071,7 @@ function donoDaCena(idx){
   } else if (filtro && filtro !== '__sem__') {
     return filtro;
   }
-  const c = cenas[idx];
+  const c = porIdx[idx];
   return c && c.quem.length ? c.quem : [];
 }
 
@@ -2032,6 +2082,22 @@ function pedeAcao(acao, idxs){
     const r = JSON.parse(json); if (!r.ok) recado(r.msg, true); }); return; }
 
   if (acao === 'juntar' || acao === 'desjuntar'){
+    // Juntar MUITAS de uma vez merece pergunta. Um Shift+clique marca um
+    // intervalo inteiro, e o J não passava por caixinha nenhuma: 296 cenas
+    // viravam UM clipe de 21 minutos na próxima análise, avisadas por um
+    // recado verde de quatro segundos. Remover já perguntava; juntar não.
+    if (acao === 'juntar' && idxs.length > 2){
+      const segs = idxs.reduce((s, i) => s + ((porIdx[i] || {}).dur || 0), 0);
+      pergunta({
+        titulo: `Juntar ${idxs.length} cenas numa só`,
+        texto: `As <b>${idxs.length}</b> cenas escolhidas viram <b>um clipe de `
+             + `${relogio(segs)}</b> na próxima análise deste episódio.<br><br>`
+             + '• Vale só pra cenas vizinhas<br>'
+             + '• Pra desfazer: botão direito na cena juntada → Desfazer junção',
+        confirmar: 'Juntar', negar: 'Cancelar',
+      }, () => ponte.acao_cena(JSON.stringify({acao, idxs}), resposta));
+      return;
+    }
     ponte.acao_cena(JSON.stringify({acao, idxs}), resposta);
     return;
   }
@@ -2131,9 +2197,12 @@ document.addEventListener('keydown', e => {
     // a ÚLTIMA clicada, não a primeira marcada: com várias selecionadas o
     // `querySelector` devolve a primeira em ordem de documento e a seta
     // pulava pra longe de onde a pessoa estava
-    const atual = (ancora && ancora.classList.contains('viva'))
-      ? ancora : document.querySelector('#grade .cartao.viva');
-    const todos = [...document.querySelectorAll('#grade .cartao')];
+    const qual = (document.querySelector('.aba.viva') || {dataset: {}})
+                   .dataset.tela === 'resultados' ? 'r_grade' : 'grade';
+    const atual = (ancora && ancora.classList.contains('viva')
+                   && ancora.closest(`#${qual}`))
+      ? ancora : document.querySelector(`#${qual} .cartao.viva`);
+    const todos = [...document.querySelectorAll(`#${qual} .cartao`)];
     const i = atual ? todos.indexOf(atual) : -1;
     const alvo = todos[Math.max(0, Math.min(todos.length-1, i + (k==='arrowright'?1:-1)))];
     if (alvo) { alvo.click(); alvo.scrollIntoView({block:'nearest'}); }
@@ -2143,10 +2212,18 @@ document.addEventListener('keydown', e => {
   if (!acao) return;
   if (k === 'p' && !e.ctrlKey) return;   // tocar é Ctrl+P
   e.preventDefault();
+  if (acao === 'tocar') { document.getElementById('tv').play().catch(()=>{}); return; }
+  // A ABA QUE ESTÁ NA FRENTE manda. Isto fixava `gradeDaAcao = 'grade'`, e o
+  // `selecionadas()` só olhava `#grade`: com a Resultados aberta, o Del agia
+  // no cartão marcado da BIBLIOTECA — invisível, atrás da aba, de outro
+  // personagem e às vezes de outro episódio. O recado saía verde com um
+  // número de cena que não estava na tela, e o `record_manual` gravava o
+  // bloqueio pra sempre. Era o "falou que removeu e não removeu".
+  const aba = (document.querySelector('.aba.viva') || {dataset: {}}).dataset.tela;
+  if (aba !== 'biblioteca' && aba !== 'resultados') return;
+  gradeDaAcao = aba === 'resultados' ? 'r_grade' : 'grade';
   const sel = selecionadas();
   if (!sel.length) { recado('Escolha uma cena primeiro.', true); return; }
-  if (acao === 'tocar') { document.getElementById('tv').play().catch(()=>{}); return; }
-  gradeDaAcao = 'grade';   // atalho de teclado lê a grade da Biblioteca
   pedeAcao(acao, sel);
 });
 
@@ -2345,8 +2422,28 @@ function carregaAcervo(){
     // abrir um episódio são centenas de miniaturas decodificadas. Com o app
     // abrindo em Analisar, isso era trabalho inteiro pra uma aba que ninguém
     // está vendo. Fica pendurado e acontece na primeira visita.
-    const primeiro = arv.querySelector('.no[data-ep]:not(.sumido)');
+    // JÁ TEM EPISÓDIO ABERTO? Então é ele. Isto abria SEMPRE o primeiro da
+    // árvore (ordenada por título), e a árvore não sabe o que você acabou de
+    // analisar. Quem analisava o Mushoku e depois passava uma vez pela
+    // Biblioteca voltava pros Resultados com o título "Mushoku — S03E02" em
+    // cima do elenco e da grade de OUTRO episódio — e a ação seguinte ia pro
+    // episódio errado, no banco e nas pastas.
+    const jaAberto = epAberto
+      ? arv.querySelector(`.no[data-ep="${epAberto}"]`) : null;
+    const primeiro = jaAberto
+      || arv.querySelector('.no[data-ep]:not(.sumido)');
     if (!primeiro) return;
+    if (jaAberto){
+      // já é o da tela: só marca na árvore, sem recarregar 300 miniaturas
+      aoAbrirBiblioteca = () => {
+        document.querySelectorAll('#arvore .no').forEach(x =>
+          x.classList.remove('viva'));
+        jaAberto.classList.add('viva');
+      };
+      if (document.getElementById('biblioteca').classList.contains('viva'))
+        mostraBiblioteca();
+      return;
+    }
     aoAbrirBiblioteca = () => abreEpisodio(
       primeiro.dataset.ep, primeiro.dataset.rot, primeiro);
     if (document.getElementById('biblioteca').classList.contains('viva'))
@@ -2381,6 +2478,10 @@ function abreEpisodio(id, rotulo, no){
   document.querySelectorAll('#arvore .no').forEach(x => x.classList.remove('viva'));
   if (no) no.classList.add('viva');
   document.getElementById('titulo').textContent = rotulo;
+  // O título dos Resultados acompanha. Ele só era escrito no fim da análise,
+  // então continuava anunciando o episódio analisado enquanto a grade embaixo
+  // já era de outro — inclusive de um que tinha acabado de ser APAGADO.
+  document.getElementById('r_titulo').textContent = rotulo;
   document.getElementById('meta').textContent = 'carregando…';
   // some com a cena aberta: ela é do episódio ANTERIOR
   document.getElementById('tv').removeAttribute('src');
@@ -2430,6 +2531,7 @@ function recarregaEpisodio(){
 function carregaCenas(id, depois){
   ponte.cenas_do_episodio(String(id), json => {
     cenas = JSON.parse(json);
+    indexaCenas();   // sem isto o cartão vira a cena errada
     elenco = {};
     for (const c of cenas) for (const q of c.quem) elenco[q] = (elenco[q]||0)+1;
     const nomes = Object.entries(elenco).sort((a,b) => b[1]-a[1]);

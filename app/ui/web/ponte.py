@@ -769,6 +769,20 @@ class Ponte(QObject):
             return json.dumps({"ok": False, "msg": "Esta cena não faz parte de uma junção."})
 
         if len(linhas) >= 2:
+            # VIZINHAS, obrigatoriamente. A junção é guardada como uma JANELA
+            # de tempo, e a próxima análise engole tudo que cair dentro dela —
+            # inclusive o que ficou nos buracos da escolha. Marcar a #0005 e a
+            # #0300 com Ctrl gravava uma janela de 21 minutos que colapsava o
+            # episódio inteiro num clipe só, com um recado verde de quatro
+            # segundos como único aviso.
+            nums = sorted(int(x["idx"]) for x in linhas)
+            if nums != list(range(nums[0], nums[0] + len(nums))):
+                buracos = [n for n in range(nums[0], nums[-1] + 1) if n not in nums]
+                return json.dumps({"ok": False, "msg":
+                    f"Só dá pra juntar cenas VIZINHAS, e faltam "
+                    f"{len(buracos)} no meio da sua escolha (a primeira é a "
+                    f"#{buracos[0]:04d}). A junção vira uma janela de tempo: "
+                    f"o que está no buraco seria engolido junto."})
             ini = min(float(x["start"]) for x in linhas)
             fim = max(float(x["end"]) for x in linhas)
         else:
@@ -1746,6 +1760,15 @@ class Ponte(QObject):
         """
         import subprocess
 
+        # `anime:<id>` abre a pasta do ANIME, não a do episódio. O menu do
+        # acervo mandava `ep:<primeiro>` também pro nó do anime e da
+        # temporada: o cabeçalho dizia "12 episódios" e abria o S03E01,
+        # calado. Temporada não tem pasta no disco (o layout é
+        # `<Anime>/S03E05`), então o nó dela abre a do anime — que é a
+        # resposta certa pra "me mostra isto aqui".
+        pai = qual.startswith("anime:")
+        if pai:
+            qual = "ep:" + qual[len("anime:"):]
         if qual.startswith("ep:"):
             try:
                 eid = int(qual[3:])
@@ -1759,6 +1782,8 @@ class Ponte(QObject):
             if r is None:
                 return json.dumps({"ok": False, "msg": "episódio não está no banco"})
             alvo = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
+            if pai:
+                alvo = alvo.parent
         elif qual == "episodio":
             if self.ep_id is None:
                 return json.dumps({"ok": False, "msg":
