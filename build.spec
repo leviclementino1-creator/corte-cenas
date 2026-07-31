@@ -103,6 +103,40 @@ a = Analysis(
     noarchive=False,
 )
 
+# --- Poda do QtWebEngine ----------------------------------------------------
+# O GitHub recusa asset acima de 2 GiB, e a v0.5.0 estourou por 13 MB: o
+# instalador saiu com 2,013 GiB e o upload voltou HTTP 422. Não é caso de
+# espremer compressão — é peso que nunca deveria estar aqui.
+#
+# Medido no bundle de 5,3 GB:
+#   72 MB  qtwebengine_devtools_resources.debug.pak
+#   44 MB  qtwebengine_locales/*.pak  — 53 idiomas
+#    5 MB  os outros arquivos .debug (v8 snapshot, resources)
+#
+# Os `.debug` só são lidos com depuração remota do Chromium ligada, coisa que
+# um app empacotado nunca faz. Dos idiomas ficam pt-BR e en-US: a interface é
+# HTML nosso, o que o WebEngine traduz são os menus dele, e sem o arquivo do
+# idioma ele cai no inglês em vez de quebrar.
+IDIOMAS_QUE_FICAM = {"pt-BR.pak", "en-US.pak"}
+
+
+def _cabe_no_pacote(destino: str) -> bool:
+    baixo = destino.replace("\\", "/").lower()
+    if ".debug." in baixo and "qtwebengine" in baixo:
+        return False
+    if "v8_context_snapshot.debug.bin" in baixo:
+        return False
+    if "qtwebengine_locales/" in baixo:
+        return destino.replace("\\", "/").rsplit("/", 1)[-1] in IDIOMAS_QUE_FICAM
+    return True
+
+
+_antes = len(a.datas) + len(a.binaries)
+a.datas = [t for t in a.datas if _cabe_no_pacote(t[0])]
+a.binaries = [t for t in a.binaries if _cabe_no_pacote(t[0])]
+print(f"[build.spec] poda do WebEngine: {_antes - len(a.datas) - len(a.binaries)} "
+      f"arquivos fora (debug do DevTools + idiomas não usados)")
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
