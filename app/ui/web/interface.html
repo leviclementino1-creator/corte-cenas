@@ -400,11 +400,22 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .caixinha h3{margin:0;padding:14px 18px;font-family:var(--display);font-size:15px;
              font-weight:600;border-bottom:1px solid var(--line)}
 .caixinha .texto{padding:14px 18px;font-size:13px;color:var(--dim);line-height:1.55}
+/* Busca na lista. Um elenco de anime passa fácil de 20 nomes e os Greyrat
+   sozinhos são meia dúzia — rolar procurando com o olho é o passo lento de
+   uma tarefa que se repete cena após cena. */
+.caixinha .busca{display:none;margin:0 18px 10px;height:32px;width:calc(100% - 36px);
+                 padding:0 10px;background:var(--well);border:1px solid var(--line);
+                 border-radius:4px;font-size:13px;color:var(--txt);
+                 font-family:var(--ui)}
+.caixinha .busca:focus{outline:none;border-color:var(--accent-dim)}
+.caixinha .busca.viva{display:block}
 .caixinha .lista{max-height:240px;overflow:auto;padding:0 10px 10px}
 .caixinha .lista .op{height:30px;display:flex;align-items:center;padding:0 10px;
                      border-radius:4px;font-size:13px;color:var(--txt)}
 .caixinha .lista .op:hover{background:var(--surface-2)}
 .caixinha .lista .op.viva{background:var(--accent-ink);color:var(--accent)}
+.caixinha .lista .vazio{padding:8px 10px;font-size:12.5px;color:var(--faint);
+                        font-style:italic}
 .caixinha .pe{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;
               border-top:1px solid var(--line)}
 
@@ -794,6 +805,8 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   <div class="corpo">
     <h3 id="cx_titulo">—</h3>
     <div class="texto" id="cx_texto"></div>
+    <input class="busca" id="cx_busca" type="text" spellcheck="false"
+           placeholder="digite pra filtrar…" autocomplete="off">
     <div class="lista" id="cx_lista"></div>
     <div class="pe">
       <div class="btn cinza" id="cx_nao">Cancelar</div>
@@ -1776,12 +1789,22 @@ function recado(txt, ruim){
 // `negar` renomeia o botão da esquerda. Um aviso de erro que oferece
 // "Abrir pasta de refs" | "Cancelar" sugere que dá pra cancelar a falha —
 // ali o certo é "Fechar".
+// Sem acento e sem caixa: "Gislaine" acha "Ghislaine"? não, mas "ghis" sim,
+// e "eris" acha "Greyrat, Eris Boreas" — que é o caso real, porque os nomes
+// vêm no formato "Sobrenome, Nome" e a cabeça procura pelo primeiro nome.
+// ̀-ͯ é o bloco dos acentos combinantes que o NFD separa. Escrito
+// por código e não pelo caractere: acento solto num arquivo fonte é a coisa
+// mais fácil de um editor comer sem ninguém ver.
+const semAcento = s => (s || '').normalize('NFD')
+  .replace(/[̀-ͯ]/g, '').toLowerCase();
+
 function pergunta({titulo, texto, opcoes, confirmar, negar}, entao){
   document.getElementById('cx_nao').textContent = negar || 'Cancelar';
   const cx = document.getElementById('caixinha');
   document.getElementById('cx_titulo').textContent = titulo;
   document.getElementById('cx_texto').innerHTML = texto || '';
   const lista = document.getElementById('cx_lista');
+  const busca = document.getElementById('cx_busca');
   let escolhido = opcoes && opcoes.length ? opcoes[0] : null;
   lista.innerHTML = (opcoes || []).map((o,i) =>
     `<div class="op${i===0?' viva':''}" data-v="${o}">${o}</div>`).join('');
@@ -1791,6 +1814,57 @@ function pergunta({titulo, texto, opcoes, confirmar, negar}, entao){
     op.classList.add('viva');
     escolhido = op.dataset.v;
   };
+
+  // A BUSCA. Elenco de anime passa fácil de 20 nomes — o Mushoku tem meia
+  // dúzia de Greyrat — e rolar procurando com o olho era o passo lento de
+  // uma tarefa que se repete cena após cena.
+  const LIMIAR = 8;   // com poucas opções a caixinha de busca é só ruído
+  const temBusca = (opcoes || []).length > LIMIAR;
+  busca.classList.toggle('viva', temBusca);
+  busca.value = '';
+  if (temBusca){
+    const filtra = () => {
+      const q = semAcento(busca.value.trim());
+      let primeiro = null;
+      lista.querySelectorAll('.op').forEach(op => {
+        const bate = !q || semAcento(op.dataset.v).includes(q);
+        op.style.display = bate ? '' : 'none';
+        op.classList.remove('viva');
+        if (bate && !primeiro) primeiro = op;
+      });
+      // o primeiro que sobrou já fica escolhido: digitar "eris" + Enter
+      // resolve sem tirar a mão do teclado
+      if (primeiro){ primeiro.classList.add('viva'); escolhido = primeiro.dataset.v; }
+      else escolhido = null;
+      const nada = lista.querySelector('.vazio');
+      if (!primeiro && !nada)
+        lista.insertAdjacentHTML('beforeend',
+          '<div class="vazio">nenhum nome com isso</div>');
+      if (primeiro && nada) nada.remove();
+    };
+    busca.oninput = filtra;
+    busca.onkeydown = e => {
+      const vis = [...lista.querySelectorAll('.op')]
+        .filter(o => o.style.display !== 'none');
+      if (e.key === 'Enter'){ e.preventDefault(); if (escolhido) fecha(true); return; }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      const i = vis.findIndex(o => o.classList.contains('viva'));
+      const j = Math.max(0, Math.min(vis.length - 1,
+                                     i + (e.key === 'ArrowDown' ? 1 : -1)));
+      vis.forEach(o => o.classList.remove('viva'));
+      if (vis[j]){
+        vis[j].classList.add('viva');
+        escolhido = vis[j].dataset.v;
+        vis[j].scrollIntoView({block: 'nearest'});
+      }
+    };
+    // o foco vai pro campo assim que a caixinha abre — senão a busca existe
+    // e mesmo assim é preciso clicar nela primeiro
+    setTimeout(() => busca.focus(), 30);
+  } else {
+    busca.oninput = busca.onkeydown = null;
+  }
   document.getElementById('cx_sim').textContent = confirmar || 'Confirmar';
   cx.classList.add('viva');
   const fecha = ok => {
