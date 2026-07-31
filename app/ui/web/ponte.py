@@ -277,6 +277,9 @@ class Ponte(QObject):
         # só pra descobrir em qual cena ela bate.
         self.ep_id: int | None = None
         self.anime_id: int | None = None
+        # último progresso, pra página puxar (ver `progresso_atual`)
+        self._ultimo_progresso: tuple[str, float, str] = ("", 0.0, "")
+        self._n_progresso = 0
         self._shots: dict[int, dict] = {}     # idx -> linha do shot
         self._donos: dict[int, list] = {}     # shot_id -> personagens
 
@@ -981,8 +984,10 @@ class Ponte(QObject):
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._etapa_atual = ""
+        # UM slot so: o `_anota_etapa` anota a etapa E reemite o progresso.
+        # Ligar o sinal do worker direto no sinal da ponte nao relaia
+        # atravessando thread — ver o docstring dele.
         self._worker.stage.connect(self._anota_etapa)
-        self._worker.stage.connect(self.progresso)          # mesma assinatura
         self._worker.finished.connect(self._fim_com_resultado)
         self._worker.failed.connect(
             lambda m: self._fim_da_analise("falhou", detalhe=str(m)))
@@ -1095,7 +1100,6 @@ class Ponte(QObject):
         self._thread.started.connect(self._worker.run)
         self._etapa_atual = ""
         self._worker.stage.connect(self._anota_etapa)
-        self._worker.stage.connect(self.progresso)
         self._worker.finished.connect(lambda _r: self._fim_da_analise("batizado"))
         self._worker.failed.connect(
             lambda m: self._fim_da_analise("falhou", detalhe=str(m)))
@@ -1109,8 +1113,60 @@ class Ponte(QObject):
     # daí pra frente o resultado anterior já foi embora.
     _ETAPAS_SEM_ESTRAGO = ("parse", "detect_shots", "cut_shots")
 
-    def _anota_etapa(self, sid: str, _fracao: float, _msg: str) -> None:
+    def _anota_etapa(self, sid: str, fracao: float, msg: str) -> None:
+        """Ponte entre o worker e a página — e é ELA que repassa o progresso.
+
+        Antes o worker era ligado direto no sinal da ponte
+        (`worker.stage.connect(self.progresso)`), e isso NUNCA funcionou numa
+        análise de verdade: o worker vive noutra thread (`moveToThread`), e
+        ligar sinal-em-sinal atravessando thread não relaia — a página ficava
+        em "Aguardando · 0%" do começo ao fim enquanto o log enchia de
+        `detect_shots ... 58%`.
+
+        Ninguém percebeu porque a tela de progresso só tinha sido exercitada
+        pelo `ensaiar()`, que emite `self.progresso` DIRETO, da thread dele.
+        O ensaio provava o caminho ponte→página e pulava justamente o elo
+        que estava quebrado, worker→ponte.
+
+        Um slot de verdade recebe a chamada com afinidade de thread correta e
+        reemite aqui, na thread da interface.
+        """
         self._etapa_atual = sid
+        # GUARDA o último estado pra página PUXAR — ver `progresso_atual`.
+        self._ultimo_progresso = (sid, float(fracao), msg)
+        self._n_progresso += 1
+        self.progresso.emit(sid, fracao, msg)
+
+    @Slot(result=str)
+    def progresso_atual(self) -> str:
+        """O último progresso, pra página BUSCAR em vez de esperar o sinal.
+
+        MEDIDO, e é o motivo desta função existir: durante uma análise o
+        QWebChannel para de entregar sinal Python→JS. Fica vivo no sentido
+        contrário (o JS continua chamando slots e recebendo resposta na
+        mesma hora), mas nenhum `progresso.emit` chega — nem os do worker,
+        nem um emitido na mão pela thread principal. Antes da análise
+        começar, o mesmo sinal chega normalmente.
+
+        A tela ficava em "Aguardando · 0%" do começo ao fim enquanto o log
+        enchia de `detect_shots ... 58%`. Passou despercebido porque a tela
+        de progresso só tinha sido exercitada pelo `ensaiar()`, que roda sem
+        análise nenhuma — o ensaio provava o caminho num estado em que ele
+        funciona.
+
+        Puxar é feio e é o que funciona. `n` deixa a página saber se algo
+        novo chegou sem comparar strings.
+        """
+        sid, fracao, msg = getattr(self, "_ultimo_progresso", ("", 0.0, ""))
+        # o fim é entregue UMA vez: quem puxou, levou
+        fim = getattr(self, "_fim_pendente", None)
+        self._fim_pendente = None
+        return json.dumps({
+            "n": getattr(self, "_n_progresso", 0),
+            "sid": sid, "fracao": fracao, "msg": msg,
+            "rodando": getattr(self, "_thread", None) is not None,
+            "fim": fim,
+        })
 
     def _fim_da_analise(self, como: str, **extra) -> None:
         """Fim da análise — e a página precisa saber QUAL fim.
@@ -1133,7 +1189,15 @@ class Ponte(QObject):
         self._worker = None
         etapa = getattr(self, "_etapa_atual", "")
         self._etapa_atual = ""
-        carga = {"como": como, "etapa": etapa}
+        # NÚMERO do fim, pra página saber se já tratou ESTE.
+        #
+        # Ele chega por dois caminhos (o sinal `terminou` e o laço que puxa) e
+        # tratar duas vezes abre caixinha em duplicata. Deduplicar pelo
+        # CONTEÚDO parecia bastar e não basta: duas análises seguidas que dão
+        # certo produzem exatamente o mesmo `pronto|organize`, e a segunda
+        # seria engolida como repetição da primeira.
+        self._n_fim = getattr(self, "_n_fim", 0) + 1
+        carga = {"como": como, "etapa": etapa, "n_fim": self._n_fim}
         carga.update(extra)
         if como == "cancelado":
             # Só o cancelamento durante o corte é inofensivo. Depois do
@@ -1142,6 +1206,11 @@ class Ponte(QObject):
             carga["perdeu_resultado"] = etapa not in self._ETAPAS_SEM_ESTRAGO
         print(f"    [python] análise terminou: {como}"
               + (f" ({extra.get('detalhe', '')[:90]})" if extra.get("detalhe") else ""))
+        # O FIM também fica guardado pra página puxar. O `terminou` é um
+        # sinal Python→JS, e é justamente esse sentido que morre enquanto a
+        # análise existe — sem isto a tela ficaria com o Cancelar aceso pra
+        # sempre depois de uma análise que já acabou.
+        self._fim_pendente = carga
         self.terminou.emit(json.dumps(carga))
 
     def _fim_com_resultado(self, r) -> None:

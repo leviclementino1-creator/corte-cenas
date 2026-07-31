@@ -1038,8 +1038,43 @@ function montaEtapas(){
   });
 }
 
+// A PÁGINA PUXA O PROGRESSO. Medido: enquanto uma análise existe, o
+// QWebChannel para de entregar sinal Python→JS — nem os do worker, nem um
+// emitido na mão pela thread principal. O sentido contrário continua vivo
+// (o JS chama slot e recebe resposta na hora), e antes da análise começar o
+// mesmo sinal chega normal. A tela ficava em "Aguardando · 0%" do começo ao
+// fim enquanto o log enchia de `detect_shots ... 58%`.
+//
+// Passou despercebido porque a tela de progresso só tinha sido exercitada
+// pelo `ensaiar()`, que roda SEM análise — o ensaio provava o caminho num
+// estado em que ele funciona.
+//
+// Puxar de 200 em 200 ms é feio e é o que funciona. O sinal continua ligado:
+// se ele chegar, desenha antes; `n` evita redesenhar o que já está na tela.
+let lacoProgresso = null, ultimoN = -1;
+
+function puxaProgresso(){
+  if (!ponte) return;
+  ponte.progresso_atual(json => {
+    const p = JSON.parse(json);
+    if (p.n !== ultimoN){ ultimoN = p.n; pinta(p.sid, p.fracao, p.msg); }
+    if (p.fim){ terminaAnalise(p.fim); }
+    if (!p.rodando && !p.fim){ paraDePuxar(); }
+  });
+}
+
+function comecaAPuxar(){
+  ultimoN = -1;
+  fimJaTratado = null;      // análise nova: o fim anterior não conta mais
+  clearInterval(lacoProgresso);
+  lacoProgresso = setInterval(puxaProgresso, 200);
+}
+
+function paraDePuxar(){ clearInterval(lacoProgresso); lacoProgresso = null; }
+
 function zeraProgresso(){
   t0Analise = performance.now(); ritmo = null; ultimo = null; ultimoPct = 0;
+  pintando = false;   // um rAF que nunca veio nao pode travar o resto
   const bc = document.getElementById('btn_cancelar');
   bc.style.display = '';
   bc.classList.remove('mole');
@@ -1305,7 +1340,7 @@ function dispara(pedido){
     // rodando" deixava a tela com cara de análise em curso e o Cancelar
     // visível pra sempre — quem esconde o Cancelar é o `terminou`, que nesse
     // caso nunca vem.
-    if (r.ok) zeraProgresso();
+    if (r.ok){ zeraProgresso(); comecaAPuxar(); }
   };
   if (pedido.descoberta) ponte.descobrir(JSON.stringify(pedido), volta);
   else ponte.analisar(JSON.stringify(pedido), volta);
@@ -1366,8 +1401,22 @@ function contaOQueSaiuTorto(d){
   });
 }
 
+let fimJaTratado = null;
+
 function terminaAnalise(d){
   const como = d.como || '';
+  // Chega por DOIS caminhos — o sinal `terminou` (quando ele funciona) e o
+  // laço que puxa. Tratar duas vezes abriria a caixinha em duplicata e
+  // recarregaria o acervo à toa.
+  //
+  // A chave é o NÚMERO que o Python põe, não o conteúdo: duas análises
+  // seguidas que dão certo são idênticas ("pronto", "organize") e a segunda
+  // seria engolida como repetição da primeira.
+  if (d.n_fim){
+    if (d.n_fim === fimJaTratado) return;
+    fimJaTratado = d.n_fim;
+  }
+  paraDePuxar();
   document.getElementById('btn_cancelar').style.display = 'none';
 
   if (FIM_BOM[como]){
