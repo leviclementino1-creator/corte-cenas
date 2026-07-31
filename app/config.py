@@ -271,6 +271,14 @@ class Config:
     # warning. Once dismissed, we don't nag on every startup.
     gpu_warning_dismissed: bool = False
 
+    # --- estado da carga, NÃO persistido ---------------------------------
+    # Preenchidos pelo load()/ensure_dirs() pra que a interface possa dizer
+    # "não deu pra ler suas configurações" em vez de mostrar tudo no padrão
+    # como se esse fosse o estado salvo.
+    erro_ao_carregar: str = ""
+    arquivo_quebrado: str = ""
+    saida_indisponivel: str = ""   # o caminho configurado que não respondeu
+
     @classmethod
     def load(cls) -> "Config":
         cfg = cls()
@@ -280,8 +288,32 @@ class Config:
                 for k in _PERSISTED_FIELDS:
                     if k in data:
                         setattr(cfg, k, data[k])
-            except Exception:
-                pass
+            except Exception as e:
+                # ARQUIVO QUEBRADO NÃO SOME EM SILÊNCIO.
+                #
+                # Este `except: pass` engolia um JSON inválido e devolvia um
+                # Config zerado, sem aviso e sem cópia. Como o `save()`
+                # reescreve o arquivo INTEIRO, o primeiro Salvar depois disso
+                # levava junto a chave de API, a pasta de saída, os thresholds
+                # e o last_anime — tudo já perdido, e a única pista era a
+                # sensação de que "o app esqueceu minhas configurações".
+                #
+                # Agora o arquivo ruim vira `config.json.quebrado-<data>` (a
+                # mesma regra da lixeira) e quem carregou fica sabendo por
+                # `cfg.erro_ao_carregar`.
+                cfg.erro_ao_carregar = str(e)[:200]
+                try:
+                    from datetime import datetime
+
+                    morto = CONFIG_FILE.with_name(
+                        CONFIG_FILE.name + ".quebrado-"
+                        + datetime.now().strftime("%Y%m%d_%H%M%S"))
+                    CONFIG_FILE.replace(morto)
+                    cfg.arquivo_quebrado = str(morto)
+                    print(f"[CorteCenas] config.json ilegível ({e}) — guardei "
+                          f"em {morto} e voltei ao padrão", flush=True)
+                except OSError:
+                    pass
         # Migration: model names retired by the providers. NavyAI removed
         # gemini-2.0-flash in 2026 (every request 400s with model_not_found)
         # and Google retires old Gemini lines on a similar cadence — swap
@@ -310,7 +342,14 @@ class Config:
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {k: getattr(self, k) for k in _PERSISTED_FIELDS}
-        CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        # ATÔMICO: escreve ao lado e troca. O `write_text` direto era o que
+        # PRODUZIA o config.json pela metade que o load() tinha que engolir —
+        # queda de energia ou disco cheio no meio da escrita deixava o arquivo
+        # truncado. Com .tmp + replace, ou o arquivo novo está inteiro ou o
+        # antigo continua lá.
+        tmp = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(CONFIG_FILE)
 
     @property
     def output_path(self) -> Path:
@@ -325,10 +364,25 @@ class Config:
         return Path(self.models_dir)
 
     def ensure_dirs(self) -> None:
-        """Create the working dirs. If a persisted path is unwritable —
-        classic case: install upgraded across versions where old default
-        pointed into Program Files — fall back to the current safe default
-        for that path and persist the fix so we don't crash next time."""
+        """Cria as pastas de trabalho. Caminho persistido que não dá pra
+        escrever — caso clássico: instalação antiga cujo padrão apontava pra
+        dentro de Program Files — cai no padrão seguro daquele caminho.
+
+        A TROCA DA SAÍDA NÃO É MAIS GRAVADA.
+
+        Com a saída num HD externo, abrir o app com o disco desconectado
+        trocava pro padrão E CHAMAVA `save()`: o caminho configurado era
+        apagado do config.json. Ao reconectar o HD, o app continuava
+        apontando pra `Documentos\\CorteCenas\\Output` — Biblioteca vazia — e
+        as Configurações mostravam o caminho novo como se sempre tivesse
+        sido aquele. Nada perdido no disco, mas nenhuma pista de onde estava
+        o acervo.
+
+        Agora: o padrão vale só PARA ESTA SESSÃO e `saida_indisponivel`
+        guarda o caminho que não respondeu, pra a interface avisar e o
+        usuário decidir. Cache e modelos continuam gravando o conserto — são
+        derivados, não são o trabalho dele.
+        """
         fallbacks = {
             "output_dir": DEFAULT_OUTPUT,
             "cache_dir": DEFAULT_CACHE,
@@ -342,8 +396,14 @@ class Config:
             except (OSError, PermissionError):
                 new_path = fallbacks[attr]
                 new_path.mkdir(parents=True, exist_ok=True)
+                if attr == "output_dir":
+                    self.saida_indisponivel = str(current)
+                    print(f"[CorteCenas] A pasta de saída {current} não está "
+                          f"acessível — usando {new_path} SÓ nesta sessão "
+                          f"(nada foi movido nem gravado)", flush=True)
+                else:
+                    dirty = True
                 setattr(self, attr, str(new_path))
-                dirty = True
         (self.cache_path / "anime_db").mkdir(parents=True, exist_ok=True)
         if dirty:
             try:

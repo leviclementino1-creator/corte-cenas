@@ -1131,6 +1131,22 @@ function comeca(extra){
 
   ponte.estado_do_episodio(JSON.stringify(pedido), json => {
     const e = JSON.parse(json);
+    // Disco apertado vem antes de tudo: se acabar no meio, as cenas que
+    // faltarem simplesmente não são cortadas.
+    if (e.aviso_disco){
+      pergunta({
+        titulo: 'Pouco espaço em disco',
+        texto: e.aviso_disco + '<br><br>Rodar de novo depois de liberar '
+             + 'espaço aproveita o que já foi cortado.',
+        confirmar: 'Analisar assim mesmo', negar: 'Cancelar',
+      }, () => { e.aviso_disco = ''; segueAnalise(pedido, e); });
+      return;
+    }
+    segueAnalise(pedido, e);
+  });
+}
+
+function segueAnalise(pedido, e){
     if (!e.tem_analise){ dispara(pedido); return; }
     const quanto = e.cenas ? `<b>${e.cenas} cena(s)</b> já identificadas`
                            : 'identificação já salva';
@@ -1177,7 +1193,6 @@ function comeca(extra){
     }, escolha => dispara(Object.assign({}, pedido, {
       modo: (escolha || '').startsWith('Adicionar') ? 'adicionar' : 'substituir',
     })));
-  });
 }
 
 function dispara(pedido){

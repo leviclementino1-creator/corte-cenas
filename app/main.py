@@ -15,7 +15,7 @@ from .deps_check import cuda_available, ffmpeg_available, missing_optional_deps
 _log = __import__('logging').getLogger('cortecenas')
 from .ui.deps_dialog import FFmpegMissingDialog, MissingDepsDialog, NoGpuDialog
 from .ui.main_window import MainWindow
-from .updater import check_and_offer_update, fetch_release
+from .updater import avisar_se_update_falhou, check_and_offer_update, fetch_release
 
 
 def _load_app_icon() -> QIcon:
@@ -191,18 +191,63 @@ def main() -> int:
     # o Chromium tranca a lista de esquemas quando inicializa, e depois disso
     # todo pedido de miniatura é barrado antes de chegar no Python.
     classico = _quer_interface_classica()
+    caiu_pro_classico = ""      # vazio = escolha do usuário, não acidente
     if not classico:
         try:
             from .ui.web import registra_esquema
 
             registra_esquema()
-        except Exception:
+        except Exception as e:
             _log.exception("QtWebEngine indisponível — caindo pra interface clássica")
             classico = True
+            caiu_pro_classico = f"{type(e).__name__}: {e}"[:300]
 
     app = QApplication(sys.argv)
     app.setApplicationName("Corte Cenas")
     app.setWindowIcon(_load_app_icon())
+
+    # DUAS INSTÂNCIAS NO MESMO BANCO.
+    #
+    # Não havia trava nenhuma, e `sqlite3.connect` é chamado cru — sem
+    # `timeout=` e sem WAL. Dois cliques no ícone e duas análises: a segunda
+    # leva "database is locked" depois de 5 s e, até a onda B, mostrava
+    # "Análise terminada." com 100%. As duas ainda escrevem clipes na mesma
+    # pasta.
+    #
+    # Aviso em vez de proibição: o Levi roda o app instalado e o modo fonte
+    # lado a lado de propósito, e travar isso quebraria o fluxo dele. Mas
+    # tem que ser uma escolha, não uma surpresa.
+    trava = None
+    try:
+        import tempfile
+
+        from PySide6.QtCore import QLockFile
+
+        trava = QLockFile(str(Path(tempfile.gettempdir()) / "CorteCenas.lock"))
+        trava.setStaleLockTime(30_000)
+        if not trava.tryLock(150):
+            from PySide6.QtWidgets import QMessageBox
+
+            cx = QMessageBox()
+            cx.setIcon(QMessageBox.Icon.Warning)
+            cx.setWindowTitle("O Corte Cenas já está aberto")
+            cx.setText("Já tem uma instância do Corte Cenas rodando.")
+            cx.setInformativeText(
+                "As duas usam o MESMO banco e a MESMA pasta de saída:\n\n"
+                "• Analisar nas duas ao mesmo tempo dá erro de banco travado\n"
+                "• Elas podem escrever clipes por cima uma da outra\n\n"
+                "Abrir só pra olhar a Biblioteca é seguro."
+            )
+            seguir = cx.addButton("Abrir assim mesmo", QMessageBox.ButtonRole.AcceptRole)
+            cx.addButton("Fechar", QMessageBox.ButtonRole.RejectRole)
+            cx.setDefaultButton(seguir)
+            cx.exec()
+            if cx.clickedButton() is not seguir:
+                return 0
+            trava = None      # segue sem a trava, por escolha do usuário
+    except Exception:  # noqa: BLE001 — trava é conforto, não requisito
+        trava = None
+    app._trava_instancia = trava   # segura a referência pela vida do processo
 
     # Splash "estilo After Effects": fica na tela DURANTE todo o carregamento
     # lento (rede + torch), com o status trocando embaixo do ícone. A janela
@@ -273,6 +318,9 @@ def main() -> int:
     except Exception:
         has_cuda = False
     bg.shutdown(wait=False)
+    # Uma atualização foi tentada e o app continua na versão velha? O helper
+    # já escrevia "APPLY FAILED" num log que ninguém lia.
+    avisar_se_update_falhou(parent=win)
     check_and_offer_update(parent=win, release=release)
 
     if missing:
@@ -289,6 +337,64 @@ def main() -> int:
         if dlg.dont_ask_again:
             cfg.gpu_warning_dismissed = True
             cfg.save()
+
+    # CAIR PRA INTERFACE ANTIGA NÃO É SILENCIOSO.
+    #
+    # O `except` acima só escrevia no app.log e a janela clássica subia com o
+    # título de sempre. É o pior jeito de a v0.5.0 aparecer pra quem atualiza:
+    # a pessoa vê a interface velha e conclui que a atualização não pegou —
+    # e pode reinstalar tudo atrás de um problema que não é esse.
+    #
+    # `--classico` (escolha explícita) continua sem alarme nenhum.
+    if caiu_pro_classico:
+        from PySide6.QtWidgets import QMessageBox
+
+        cx = QMessageBox()
+        cx.setIcon(QMessageBox.Icon.Warning)
+        cx.setWindowTitle("Interface nova não carregou")
+        cx.setText(
+            f"A interface nova da v{__version__} não carregou nesta máquina.\n"
+            "Abri a antiga pra você não ficar sem app."
+        )
+        cx.setInformativeText(
+            f"• A v{__version__} ESTÁ instalada — a atualização pegou\n"
+            "• Nenhum dos seus cortes ou configurações mudou\n"
+            "• Tudo continua funcionando por aqui\n\n"
+            f"Motivo: {caiu_pro_classico}\n\n"
+            "Se atualizou pelo delta, reinstalar com o CorteCenas-Setup "
+            "completo costuma resolver (o delta não traz o QtWebEngine).\n"
+            f"Log: {cfg.cache_path / 'logs' / 'app.log'}"
+        )
+        cx.exec()
+
+    # Config ilegível: mesma lógica — voltar tudo pro padrão em silêncio faz
+    # o usuário achar que o app "esqueceu" os ajustes dele.
+    if getattr(cfg, "erro_ao_carregar", ""):
+        from PySide6.QtWidgets import QMessageBox
+
+        QMessageBox.warning(
+            None, "Configurações ilegíveis",
+            f"Não consegui ler o config.json ({cfg.erro_ao_carregar}).\n\n"
+            f"• Guardei o arquivo em {cfg.arquivo_quebrado or '(não deu)'}\n"
+            "• Esta sessão está com os valores PADRÃO\n"
+            "• Seus cortes e o acervo não foram tocados\n"
+            "• Salvar as Configurações agora sobrescreve o arquivo antigo",
+        )
+
+    # Saída inacessível: o caminho configurado NÃO foi apagado, mas a
+    # Biblioteca vai aparecer vazia e é preciso dizer por quê.
+    if getattr(cfg, "saida_indisponivel", ""):
+        from PySide6.QtWidgets import QMessageBox
+
+        QMessageBox.warning(
+            None, "Pasta de saída fora do ar",
+            f"A pasta {cfg.saida_indisponivel} não está acessível agora "
+            "(disco externo desconectado?).\n\n"
+            f"• Nesta sessão vou usar {cfg.output_dir}\n"
+            "• NADA foi movido, apagado ou regravado\n"
+            "• A Biblioteca vai aparecer vazia — é só o lugar errado\n"
+            "• Reconecte e reabra o app que ele volta sozinho",
+        )
 
     return app.exec()
 

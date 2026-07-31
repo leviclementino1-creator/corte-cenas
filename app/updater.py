@@ -13,6 +13,7 @@ Silent no-op if:
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -86,28 +87,49 @@ def _find_delta_url(release: dict) -> str | None:
 
 
 class _DownloadThread(QThread):
-    progress = Signal(int)
+    progress = Signal(int)          # 0..100, ou -1 = tamanho desconhecido
+    baixados = Signal(int, int)     # (bytes baixados, total ou 0)
+    cancelado = Signal()
     finished_ok = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, url: str, dest: Path):
+    def __init__(self, url: str, dest: Path, total: int = 0):
         super().__init__()
         self._url = url
         self._dest = dest
+        # O tamanho que a API do GitHub já informou no asset. Serve de reserva
+        # quando o servidor não manda Content-Length (proxy, CDN com
+        # transfer-encoding chunked) — sem ele a barra ficava em 0% o download
+        # inteiro.
+        self._total = int(total or 0)
 
     def run(self) -> None:
         try:
             with httpx.stream("GET", self._url, timeout=None, follow_redirects=True) as r:
-                total = int(r.headers.get("content-length") or 0)
-                downloaded = 0
+                # `total` pode vir do header OU do tamanho que a API do GitHub
+                # já informou. Sem nenhum dos dois, o `if total:` fazia o sinal
+                # de progresso NUNCA ser emitido: a barra ficava cravada em 0%
+                # por dez minutos num download de 2 GB, indistinguível de
+                # travamento. Sem total, manda -1 e a tela mostra os MB.
+                total = int(r.headers.get("content-length") or 0) or self._total
+                baixado = 0
                 with open(self._dest, "wb") as fh:
                     for chunk in r.iter_bytes(chunk_size=128 * 1024):
                         if self.isInterruptionRequested():
+                            # Cancelar era MUDO: a thread saía sem emitir nada
+                            # e o arquivo parcial ficava no %TEMP% pra sempre.
+                            try:
+                                fh.close()
+                                Path(self._dest).unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                            self.cancelado.emit()
                             return
                         fh.write(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            self.progress.emit(int(downloaded * 100 / total))
+                        baixado += len(chunk)
+                        self.progress.emit(
+                            int(baixado * 100 / total) if total else -1)
+                        self.baixados.emit(baixado, total)
             self.finished_ok.emit(str(self._dest))
         except Exception as e:
             self.failed.emit(str(e))
@@ -213,15 +235,102 @@ def _apply_delta_and_quit(zip_path: str, parent: QWidget | None) -> None:
         f"-NoProfile -ExecutionPolicy Bypass -File \"{helper}\" "
         f"-Source \"{staging}\" -Install \"{install_dir}\""
     )
+    # O APP VAI FECHAR AGORA — e isso precisa ser dito ANTES.
+    #
+    # O helper roda com SW_HIDE e o app chamava `app.quit()` em seguida: da
+    # cadeira, o Corte Cenas simplesmente sumia depois do UAC. Pior, o
+    # `apply_update.ps1` espera 15 s e dá `Stop-Process -Force` POR NOME —
+    # se o usuário reabrir o app nesse meio-tempo, ele mata a instância nova
+    # também.
+    from PySide6.QtWidgets import QMessageBox
+
+    cx = QMessageBox(parent)
+    cx.setIcon(QMessageBox.Icon.Information)
+    cx.setWindowTitle("Aplicar a atualização")
+    cx.setText("Vou fechar o Corte Cenas agora pra aplicar a atualização.")
+    cx.setInformativeText(
+        "• Ele reabre sozinho em até 1 minuto\n"
+        "• NÃO abra o app manualmente nesse tempo — o atualizador fecha "
+        "qualquer instância que encontrar\n"
+        "• Seus cortes, o acervo e as configurações não são tocados\n"
+        "• Se algo der errado, o app avisa no próximo arranque"
+    )
+    cx.setStandardButtons(QMessageBox.StandardButton.Ok
+                          | QMessageBox.StandardButton.Cancel)
+    cx.setDefaultButton(QMessageBox.StandardButton.Ok)
+    if cx.exec() != QMessageBox.StandardButton.Ok:
+        return
+
     hinst = ctypes.windll.shell32.ShellExecuteW(
         None, "runas", "powershell.exe", ps_cmd, None, 0  # SW_HIDE
     )
     if int(hinst) <= 32:
         raise RuntimeError(f"ShellExecute retornou {hinst}")
 
+    # Marca que uma atualização foi TENTADA. O helper escreve "APPLY FAILED"
+    # num .log que ninguém lia, e uma cópia que falhou no meio deixava o app
+    # em estado misto sem nenhum aviso. No próximo arranque o app compara a
+    # versão que está rodando com a que era esperada.
+    try:
+        from .config import Config
+
+        marca = Path(Config.load().cache_path) / "update_pendente.json"
+        marca.write_text(json.dumps({
+            "esperada": _esperada_do_zip(zip_path) or "",
+            "de": __version__,
+        }), encoding="utf-8")
+    except Exception:  # noqa: BLE001 — a marca é diagnóstico, não requisito
+        pass
+
     app = QApplication.instance()
     if app is not None:
         app.quit()
+
+
+def _esperada_do_zip(zip_path: str) -> str | None:
+    """A versão que o delta traz dentro — pra saber, no próximo arranque, se
+    a atualização pegou ou ficou pela metade."""
+    import re as _re
+    import zipfile as _zipfile
+
+    try:
+        with _zipfile.ZipFile(zip_path) as zf:
+            txt = zf.read("_internal/app/__init__.py").decode("utf-8", "replace")
+        m = _re.search(r'__version__\s*=\s*"([^"]+)"', txt)
+        return m.group(1) if m else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def avisar_se_update_falhou(parent: QWidget | None = None) -> None:
+    """Chamado no arranque: a atualização anterior chegou onde prometeu?
+
+    O `apply_update.ps1` já escrevia "APPLY FAILED" num .log e não relançava
+    nada — mas ninguém no app lia esse log nem o código de saída. Quem tinha
+    uma cópia falhando ficava numa versão antiga achando que estava na nova.
+    """
+    from .config import Config
+
+    try:
+        marca = Path(Config.load().cache_path) / "update_pendente.json"
+        if not marca.exists():
+            return
+        d = json.loads(marca.read_text(encoding="utf-8"))
+        marca.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        return
+    esperada = (d.get("esperada") or "").lstrip("v")
+    if not esperada or esperada == __version__:
+        return
+    quiet.warning(
+        parent, "A atualização não foi aplicada",
+        f"Uma atualização para a v{esperada} foi iniciada, mas o app "
+        f"continua na v{__version__}.\n\n"
+        "A cópia dos arquivos deve ter falhado (antivírus, arquivo em uso, "
+        "permissão).\n\n"
+        f"Baixe o CorteCenas-Setup-{esperada}.exe da página da release e rode "
+        "por cima da instalação — nada seu é perdido nisso."
+    )
 
 
 def check_and_offer_update(
@@ -302,14 +411,27 @@ def check_and_offer_update(
         download_url = installer_url
         is_delta = False
 
-    progress = QProgressDialog("Baixando atualização...", "Cancelar", 0, 100, parent)
+    # O tamanho já vem no asset da API — usar isso evita a barra em 0% quando
+    # o servidor não manda Content-Length.
+    tamanho = 0
+    for a in (release.get("assets") or []):
+        if a.get("browser_download_url") == download_url:
+            tamanho = int(a.get("size") or 0)
+            break
+
+    def _mb(n: int) -> str:
+        return f"{n / 1048576:.0f} MB"
+
+    progress = QProgressDialog(
+        f"Baixando {dest.name}" + (f" — {_mb(tamanho)}" if tamanho else ""),
+        "Cancelar", 0, 100, parent)
     progress.setWindowTitle("Atualizando Corte Cenas")
     progress.setMinimumDuration(0)
     progress.setAutoClose(False)
     progress.setAutoReset(False)
     progress.setValue(0)
 
-    thread = _DownloadThread(download_url, dest)
+    thread = _DownloadThread(download_url, dest, total=tamanho)
 
     def _launch_and_quit(path: str) -> None:
         progress.close()
@@ -335,11 +457,29 @@ def check_and_offer_update(
             else:
                 subprocess.Popen([path], close_fds=True)
         except Exception as e:
-            quiet.warning(
-                parent, "Erro ao iniciar instalador",
-                f"{e}\n\nO instalador foi baixado em:\n{path}\n\n"
-                "Você pode dar dois cliques nele manualmente pra atualizar."
-            )
+            # O conselho dependia do que foi baixado, e a mensagem era a mesma
+            # nos dois casos. No caminho delta o arquivo é um .zip INTERNO:
+            # dois cliques abrem o Explorer e não atualizam nada — e quem
+            # tenta ser esperto e extrai por cima da instalação fura a
+            # checagem de fingerprint que existe justamente pra impedir isso
+            # (o delta não traz as bibliotecas).
+            if is_delta:
+                quiet.warning(
+                    parent, "Não deu pra aplicar a atualização rápida",
+                    f"{e}\n\n"
+                    "A atualização rápida precisa de permissão de "
+                    "administrador.\n\n"
+                    f"O arquivo em {path} é um pacote INTERNO — dois cliques "
+                    "nele NÃO atualizam o app.\n\n"
+                    f"Baixe o CorteCenas-Setup-{remote_tag}.exe da página da "
+                    "release e rode ele por cima da instalação."
+                )
+            else:
+                quiet.warning(
+                    parent, "Erro ao iniciar instalador",
+                    f"{e}\n\nO instalador foi baixado em:\n{path}\n\n"
+                    "Você pode dar dois cliques nele manualmente pra atualizar."
+                )
             return
         app = QApplication.instance()
         if app is not None:
@@ -353,7 +493,29 @@ def check_and_offer_update(
             "Tenta de novo em alguns minutos ou baixa manualmente do GitHub."
         )
 
-    thread.progress.connect(progress.setValue)
+    def _pinta(pct: int) -> None:
+        if pct < 0:
+            # tamanho desconhecido: barra indeterminada em vez de 0% eterno
+            progress.setRange(0, 0)
+        else:
+            progress.setValue(pct)
+
+    def _conta(baixado: int, total: int) -> None:
+        progress.setLabelText(
+            f"Baixando {dest.name} — {_mb(baixado)}"
+            + (f" de {_mb(total)}" if total else " (tamanho desconhecido)"))
+
+    def _foi_cancelado() -> None:
+        progress.close()
+        quiet.information(
+            parent, "Download cancelado",
+            f"Nada foi instalado — o app continua na v{__version__}.\n"
+            "O arquivo parcial foi apagado."
+        )
+
+    thread.progress.connect(_pinta)
+    thread.baixados.connect(_conta)
+    thread.cancelado.connect(_foi_cancelado)
     thread.finished_ok.connect(_launch_and_quit)
     thread.failed.connect(_show_error)
     progress.canceled.connect(thread.requestInterruption)

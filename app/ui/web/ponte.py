@@ -505,7 +505,36 @@ class Ponte(QObject):
                 cenas = int(r[0]) if r else 0
         except Exception:  # noqa: BLE001
             pass
-        return json.dumps({"tem_analise": bool(tem), "cenas": cenas})
+
+        # ESPAÇO EM DISCO. Não havia checagem nenhuma no projeto inteiro
+        # (zero ocorrências de disk_usage/ENOSPC): o disco enchia no meio do
+        # corte, o ffmpeg falhava cena a cena, `cut_all_shots` filtrava os
+        # None e a análise emitia `finished` — "pronto", com metade das cenas.
+        #
+        # A estimativa é grosseira de propósito: os clipes juntos dão mais ou
+        # menos o tamanho do episódio (mesmo codec, mesmo bitrate), e os
+        # keyframes somam pouco. Uma folga de 1,5x cobre o erro.
+        aviso_disco = ""
+        try:
+            import shutil as _sh
+
+            arq = Path(d.get("arquivo") or "")
+            if arq.exists():
+                preciso = int(arq.stat().st_size * 1.5)
+                livre = _sh.disk_usage(self._saida()).free
+                if livre < preciso:
+                    aviso_disco = (
+                        f"Sobram {livre / 2**30:.1f} GB em "
+                        f"{self._saida().drive or self._saida()} e esta análise "
+                        f"deve escrever perto de {preciso / 2**30:.1f} GB. "
+                        f"Se o espaço acabar no meio, as cenas que faltarem "
+                        f"não são cortadas e os clipes já feitos ficam onde "
+                        f"estão.")
+        except Exception:  # noqa: BLE001 — estimar não pode derrubar a análise
+            pass
+
+        return json.dumps({"tem_analise": bool(tem), "cenas": cenas,
+                           "aviso_disco": aviso_disco})
 
     # ---- curadoria --------------------------------------------------------
     @Slot(result=str)
@@ -1522,6 +1551,8 @@ class Ponte(QObject):
             atual = self._preset_atual(c)
             return json.dumps({
                 "saida": str(c.output_path),
+                # a saída de verdade, quando a desta sessão é provisória
+                "saida_indisponivel": getattr(c, "saida_indisponivel", ""),
                 "preset": atual,
                 "por_personagem": bool(c.organize_by_character_enabled),
                 "por_dupla": bool(c.organize_by_pair_enabled),
@@ -1559,20 +1590,42 @@ class Ponte(QObject):
                 if chave in d:
                     setattr(c, campo, bool(d[chave]))
             if d.get("saida"):
-                c.output_dir = str(d["saida"])
+                nova = str(d["saida"])
+                # Saída inacessível nesta sessão (HD desconectado): o app está
+                # usando um caminho provisório e a tela MOSTRA esse provisório.
+                # Salvar sem mexer nele gravaria o provisório por cima do
+                # caminho real — o mesmo apagão que o `ensure_dirs` deixou de
+                # fazer sozinho, só que pela mão do usuário.
+                if (getattr(c, "saida_indisponivel", "")
+                        and nova == str(c.output_path)):
+                    print(f"    [python] mantive a saída configurada "
+                          f"({c.saida_indisponivel}) — a desta sessão é "
+                          f"provisória")
+                    c.output_dir = c.saida_indisponivel
+                else:
+                    c.output_dir = nova
             c.save()
             depois = str(self._saida())
             mudou = depois != antes
-            print(f"    [python] configurações gravadas (preset={preset})"
-                  + (f" — saída {antes} → {depois}" if mudou else ""))
-            # Quem chamou precisa saber que a SAÍDA mudou, não só que salvou:
-            # a Biblioteca inteira é lida de lá e acabou de ficar velha.
-            return json.dumps({
-                "ok": True, "msg": "Configurações salvas.",
-                "saida_mudou": mudou, "saida": depois,
-            })
         except Exception as e:  # noqa: BLE001
             return json.dumps({"ok": False, "msg": f"não deu pra salvar: {e}"})
+
+        # O LOG FICA FORA DO TRY. Este print estava lá dentro e tinha um "→":
+        # num console cp1252 ele levanta UnicodeEncodeError, o `except` amplo
+        # pegava, e um Salvar que FUNCIONOU voltava pra tela como
+        # "não deu pra salvar". A operação já tinha acontecido — só o relato
+        # é que mentia. Registrar não pode ter voto no resultado.
+        try:
+            print(f"    [python] configuracoes gravadas (preset={preset})"
+                  + (f" - saida {antes} -> {depois}" if mudou else ""))
+        except Exception:  # noqa: BLE001
+            pass
+        # Quem chamou precisa saber que a SAÍDA mudou, não só que salvou:
+        # a Biblioteca inteira é lida de lá e acabou de ficar velha.
+        return json.dumps({
+            "ok": True, "msg": "Configurações salvas.",
+            "saida_mudou": mudou, "saida": depois,
+        })
 
     @Slot(result=str)
     def escolher_pasta_saida(self) -> str:
