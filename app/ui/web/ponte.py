@@ -280,6 +280,8 @@ class Ponte(QObject):
         # último progresso, pra página puxar (ver `progresso_atual`)
         self._ultimo_progresso: tuple[str, float, str] = ("", 0.0, "")
         self._n_progresso = 0
+        self._fim_pendente: dict | None = None
+        self._batismo_pendente: str | None = None
         self._shots: dict[int, dict] = {}     # idx -> linha do shot
         self._donos: dict[int, list] = {}     # shot_id -> personagens
 
@@ -1001,7 +1003,12 @@ class Ponte(QObject):
                               "refs_faltando", detalhe=str(m), refs_dir=str(p or ""))))
         self._worker.anime_not_found.connect(
             lambda m: self._fim_da_analise("anime_nao_achado", detalhe=str(m)))
-        self._worker.discovery_ready.connect(self._guarda_descoberta)
+        self._worker.discovery_ready.connect(self._descoberta_pronta)
+        # Análise nova: o que sobrou da anterior não pode chegar agora. Um
+        # batismo reaberto e não puxado abriria a tela de nomes no meio da
+        # próxima análise.
+        self._fim_pendente = None
+        self._batismo_pendente = None
         self._thread.start()
         print(f"    [python] análise começou: {info.anime} S{info.season:02d}E{info.episode:02d}")
         return json.dumps({"ok": True, "msg": f"Analisando {info.anime}…"})
@@ -1015,6 +1022,27 @@ class Ponte(QObject):
         d = json.loads(pedido)
         d["descoberta"] = True
         return self.analisar(json.dumps(d))
+
+    def _descoberta_pronta(self, disc) -> None:
+        """Fim do Modo Descoberta — e ele é um FIM, coisa que ninguém dizia.
+
+        O worker emitia `discovery_ready` e dava `return`, sem passar por
+        `_fim_da_analise`. Três consequências, todas medidas numa descoberta
+        de verdade que chegou a 100% e parou ali:
+
+        · a QThread nunca era encerrada, então `self._thread` ficava presa
+          pra sempre — e o `batizar` recusa trabalhar com uma thread viva
+          ("já tem trabalho rodando"). O batismo estava condenado antes
+          mesmo de a tela poder abrir;
+        · o laço que puxa o progresso lê `rodando` desse mesmo campo: ele
+          ficava girando de 200 em 200 ms pra sempre, com o Cancelar aceso;
+        · a página nunca era avisada de nada, porque o único aviso era o
+          sinal `descobriu` — Python→JS, o sentido que morre enquanto uma
+          análise existe.
+        """
+        n = len(getattr(disc, "groups", None) or [])
+        self._guarda_descoberta(disc)
+        self._fim_da_analise("descoberta", grupos=n)
 
     def _guarda_descoberta(self, disc) -> None:
         """Recebe o DiscoveryResult e o abre pra página.
@@ -1063,7 +1091,14 @@ class Ponte(QObject):
         }
         print(f"    [python] descoberta: {len(grupos)} grupos, "
               f"{disc.total_faces} rostos, elenco com {len(disc.roster or [])} nomes")
-        self.descobriu.emit(json.dumps(payload))
+        carga = json.dumps(payload)
+        # GUARDA pra página PUXAR, pelo mesmo motivo do `_fim_pendente`: o
+        # `descobriu` é um sinal Python→JS e a descoberta termina com o
+        # worker ainda vivo, que é exatamente o estado em que esse sentido
+        # não entrega nada. A análise ia até 100%, o log dizia "18 grupos
+        # descobertos" e a tela de batismo nunca abria.
+        self._batismo_pendente = carga
+        self.descobriu.emit(carga)
 
     @Slot(str, result=str)
     def batizar(self, pedido: str) -> str:
@@ -1103,6 +1138,8 @@ class Ponte(QObject):
         self._worker.finished.connect(lambda _r: self._fim_da_analise("batizado"))
         self._worker.failed.connect(
             lambda m: self._fim_da_analise("falhou", detalhe=str(m)))
+        self._fim_pendente = None
+        self._batismo_pendente = None
         self._thread.start()
         print(f"    [python] batismo de {len(nomes)} grupo(s): "
               f"{', '.join(sorted(nomes.values()))}")
@@ -1161,11 +1198,15 @@ class Ponte(QObject):
         # o fim é entregue UMA vez: quem puxou, levou
         fim = getattr(self, "_fim_pendente", None)
         self._fim_pendente = None
+        # e o batismo vem pelo mesmo caminho, pelo mesmo motivo
+        batismo = getattr(self, "_batismo_pendente", None)
+        self._batismo_pendente = None
         return json.dumps({
             "n": getattr(self, "_n_progresso", 0),
             "sid": sid, "fracao": fracao, "msg": msg,
             "rodando": getattr(self, "_thread", None) is not None,
             "fim": fim,
+            "batismo": batismo,
         })
 
     def _fim_da_analise(self, como: str, **extra) -> None:
@@ -1307,6 +1348,15 @@ class Ponte(QObject):
         # o worker de verdade tem o pedido dele; o ensaio usa interrupção
         w = getattr(self, "_worker", None)
         if w is not None:
+            # O `DiscoveryCommitWorker` não tem `request_cancel` — e não é
+            # esquecimento, é que gravar metade dos personagens, das refs e
+            # dos hardlinks é pior que esperar. Chamar assim mesmo levantava
+            # AttributeError dentro do slot: a página recebia `undefined` e
+            # morria no JSON.parse.
+            if not hasattr(w, "request_cancel"):
+                return json.dumps({"ok": False, "msg":
+                    "Isto não dá pra cancelar — está gravando os personagens "
+                    "e as referências. Falta pouco."})
             w.request_cancel()
             print("    [python] cancelamento pedido à análise")
             return json.dumps({"ok": True, "msg":
@@ -1330,8 +1380,14 @@ class Ponte(QObject):
         disc = getattr(self, "_descoberta", None)
         if disc is None or not getattr(disc, "groups", None):
             return json.dumps({"ok": False, "msg": "nenhuma descoberta aberta"})
-        self._guarda_descoberta(disc)   # reemite `descobriu` com o mesmo payload
-        return json.dumps({"ok": True, "msg": ""})
+        self._guarda_descoberta(disc)
+        # O payload VOLTA na resposta, não pelo sinal. Aqui não há análise
+        # rodando e o `descobriu` até chegaria — mas também não há laço
+        # puxando, então o `_batismo_pendente` ficaria parado esperando um
+        # puxão que só viria na próxima análise. Quem pediu, recebe agora.
+        carga = getattr(self, "_batismo_pendente", None)
+        self._batismo_pendente = None
+        return json.dumps({"ok": True, "msg": "", "batismo": carga})
 
     @Slot(result=str)
     def readotar(self) -> str:

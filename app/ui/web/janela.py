@@ -100,11 +100,18 @@ class JanelaWeb(QMainWindow):
             "pronto": ("Corte Cenas — Análise pronta", "O episódio terminou de ser cortado."),
             "batizado": ("Corte Cenas — Personagens salvos", "O batismo terminou."),
             "cancelado": ("Corte Cenas — Análise cancelada", "Você parou a análise."),
+            # o único fim que PRECISA de gente: os grupos estão esperando nome
+            "descoberta": ("Corte Cenas — Hora de batizar",
+                           "A descoberta terminou e a tela de nomes está aberta."),
             "refs_faltando": ("Corte Cenas — Faltam referências",
                               "A análise parou: nenhum personagem tem fotos suficientes."),
             "anime_nao_achado": ("Corte Cenas — Anime não encontrado",
                                  "A análise parou. Abra o app pra escolher o que fazer."),
         }
+        if como == "descoberta" and d.get("grupos"):
+            titulos["descoberta"] = (
+                "Corte Cenas — Hora de batizar",
+                f"{d['grupos']} grupo(s) de rosto esperando nome.")
         if como == "pronto" and d.get("cenas"):
             titulos["pronto"] = (
                 "Corte Cenas — Análise pronta",

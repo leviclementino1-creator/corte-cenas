@@ -1058,8 +1058,25 @@ function puxaProgresso(){
   ponte.progresso_atual(json => {
     const p = JSON.parse(json);
     if (p.n !== ultimoN){ ultimoN = p.n; pinta(p.sid, p.fracao, p.msg); }
+    // O batismo vem ANTES do fim, na mesma ordem em que o Python produz os
+    // dois — e é a razão de o Modo Descoberta existir. Sem isto a descoberta
+    // chegava a 100%, o log dizia quantos grupos saíram e a tela de nomes
+    // nunca abria.
+    if (p.batismo) abreBatismo(JSON.parse(p.batismo));
     if (p.fim){ terminaAnalise(p.fim); }
-    if (!p.rodando && !p.fim){ paraDePuxar(); }
+    if (!p.rodando && !p.fim){
+      paraDePuxar();
+      // Nada rodando e nenhum fim pra entregar: alguém acabou sem avisar.
+      // Deixar o botão preso em "Cancelando…" pra sempre é o pior desfecho
+      // possível — foi exatamente o que aconteceu quando a descoberta
+      // terminava sem passar pelo fim. A tela não fica mentindo.
+      const bc = document.getElementById('btn_cancelar');
+      if (bc.style.display !== 'none'){
+        bc.style.display = 'none';
+        recado('O trabalho terminou sem dizer como. Confira a pasta de saída '
+             + '— e o log tem o motivo.', true);
+      }
+    }
   });
 }
 
@@ -1451,6 +1468,25 @@ function terminaAnalise(d){
     return;
   }
 
+  // A descoberta termina BEM sem ter organizado nada: não há personagem, não
+  // há pasta, não há o que recarregar no acervo — o trabalho continua na tela
+  // de batismo, que já abriu por cima desta. Ela não é o `pronto` (que diria
+  // "Análise terminada" pra uma análise que não identificou ninguém) nem um
+  // fim ruim (que pintaria ✕ numa etapa que deu certo).
+  if (como === 'descoberta'){
+    document.getElementById('p_pct').textContent = '100%';
+    document.querySelector('.barra i').style.width = '100%';
+    document.querySelectorAll('.etapa').forEach(e => {
+      e.className = 'etapa feita';
+      e.querySelector('.marca').textContent = '✓';
+    });
+    recado(d.grupos
+      ? `Descoberta pronta — ${d.grupos} grupo(s) de rosto esperando nome.`
+      : 'Descoberta terminada, mas nenhum grupo de rosto saiu do episódio.',
+      !d.grupos);
+    return;
+  }
+
   if (como === 'cancelado'){
     paraNaEtapa(d.etapa);
     // Só cancelar durante o corte é inofensivo. Depois disso o banco já
@@ -1609,7 +1645,9 @@ document.getElementById('bat_nao').addEventListener('click', () => {
 document.getElementById('btn_reabrir_batismo').addEventListener('click', () =>
   ponte.reabrir_batismo(json => {
     const r = JSON.parse(json);
-    if (!r.ok) recado(r.msg, true);
+    if (!r.ok){ recado(r.msg, true); return; }
+    // vem na RESPOSTA, não pelo sinal: aqui não há laço puxando nada
+    if (r.batismo) abreBatismo(JSON.parse(r.batismo));
   }));
 
 document.getElementById('bat_sim').addEventListener('click', () => {
@@ -1629,11 +1667,23 @@ document.getElementById('bat_sim').addEventListener('click', () => {
       document.getElementById('veu_batismo').classList.remove('viva');
       // batizado é fim de linha: não há o que reabrir
       document.getElementById('btn_reabrir_batismo').style.display = 'none';
+      // o commit também roda numa thread, e é a thread que mata o sinal
+      // Python→JS: sem puxar, gravar dezenas de refs e hardlinks acontecia
+      // sem barra nenhuma e o fim ("batizado") nunca chegava na tela
+      zeraProgresso();
+      // ...mas sem Cancelar: gravar metade dos personagens é pior que esperar
+      document.getElementById('btn_cancelar').style.display = 'none';
+      comecaAPuxar();
     }
   });
 });
+// "quem não é o Analisar é Descoberta" pegava o REABRIR BATISMO junto, que
+// mora na mesma barra: clicar nele reabria a tela de nomes E disparava uma
+// descoberta nova por cima — a análise inteira de novo, que é exatamente o
+// que esse botão existe pra evitar. Quem já tem dono próprio fica de fora.
+const COM_DONO = ['btn_analisar', 'btn_reabrir_batismo'];
 document.querySelectorAll('.acoes .btn').forEach(b => {
-  if (b.id === 'btn_analisar') return;
+  if (COM_DONO.includes(b.id)) return;
   if (b.textContent.includes('IA')) b.addEventListener('click', () => comeca({ia: true}));
   else b.addEventListener('click', () => comeca({descoberta: true}));
 });
