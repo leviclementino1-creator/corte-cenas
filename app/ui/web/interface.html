@@ -624,9 +624,11 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <button class="btn cheio" id="btn_ponte" data-acao="juntar">⛓&nbsp; Juntar com a próxima</button>
       <div class="btn-linha" data-acao="mover">↗&nbsp; Mover pra outro personagem</div>
       <div class="btn-linha" data-acao="remover">⤫&nbsp; Remover desta pasta</div>
+      <div class="atalhos" id="conta_sel" style="color:var(--accent)"></div>
       <div class="atalhos">
         Atalhos: <kbd>J</kbd> juntar · <kbd>M</kbd> mover · <kbd>Del</kbd> remover ·
-        <kbd>←</kbd><kbd>→</kbd> cena anterior/próxima
+        <kbd>←</kbd><kbd>→</kbd> cena anterior/próxima<br>
+        <kbd>Ctrl</kbd>+clique marca várias · <kbd>Shift</kbd>+clique marca um intervalo
       </div>
     </aside>
   </div>
@@ -907,10 +909,41 @@ document.addEventListener('mousemove', e => {
   if (d) c.querySelector('.tc').textContent = fmt(f * d.dur);
 });
 
+// Quais cenas a ação vai pegar. Com Ctrl/Shift dá pra marcar várias e
+// remover/mover tudo de uma vez — os caminhos plurais já existiam no
+// `pedeAcao` e eram código MORTO, porque a grade só deixava escolher uma.
+function selecionadas(){
+  return [...document.querySelectorAll('#grade .cartao.viva')]
+    .map(x => +x.dataset.idx);
+}
+
+let ancora = null;   // pro Shift: de onde o intervalo começa
+
 document.getElementById('grade').addEventListener('click', e => {
   const el = e.target.closest('.cartao'); if (!el) return;
-  document.querySelectorAll('#grade .cartao.viva').forEach(x => x.classList.remove('viva'));
-  el.classList.add('viva');
+  const todos = [...document.querySelectorAll('#grade .cartao')];
+
+  if (e.shiftKey && ancora){
+    // intervalo: da âncora até aqui, na ordem em que estão na tela
+    const a = todos.indexOf(ancora), b = todos.indexOf(el);
+    if (a >= 0 && b >= 0){
+      todos.forEach(x => x.classList.remove('viva'));
+      for (let i = Math.min(a,b); i <= Math.max(a,b); i++)
+        todos[i].classList.add('viva');
+    }
+  } else if (e.ctrlKey || e.metaKey){
+    el.classList.toggle('viva');   // junta/tira uma sem perder as outras
+    ancora = el;
+  } else {
+    todos.forEach(x => x.classList.remove('viva'));
+    el.classList.add('viva');
+    ancora = el;
+  }
+  const n = selecionadas().length;
+  document.getElementById('conta_sel').textContent =
+    n > 1 ? `${n} cenas escolhidas · as ações valem pras ${n}` : '';
+  // com várias marcadas o painel mostra a última clicada, mas a ação é do
+  // conjunto — dizer isso é o que evita apagar 12 achando que era 1
   const c = cenas[+el.dataset.idx]; if (!c) return;
   document.getElementById('i_num').textContent = '#' + String(c.idx).padStart(4,'0');
   document.getElementById('i_tempo').textContent = `${fmt(c.ini)} → ${fmt(c.fim)}`;
@@ -957,10 +990,10 @@ document.getElementById('grade').addEventListener('click', e => {
 // Os botões do painel entram pelo MESMO portão do menu e dos atalhos.
 document.querySelectorAll('.cena [data-acao]').forEach(b =>
   b.addEventListener('click', () => {
-    const sel = document.querySelector('#grade .cartao.viva');
-    if (!sel) { recado('Escolha uma cena primeiro.', true); return; }
+    const sel = selecionadas();
+    if (!sel.length) { recado('Escolha uma cena primeiro.', true); return; }
     gradeDaAcao = 'grade';   // este painel é da Biblioteca, sempre
-    pedeAcao(b.dataset.acao, [+sel.dataset.idx]);
+    pedeAcao(b.dataset.acao, sel);
   }));
 // ---- progresso ---------------------------------------------------------
 // A lista de etapas vem do pipeline (Ponte.etapas), não escrita de novo no
@@ -1600,6 +1633,39 @@ function episodiosSob(no){
 document.addEventListener('contextmenu', e => {
   e.preventDefault();
 
+  // Botão direito numa PÍLULA de personagem: tirar ele do episódio inteiro.
+  // `remove_character_from_episode` existe desde a v0.4.4 e a web nunca
+  // chamou — um personagem que o app inventou no episódio (72 cenas de
+  // alguém que nem aparece nele) só saía cena a cena, 72 vezes.
+  const pilula = e.target.closest('#filtros .pilula[data-nome]');
+  if (pilula && pilula.dataset.nome !== '__sem__'){
+    menu.classList.remove('viva');
+    menuAcervo.classList.remove('viva');
+    const nome = pilula.dataset.nome;
+    ponte.cenas_do_personagem(nome, json => {
+      const d = JSON.parse(json);
+      if (!d.ok) { recado(d.msg, true); return; }
+      pergunta({
+        titulo: `Remover ${nome} deste episódio`,
+        texto: `<b>${d.cenas}</b> cena(s) atribuídas a ele aqui.<br>`
+             + (d.pasta_existe
+                ? `A pasta dele tem ${d.arquivos} clipe(s).<br><br>`
+                : '⚠ A pasta dele <b>nem existe</b> no disco — ele só está no '
+                  + 'banco.<br><br>')
+             + '• Cada cena vira bloqueio lembrado: a reanálise não devolve<br>'
+             + '• Os clipes em <code>shots/</code> não são tocados<br>'
+             + '• Os outros personagens e as fotos de referência ficam<br>'
+             + '• Pra voltar atrás, mova alguma cena pra ele de novo',
+        confirmar: `Remover ${nome}`,
+      }, () => ponte.remover_personagem(nome, j2 => {
+        const r = JSON.parse(j2);
+        recado(r.msg, !r.ok);
+        if (r.ok){ filtro = null; recarregaEpisodio(); }
+      }));
+    });
+    return;
+  }
+
   const noAcervo = e.target.closest('#arvore .no');
   if (noAcervo){
     menu.classList.remove('viva');
@@ -1617,6 +1683,14 @@ document.addEventListener('contextmenu', e => {
   if (!el) { menu.classList.remove('viva'); return; }
   gradeDaAcao = el.closest('#r_grade') ? 'r_grade' : 'grade';
   cenaDoMenu = cenas[+el.dataset.idx];
+  // "Desfazer junção" só existe pra cena QUE FOI juntada. O item aparecia em
+  // todas, e clicar respondia "Esta cena não faz parte de uma junção" — dizer
+  // depois o que dava pra saber antes. Mesma coisa pro "Remover desta pasta"
+  // numa cena sem dono.
+  menu.querySelector('[data-acao=desjuntar]').style.display =
+    (cenaDoMenu && cenaDoMenu.juntada) ? '' : 'none';
+  menu.querySelector('[data-acao=remover]').style.display =
+    (cenaDoMenu && cenaDoMenu.quem.length) ? '' : 'none';
   if (!el.classList.contains('viva')) el.click();
   document.getElementById('menu_cab').textContent =
     'cena ' + String(cenaDoMenu.idx).padStart(4,'0');
@@ -1678,7 +1752,12 @@ menuAcervo.querySelectorAll('.item').forEach(it => it.addEventListener('click', 
 }));
 menu.querySelectorAll('.item').forEach(it => it.addEventListener('click', () => {
   menu.classList.remove('viva');
-  if (cenaDoMenu) pedeAcao(it.dataset.acao, [cenaDoMenu.idx]);
+  if (!cenaDoMenu) return;
+  // se a cena do menu está no meio de uma seleção múltipla, a ação vale pra
+  // TODAS — senão o botão direito faria coisa diferente do painel do lado
+  const sel = gradeDaAcao === 'grade' ? selecionadas() : [];
+  pedeAcao(it.dataset.acao,
+           sel.includes(cenaDoMenu.idx) && sel.length > 1 ? sel : [cenaDoMenu.idx]);
 }));
 
 // ---- recado curto -----------------------------------------------------
@@ -1763,7 +1842,28 @@ function pedeAcao(acao, idxs){
   const donos = donoDaCena(idxs[0]);
   const lista = Array.isArray(donos) ? donos : [donos];
   if (!lista.length){
-    recado('Esta cena não está na pasta de ninguém.', true);
+    // Cena SEM DONO: remover não faz sentido (não há de onde tirar), mas
+    // MOVER é justamente o que se quer fazer na vista "sem identificação" —
+    // é lá que estão as cenas que o app não soube de quem eram. Isto barrava
+    // as duas com a mesma mensagem, e a curadoria mais útil da tela ficava
+    // impossível: dar dono pra quem não tem.
+    if (acao !== 'mover'){
+      recado('Esta cena não está na pasta de ninguém — não há de onde tirar.',
+             true);
+      return;
+    }
+    ponte.elenco_do_anime(json => {
+      const nomes = JSON.parse(json);
+      if (!nomes.length){ recado('Este anime não tem personagem no banco.', true); return; }
+      pergunta({
+        titulo: idxs.length > 1 ? `Dar dono a ${idxs.length} cenas`
+                                : 'Dar dono a esta cena',
+        texto: 'Ela está sem identificação. Pra quem vai?<br><br>'
+             + '• O app LEMBRA: a reanálise mantém essa escolha',
+        opcoes: nomes, confirmar: 'Mover',
+      }, para => ponte.acao_cena(
+        JSON.stringify({acao: 'mover', idxs, de: '', para}), resposta));
+    });
     return;
   }
 
@@ -1842,11 +1942,11 @@ document.addEventListener('keydown', e => {
   if (!acao) return;
   if (k === 'p' && !e.ctrlKey) return;   // tocar é Ctrl+P
   e.preventDefault();
-  const sel = document.querySelector('#grade .cartao.viva');
-  if (!sel) { recado('Escolha uma cena primeiro.', true); return; }
+  const sel = selecionadas();
+  if (!sel.length) { recado('Escolha uma cena primeiro.', true); return; }
   if (acao === 'tocar') { document.getElementById('tv').play().catch(()=>{}); return; }
   gradeDaAcao = 'grade';   // atalho de teclado lê a grade da Biblioteca
-  pedeAcao(acao, [+sel.dataset.idx]);
+  pedeAcao(acao, sel);
 });
 
 // ---- Configurações ----------------------------------------------------

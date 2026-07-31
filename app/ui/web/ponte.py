@@ -577,6 +577,59 @@ class Ponte(QObject):
                            "arranjo_solto": arranjo_solto})
 
     # ---- curadoria --------------------------------------------------------
+    @Slot(str, result=str)
+    def cenas_do_personagem(self, nome: str) -> str:
+        """Quantas cenas este personagem tem NESTE episódio, e se a pasta
+        dele existe no disco. As duas coisas divergem mais do que parece."""
+        from app.storage.organizer import sanitize
+
+        cid = self._id_do_personagem(nome)
+        if cid is None or self.ep_id is None:
+            return json.dumps({"ok": False, "msg": "personagem não encontrado"})
+        with self.db.connect() as c:
+            n = int(c.execute(
+                """SELECT COUNT(*) FROM shot_character sc JOIN shot s
+                     ON s.id = sc.shot_id
+                    WHERE s.episode_id = ? AND sc.character_id = ?""",
+                (self.ep_id, cid)).fetchone()[0])
+        pasta = self.raiz / "by_character" / sanitize(nome)
+        return json.dumps({
+            "ok": True, "cenas": n,
+            "pasta": str(pasta), "pasta_existe": pasta.exists(),
+            "arquivos": len(list(pasta.glob("*.mp4"))) if pasta.exists() else 0,
+        })
+
+    @Slot(str, result=str)
+    def remover_personagem(self, nome: str) -> str:
+        """Tira o personagem do episódio INTEIRO.
+
+        `curation.remove_character_from_episode` existe desde a v0.4.4 e a
+        interface web nunca a chamou — então um personagem que o app inventou
+        no episódio (72 cenas de alguém que nem aparece) não tinha como sair:
+        remover cena a cena, 72 vezes, era o caminho.
+
+        Cada cena vira bloqueio lembrado, os hardlinks são sincronizados e a
+        pasta dele esvazia e some. Os clipes em shots/ e os outros
+        personagens não são tocados.
+        """
+        from app.curation import remove_character_from_episode
+
+        cid = self._id_do_personagem(nome)
+        if cid is None or self.ep_id is None:
+            return json.dumps({"ok": False, "msg": "personagem não encontrado"})
+        try:
+            n = remove_character_from_episode(
+                self.db, self.ep_id, cid, self.raiz,
+                by_character=self.cfg.organize_by_character_enabled,
+                by_pair=self.cfg.organize_by_pair_enabled,
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"ok": False, "msg": f"não deu: {e}"})
+        msg = (f"{nome} saiu deste episódio ({n} cena(s)). A reanálise não "
+               f"devolve — pra voltar atrás, mova alguma cena pra ele.")
+        print(f"    [python] {msg}")
+        return json.dumps({"ok": True, "msg": msg})
+
     @Slot(result=str)
     def elenco_do_anime(self) -> str:
         """Todo o elenco do anime, não só quem apareceu neste episódio — pra
@@ -631,12 +684,6 @@ class Ponte(QObject):
 
         de = d.get("de") or ""
         cid = self._id_do_personagem(de) if de else None
-        if cid is None:
-            return json.dumps({
-                "ok": False,
-                "msg": "Esta cena não está na pasta de ninguém — não há de "
-                       "onde remover nem de onde mover.",
-            })
 
         alvo_id = None
         if acao == "mover":
@@ -644,12 +691,26 @@ class Ponte(QObject):
             if alvo_id is None:
                 return json.dumps({"ok": False, "msg": "destino inválido"})
 
+        # MOVER SEM ORIGEM é válido: é o caso da vista "sem identificação",
+        # onde a cena não está na pasta de ninguém e o que se quer é DAR um
+        # dono. Isto exigia `de` sempre e devolvia "não há de onde remover
+        # nem de onde mover" — barrando justamente a curadoria mais útil
+        # daquela tela. Remover sem origem continua sem sentido.
+        if cid is None and acao != "mover":
+            return json.dumps({
+                "ok": False,
+                "msg": "Esta cena não está na pasta de ninguém — não há de "
+                       "onde remover.",
+            })
+
         db = self.db
         from app.storage.organizer import refresh_shot_links
 
         for r in linhas:
-            db.remove_shot_character(int(r["id"]), cid)
-            db.record_manual(self.ep_id, int(r["idx"]), cid, "block")
+            # sem origem (cena sem dono) não há o que tirar — só o que dar
+            if cid is not None:
+                db.remove_shot_character(int(r["id"]), cid)
+                db.record_manual(self.ep_id, int(r["idx"]), cid, "block")
             if alvo_id is not None:
                 db.assign_character_manual(int(r["id"]), alvo_id, 1.0)
                 db.record_manual(self.ep_id, int(r["idx"]), alvo_id, "add", 1.0)
@@ -675,8 +736,11 @@ class Ponte(QObject):
         alvos = ", ".join(f"#{int(r['idx']):04d}" for r in linhas[:3])
         if quantas > 3:
             alvos += f" +{quantas - 3}"
-        if acao == "mover":
-            msg = (f"{alvos}: {de} → {d.get('para')} · lembrado nas próximas "
+        if acao == "mover" and not de:
+            msg = (f"{alvos}: agora é de {d.get('para')} · lembrado nas "
+                   f"próximas análises")
+        elif acao == "mover":
+            msg = (f"{alvos}: {de} -> {d.get('para')} · lembrado nas próximas "
                    f"análises")
         else:
             msg = (f"{alvos} fora da pasta de {de} · o clipe fica em shots/ e "
@@ -1927,6 +1991,13 @@ class Ponte(QObject):
             self.ep_id = int(episodio)
             self.anime_id = int(ep["anime_id"])
 
+        # as junções deste episódio, uma vez só — são guardadas por TEMPO
+        juncoes = [
+            dict(m) for m in con.execute(
+                "SELECT start, end FROM shot_merge WHERE episode_id = ?",
+                (episodio,))
+        ]
+
         linhas = con.execute(
             """SELECT s.id, s.idx, s.file, s.keyframe, s.start, s.end
                  FROM shot s JOIN episode e ON e.id = s.episode_id
@@ -1968,8 +2039,27 @@ class Ponte(QObject):
                     "quem": nomes.get(r["id"], []),
                     # a maquete mostra a confiança na cena escolhida ("0.91 / 0.78")
                     "conf": confs.get(r["id"], []),
-                    "mini": f"cena:/mini/{kf}" if kf else "",
-                    "tira": f"cena:/tira/{clipe}" if clipe else "",
+                    # BARRA PRA FRENTE, sempre. URL não é caminho do Windows.
+                    #
+                    # A miniatura sobrevivia com "\" porque vai num
+                    # `<img src>`, que é atributo HTML. A TIRA vai num
+                    # `background-image: url(...)`, e ali a barra invertida é
+                    # ESCAPE de CSS: `\A` virou quebra de linha e `\O`, `\M`,
+                    # `\S` sumiram. Medido: a imagem carregava
+                    # (`onload em 433ms`), e o valor guardado era
+                    # `url("cena:/tira/G:\a pp Corte CenasOutputMush…` — um
+                    # caminho destruído, com o servidor respondendo direito o
+                    # tempo todo. A prévia nunca aparecia e nada acusava erro.
+                    # esta cena faz parte de uma junção? O menu precisa saber
+                    # pra não oferecer "Desfazer junção" em cena que nunca foi
+                    # juntada — o item aparecia em TODAS, e clicar respondia
+                    # "Esta cena não faz parte de uma junção", o que é dizer
+                    # depois o que dava pra saber antes
+                    "juntada": any(
+                        m["start"] - 0.05 <= (r["start"] + r["end"]) / 2.0 <= m["end"] + 0.05
+                        for m in juncoes),
+                    "mini": "cena:/mini/" + kf.replace("\\", "/") if kf else "",
+                    "tira": "cena:/tira/" + clipe.replace("\\", "/") if clipe else "",
                     "clipe": "file:///" + clipe.replace("\\", "/") if clipe else "",
                 }
             )
