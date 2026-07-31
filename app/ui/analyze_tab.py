@@ -1150,7 +1150,11 @@ class AnalyzeTab(QWidget):
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
-        self._worker.status.connect(lambda m: self.status_label.setText(m))
+        # `setText` num lambda roda na thread do WORKER (conexão com lambda
+        # não tem receptor, então o Qt escolhe direta) — mexer em widget fora
+        # da thread da interface é o mesmo tipo de coisa que abortava o app na
+        # UI web. O `setText` do label é um slot do próprio label: enfileira.
+        self._worker.status.connect(self.status_label.setText)
         self._worker.finished.connect(self._on_preview_finished)
         self._worker.failed.connect(self._on_failed)
         self._worker.finished.connect(self._thread.quit)

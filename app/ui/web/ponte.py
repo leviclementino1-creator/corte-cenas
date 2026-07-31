@@ -990,19 +990,15 @@ class Ponte(QObject):
         # Ligar o sinal do worker direto no sinal da ponte nao relaia
         # atravessando thread — ver o docstring dele.
         self._worker.stage.connect(self._anota_etapa)
+        # MÉTODOS, nunca lambdas — ver `_fim_falhou`. Conexão com lambda não
+        # tem objeto receptor, o Qt escolhe DIRETA, e o fim da análise passa a
+        # rodar na thread do worker: ele destrói a própria QThread de dentro
+        # dela e o Qt aborta o processo.
         self._worker.finished.connect(self._fim_com_resultado)
-        self._worker.failed.connect(
-            lambda m: self._fim_da_analise("falhou", detalhe=str(m)))
-        self._worker.cancelled.connect(lambda: self._fim_da_analise("cancelado"))
-        # O segundo argumento é a PASTA DAS REFS e estava sendo jogado fora
-        # (`lambda m, _p:`). Sem ele some o "Abrir pasta de refs", que é a
-        # ação que resolve o problema.
-        self._worker.refs_missing.connect(
-            lambda m, p: (setattr(self, "_refs_dir", str(p or "")),
-                          self._fim_da_analise(
-                              "refs_faltando", detalhe=str(m), refs_dir=str(p or ""))))
-        self._worker.anime_not_found.connect(
-            lambda m: self._fim_da_analise("anime_nao_achado", detalhe=str(m)))
+        self._worker.failed.connect(self._fim_falhou)
+        self._worker.cancelled.connect(self._fim_cancelado)
+        self._worker.refs_missing.connect(self._fim_sem_refs)
+        self._worker.anime_not_found.connect(self._fim_sem_anime)
         self._worker.discovery_ready.connect(self._descoberta_pronta)
         # Análise nova: o que sobrou da anterior não pode chegar agora. Um
         # batismo reaberto e não puxado abriria a tela de nomes no meio da
@@ -1022,6 +1018,45 @@ class Ponte(QObject):
         d = json.loads(pedido)
         d["descoberta"] = True
         return self.analisar(json.dumps(d))
+
+    # ---- os fins que vinham de lambda ------------------------------------
+    #
+    # Estes quatro eram lambdas ligados direto no sinal do worker, e é por
+    # isso que o app do Levi fechou sozinho no segundo em que o batismo
+    # terminou de gravar. O Visualizador de Eventos do Windows:
+    #
+    #     módulo com falha: Qt6Core.dll
+    #     código de exceção: 0xc0000409   (qFatal — o Qt abortando de
+    #                                      propósito)
+    #
+    # Conexão com lambda NÃO TEM objeto receptor, então o Qt não tem thread
+    # de destino e escolhe DIRETA: o corpo roda na thread de quem emitiu, o
+    # worker. Aí dentro do `_fim_da_analise` vem `t.wait(4000)` — a thread
+    # esperando por si mesma — e logo depois `self._thread = None`, que solta
+    # a última referência e DESTRÓI a QThread de dentro dela. Qt aborta.
+    #
+    # Um método ligado (bound method de um QObject) carrega a afinidade de
+    # thread do objeto e ganha conexão ENFILEIRADA: roda na interface, que é
+    # onde encerrar a thread é seguro. É a mesma pegadinha que me custou meia
+    # hora na caça do progresso, agora do outro lado do fio.
+    def _fim_falhou(self, msg: str) -> None:
+        self._fim_da_analise("falhou", detalhe=str(msg))
+
+    def _fim_cancelado(self) -> None:
+        self._fim_da_analise("cancelado")
+
+    def _fim_sem_refs(self, msg: str, pasta: str) -> None:
+        # A pasta das refs vinha sendo jogada fora (`lambda m, _p:`). Sem ela
+        # some o "Abrir pasta de refs", que é a ação que resolve o problema.
+        self._refs_dir = str(pasta or "")
+        self._fim_da_analise("refs_faltando", detalhe=str(msg),
+                             refs_dir=str(pasta or ""))
+
+    def _fim_sem_anime(self, msg: str) -> None:
+        self._fim_da_analise("anime_nao_achado", detalhe=str(msg))
+
+    def _fim_batizado(self, _r=None) -> None:
+        self._fim_da_analise("batizado")
 
     def _descoberta_pronta(self, disc) -> None:
         """Fim do Modo Descoberta — e ele é um FIM, coisa que ninguém dizia.
@@ -1135,9 +1170,10 @@ class Ponte(QObject):
         self._thread.started.connect(self._worker.run)
         self._etapa_atual = ""
         self._worker.stage.connect(self._anota_etapa)
-        self._worker.finished.connect(lambda _r: self._fim_da_analise("batizado"))
-        self._worker.failed.connect(
-            lambda m: self._fim_da_analise("falhou", detalhe=str(m)))
+        # métodos, nunca lambdas — foi ESTE `finished` que fechou o app do
+        # Levi no segundo em que o batismo acabou de gravar (ver `_fim_falhou`)
+        self._worker.finished.connect(self._fim_batizado)
+        self._worker.failed.connect(self._fim_falhou)
         self._fim_pendente = None
         self._batismo_pendente = None
         self._thread.start()
@@ -1222,7 +1258,18 @@ class Ponte(QObject):
         Agora vai um objeto: `como` diz o tipo de fim, e o resto é o que
         aquela tela precisa pra ser útil em vez de só bonita.
         """
+        from PySide6.QtCore import QThread, QTimer
+
         t = getattr(self, "_thread", None)
+        # REDE: chegou aqui de dentro da própria thread de trabalho (conexão
+        # direta). Encerrar e destruir a QThread daqui é o `qFatal` que fechou
+        # o app sem deixar traceback. Reagenda com a ponte como contexto, que
+        # é o que joga a chamada pra thread da interface, e sai.
+        if t is not None and t is QThread.currentThread():
+            print("    [python] fim da análise veio da thread de trabalho — "
+                  "reagendando pra interface")
+            QTimer.singleShot(0, self, lambda: self._fim_da_analise(como, **extra))
+            return
         if t is not None:
             t.quit()
             t.wait(4000)
