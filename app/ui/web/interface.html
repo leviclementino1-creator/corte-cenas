@@ -786,6 +786,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   <div class="sep"></div>
   <div class="item risco" data-acao="remover">✂&nbsp; Remover desta pasta</div>
   <div class="item" data-acao="desjuntar">⤫&nbsp; Desfazer junção</div>
+  <!-- A única ação que mexe no clipe MESTRE. As outras só decidem de quem é
+       a cena; esta some com o arquivo (pra Output/_lixeira). -->
+  <div class="item risco" data-acao="apagar_cena">🗑&nbsp; Apagar a cena de vez</div>
 </div>
 
 <div class="menu" id="menu_acervo">
@@ -2080,6 +2083,27 @@ function pedeAcao(acao, idxs){
 
   if (acao === 'abrir'){ ponte.abrir_pasta('episodio', json => {
     const r = JSON.parse(json); if (!r.ok) recado(r.msg, true); }); return; }
+
+  // A ÚNICA que mexe no clipe mestre. "Remover desta pasta" só decide de quem
+  // é a cena e deixa o arquivo em shots/ — quem queria o clipe fora do disco
+  // ficava sem saída. Aqui a caixinha diz as três coisas que importam: pra
+  // onde o arquivo vai, o que NÃO é apagado, e que a reanálise traz de volta.
+  if (acao === 'apagar_cena'){
+    const um = idxs.length === 1;
+    pergunta({
+      titulo: um ? 'Apagar a cena de vez' : `Apagar ${idxs.length} cenas de vez`,
+      texto: (um ? 'O clipe desta cena' : `Os clipes destas <b>${idxs.length}</b> cenas`)
+           + ' sai de <code>shots/</code> e de todas as pastas de personagem.'
+           + '<br><br>'
+           + '• Vai pra <code>Output/_lixeira</code> — dá pra arrastar de '
+           + 'volta enquanto você não esvaziar<br>'
+           + '• O episódio, os outros clipes e as fotos de referência ficam<br>'
+           + '• ⚠ <b>Reanalisar este episódio traz a cena de volta</b>: a '
+           + 'análise corta o vídeo de novo',
+      confirmar: um ? 'Apagar a cena' : `Apagar as ${idxs.length}`,
+    }, () => ponte.apagar_cena(JSON.stringify({idxs}), resposta));
+    return;
+  }
 
   if (acao === 'juntar' || acao === 'desjuntar'){
     // Juntar MUITAS de uma vez merece pergunta. Um Shift+clique marca um

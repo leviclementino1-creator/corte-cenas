@@ -754,6 +754,81 @@ class Ponte(QObject):
         print(f"    [python] {msg}")
         return json.dumps({"ok": True, "msg": msg})
 
+    @Slot(str, result=str)
+    def apagar_cena(self, pedido: str) -> str:
+        """Some com a cena de vez: o clipe MESTRE vai pra lixeira.
+
+        As outras ações de curadoria mexem só em de quem é a cena — o clipe em
+        `shots/` nunca é tocado, e é isso que faz "Remover desta pasta" parecer
+        que não fez nada pra quem queria o arquivo fora do disco. Esta aqui é a
+        que faltava.
+
+        LIXEIRA, não `unlink`: `Output/_lixeira/<data>/<Anime>_<Ep>_0044.mp4`.
+        A regra do app inteiro é que um clique errado não pode custar horas de
+        corte, e apagar a cena errada é fácil justamente porque o app já errou
+        de cena hoje. Os keyframes somem mesmo — são derivados, saem de novo do
+        clipe em milissegundos.
+
+        O que ela NÃO faz: impedir que a cena volte. A próxima análise deste
+        episódio corta o vídeo de novo e ela reaparece — quem diz isso pro
+        usuário é a caixinha, antes de ele clicar.
+        """
+        from app.curation import arquivo_pra_lixeira
+        from app.storage.organizer import refresh_shot_links
+
+        d = json.loads(pedido)
+        idxs = [int(i) for i in d.get("idxs", [])]
+        if self.ep_id is None or not idxs:
+            return json.dumps({"ok": False, "msg": "nenhuma cena escolhida"})
+        linhas = [self._shots[i] for i in idxs if i in self._shots]
+        if not linhas:
+            return json.dumps({"ok": False, "msg": "cena não encontrada"})
+
+        db = self.db
+        saida = self._saida()
+        foram, sobraram = [], []
+        for r in linhas:
+            clipe = self.raiz / r["file"]
+            # tira os hardlinks ANTES: com a lista de donos vazia, o clipe sai
+            # de by_character e de by_pair de uma vez
+            try:
+                refresh_shot_links(
+                    self.raiz, clipe, [],
+                    by_character=self.cfg.organize_by_character_enabled,
+                    by_pair=self.cfg.organize_by_pair_enabled,
+                )
+            except Exception as e:  # noqa: BLE001
+                print(f"    [python] hardlinks de {r['idx']:04d}: {e}")
+            destino = None
+            try:
+                destino = arquivo_pra_lixeira(clipe, saida)
+            except Exception as e:  # noqa: BLE001
+                print(f"    [python] não deu pra mover {clipe.name}: {e}")
+            if destino is None and clipe.exists():
+                # o clipe continua no disco: apagar do banco aqui deixaria um
+                # arquivo órfão que a Biblioteca não mostra e ninguém acha
+                sobraram.append(int(r["idx"]))
+                continue
+            for k in (self.raiz / "keyframes").glob(f"{int(r['idx']):04d}_*.jpg"):
+                k.unlink(missing_ok=True)
+            db.delete_shot(int(r["id"]))
+            foram.append(int(r["idx"]))
+
+        if not foram:
+            return json.dumps({"ok": False, "msg":
+                "Não consegui mover o clipe pra lixeira — nada foi apagado do "
+                "banco. Veja se o arquivo não está aberto noutro programa."})
+        alvos = ", ".join(f"#{i:04d}" for i in foram[:3])
+        if len(foram) > 3:
+            alvos += f" +{len(foram) - 3}"
+        msg = (f"{alvos}: clipe em Output/_lixeira. A cena sai do acervo e das "
+               f"pastas — mas volta se você reanalisar este episódio.")
+        if sobraram:
+            msg += (f" ⚠ {len(sobraram)} não deu pra mover e continua(m) no "
+                    f"lugar.")
+        print(f"    [python] {len(foram)} cena(s) pra lixeira: {alvos}")
+        return json.dumps({"ok": True, "msg": msg, "apagadas": len(foram)})
+
     def _juntar(self, acao: str, linhas: list) -> str:
         """Juntar cenas vizinhas num clipe só (ou desfazer). Mexe nas CENAS,
         não em quem aparece nelas — vale em qualquer vista. Guardado em
