@@ -243,10 +243,27 @@ class Ponte(QObject):
     terminou = Signal(str)
     arquivoSolto = Signal(str)   # o episódio arrastado pra janela
     descobriu = Signal(str)      # DiscoveryResult -> tela de batismo
+    dispositivo = Signal(str)    # GPU/CPU real, achado numa thread de fundo
 
-    def __init__(self, banco: Path, raiz_saida: Path, ffmpeg: str = "ffmpeg", parent=None) -> None:
+    def __init__(self, banco: Path, raiz_saida: Path, ffmpeg: str = "ffmpeg",
+                 parent=None, cfg=None) -> None:
         super().__init__(parent)
         self.banco = banco
+        # A CONFIG VEM DE FORA. Antes `self.cfg` era uma property que fazia
+        # `Config.load()` a cada acesso, e isso tem duas consequências ruins:
+        #
+        # 1. a Ponte IGNORAVA o Config que a janela recebeu — dois objetos
+        #    dizendo o que é a pasta de cache, e ganhava o do arquivo;
+        # 2. era impossível isolar a Ponte pra testar. `cache_dir` não está
+        #    em _PERSISTED_FIELDS, então nem escrever um config.json de
+        #    mentira adiantava: o load voltava com o cache DE VERDADE.
+        #
+        # O (2) me custou caro: um teste dos botões novos rodou
+        # `limpar_fotos_baixadas` e `apagar_cache` no cache real do usuário
+        # achando que estava numa fixture. Deu pra recuperar só porque o
+        # `wipe_cache` move pra `cache_lixeira` em vez de destruir — a regra
+        # de soft-delete da casa pagou o próprio preço naquele minuto.
+        self._cfg = cfg
         # o servidor publica os crops do batismo, que só existem em memória
         self.servidor = None
         self._descoberta = None
@@ -273,7 +290,9 @@ class Ponte(QObject):
     def cfg(self):
         from app.config import Config
 
-        return Config.load()
+        if self._cfg is None:
+            self._cfg = Config.load()
+        return self._cfg
 
     @property
     def previas(self) -> Path:
@@ -819,7 +838,13 @@ class Ponte(QObject):
         grupos = []
         for g in disc.groups:
             fotos = []
-            for i, jpg in enumerate(g.thumbs_jpg):
+            # `ref_crops_jpg` (8), NÃO `thumbs_jpg` (6). O commit do batismo
+            # aplica os índices que o usuário clicou sobre ref_crops_jpg — se
+            # a tela mostra só as 6 primeiras, DUAS fotos que ele nunca viu
+            # viram referência, e a dica na tela ("clique numa foto pra tirar
+            # ela das referências") vira mentira pra elas. O diálogo do Qt
+            # publica as 8 de propósito: o que você vê é o que vai pro banco.
+            for i, jpg in enumerate(g.ref_crops_jpg):
                 chave = f"{g.key}/{i}"
                 self.servidor.grupos[chave] = jpg
                 fotos.append(f"cena:/grupo/{chave}")
@@ -948,6 +973,16 @@ class Ponte(QObject):
         try:
             extra["cenas"] = int(getattr(r, "total_shots", 0) or 0)
             extra["personagens"] = list(getattr(r, "identified_characters", []) or [])
+            # O episódio que ACABOU de sair. Sem isto a aba Resultados abria
+            # em branco: ela copiava o título da Biblioteca (que vale "—",
+            # ou "Biblioteca vazia" pra quem analisou o primeiro episódio) e
+            # quem preenche a grade é o `carregaCenas`, que só rodava quando
+            # se clicava na árvore.
+            extra["episodio_id"] = int(getattr(r, "episode_id", 0) or 0)
+            extra["rotulo"] = (
+                f"{getattr(r, 'anime_title', '')} — "
+                f"S{int(getattr(r, 'season', 0)):02d}"
+                f"E{int(getattr(r, 'episode', 0)):02d}")
             if getattr(r, "low_refs_warning", None):
                 extra["refs_fracas"] = str(r.low_refs_warning)
                 extra["refs_dir"] = str(getattr(r, "refs_dir", "") or "")
@@ -1003,18 +1038,44 @@ class Ponte(QObject):
         self._ensaio.start()
         print("    [python] ensaio do progresso começou (thread de fundo)")
 
-    @Slot()
-    def cancelar(self) -> None:
+    @Slot(result=str)
+    def cancelar(self) -> str:
+        """Pede o cancelamento — e DEVOLVE algo, que é o que faltava.
+
+        Este slot era mudo. O botão continuava ativo, a barra continuava
+        andando e nenhum recado aparecia: o cancelamento é cooperativo e o
+        pipeline só olha o pedido no próximo ponto de checagem, o que pode
+        levar minutos se um modelo estiver baixando. Do lado de fora isso é
+        indistinguível de um botão quebrado, e a pessoa clica de novo.
+        """
         # o worker de verdade tem o pedido dele; o ensaio usa interrupção
         w = getattr(self, "_worker", None)
         if w is not None:
             w.request_cancel()
             print("    [python] cancelamento pedido à análise")
-            return
+            return json.dumps({"ok": True, "msg":
+                "Cancelando — espera a operação atual terminar (um download "
+                "de modelo pode levar minutos)."})
         t = getattr(self, "_ensaio", None)
         if t is not None and t.isRunning():
             t.requestInterruption()
             print("    [python] cancelamento pedido ao ensaio")
+            return json.dumps({"ok": True, "msg": "Cancelando o ensaio…"})
+        return json.dumps({"ok": False, "msg": "Não há nada rodando."})
+
+    @Slot(result=str)
+    def reabrir_batismo(self) -> str:
+        """Reabre o batismo da última descoberta.
+
+        Fechar a tela no Cancelar só escondia a caixa. O `DiscoveryResult`
+        continuava vivo aqui dentro, mas nenhum slot o devolvia — não havia
+        caminho de volta, e refazer a descoberta é a análise inteira de novo.
+        """
+        disc = getattr(self, "_descoberta", None)
+        if disc is None or not getattr(disc, "groups", None):
+            return json.dumps({"ok": False, "msg": "nenhuma descoberta aberta"})
+        self._guarda_descoberta(disc)   # reemite `descobriu` com o mesmo payload
+        return json.dumps({"ok": True, "msg": ""})
 
     @Slot(result=str)
     def readotar(self) -> str:
@@ -1228,6 +1289,51 @@ class Ponte(QObject):
             subprocess.Popen(["explorer", str(alvo)])
             print(f"    [python] abri {alvo}")
 
+    @Slot()
+    def descobrir_dispositivo(self) -> None:
+        """Quem está fazendo o trabalho: GPU ou CPU. Numa thread de fundo.
+
+        A cápsula do topo dizia **"RTX 4070"** — texto fixo no HTML, herdado
+        da maquete — com a bolinha verde do CSS, em qualquer máquina. Ela
+        afirmava uma placa que o usuário podia não ter (não tem: é uma 5080)
+        e afirmava saúde que podia não existir, contradizendo o próprio
+        diálogo de "sem GPU" que o main.py abre por cima da janela.
+
+        Em thread porque o primeiro `import torch` leva segundos: perguntar
+        isso na thread da interface congelaria a janela no arranque.
+        """
+        from PySide6.QtCore import QThread
+
+        if getattr(self, "_sonda_gpu", None) is not None:
+            return
+        ponte = self
+
+        class Sonda(QThread):
+            def run(self) -> None:  # noqa: D102
+                from app.deps_check import cuda_available, cuda_error, gpu_name
+                from app.ffmpeg_locate import nvenc_available, nvenc_reason
+
+                tem = cuda_available()
+                erro = cuda_error()
+                if tem:
+                    estado, nome = "gpu", (gpu_name() or "GPU NVIDIA")
+                elif erro:
+                    # Três estados, não dois: "não deu pra saber" não pode
+                    # virar a afirmação "não tem GPU".
+                    estado, nome = "desconhecido", "GPU: não deu pra checar"
+                else:
+                    estado, nome = "cpu", "CPU (lento)"
+                carga = {
+                    "estado": estado, "nome": nome, "erro": erro,
+                    "nvenc": bool(nvenc_available()),
+                    "nvenc_motivo": nvenc_reason(),
+                }
+                print(f"    [python] dispositivo: {carga}")
+                ponte.dispositivo.emit(json.dumps(carga))
+
+        self._sonda_gpu = Sonda()
+        self._sonda_gpu.start()
+
     @Slot(result=str)
     def abrir_refs(self) -> str:
         """Abre a pasta de referências do último "refs faltando".
@@ -1244,6 +1350,150 @@ class Ponte(QObject):
         subprocess.Popen(["explorer", str(alvo)])
         print(f"    [python] abri as refs em {alvo}")
         return json.dumps({"ok": True, "msg": f"Abri {alvo}"})
+
+    # ---- Configurações: os botões que não faziam nada ---------------------
+    #
+    # Os sete botões da seção "Referências e cache" não tinham UM listener: os
+    # únicos handlers de `.btn-campo` filtravam por texto começando com
+    # "Escolher"/"Selecionar", e nenhum deles começa assim. Com `:hover` no
+    # CSS, eles se anunciavam como vivos. Quem tinha ref suja clicava em
+    # "Limpar fotos baixadas", acreditava que limpou, reanalisava e recebia o
+    # MESMO resultado errado — uma análise inteira de GPU jogada fora atrás de
+    # um botão morto.
+    #
+    # A lógica toda já existia em `cache_tools`; faltava só o fio.
+
+    @Slot(str, result=str)
+    def abrir_especial(self, qual: str) -> str:
+        """Abre uma das pastas do app. Lista fechada de propósito: o JS
+        escolhe QUAL, nunca o caminho."""
+        import subprocess
+
+        from app.cache_tools import refs_root
+
+        c = self.cfg
+        alvos = {
+            "refs": refs_root(c.cache_path),
+            "cache": c.cache_path,
+            "saida": Path(c.output_path),
+            "logs": Path(c.cache_path) / "logs",
+        }
+        p = alvos.get(qual)
+        if p is None:
+            return json.dumps({"ok": False, "msg": f"pasta desconhecida: {qual}"})
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return json.dumps({"ok": False, "msg": f"não deu pra abrir: {e}"})
+        subprocess.Popen(["explorer", str(p)])
+        return json.dumps({"ok": True, "msg": f"Abri {p}"})
+
+    @Slot(result=str)
+    def resumo_refs(self) -> str:
+        """Quantas refs existem e quantas vieram da internet — o número que
+        faz a pergunta de limpar valer a pena ou não."""
+        from app.cache_tools import refs_summary
+
+        try:
+            animes, personagens, fotos = refs_summary(self.cfg.cache_path)
+            return json.dumps({"ok": True, "animes": animes,
+                               "personagens": personagens, "fotos": fotos})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"ok": False, "msg": str(e)})
+
+    @Slot(result=str)
+    def limpar_fotos_baixadas(self) -> str:
+        from app.cache_tools import clean_catalog_refs
+
+        try:
+            # A ORDEM É (arquivos, animes). Eu tinha desempacotado invertido e
+            # a mensagem trocava os dois números — "2 fotos de 195 pastas"
+            # quando eram 195 fotos de 2 animes. Mensagem que erra a escala
+            # do estrago é pior que mensagem nenhuma: ela dá permissão.
+            fotos, animes = clean_catalog_refs(self.cfg.cache_path)
+            msg = (f"{fotos} foto(s) do catálogo removidas em {animes} "
+                   f"anime(s). O que você pôs na mão e os batismos "
+                   f"(auto_disc) continuam; a próxima análise baixa as do "
+                   f"catálogo de novo.")
+            print(f"    [python] {msg}")
+            return json.dumps({"ok": True, "msg": msg})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"ok": False, "msg": f"não deu: {e}"})
+
+    @Slot(result=str)
+    def apagar_cache(self) -> str:
+        from app.cache_tools import wipe_cache
+
+        try:
+            # `wipe_cache` devolve o que NÃO conseguiu mover, não o que moveu.
+            # Eu li como "itens movidos" e a mensagem dizia "0 item(ns) foram
+            # pra lixeira" depois de mover o cache inteiro — o número certo
+            # com o significado ao contrário, que é o jeito mais fácil de
+            # mentir sem perceber.
+            sobraram = wipe_cache(self.cfg.cache_path)
+            if sobraram:
+                msg = ("O cache foi pra cache_lixeira (ao lado do cache), MENOS "
+                       + f"{len(sobraram)} item(ns) que estão em uso: "
+                       + ", ".join(sobraram[:4])
+                       + ". Feche o que estiver aberto e tente de novo.")
+            else:
+                msg = ("Cache inteiro movido pra cache_lixeira (ao lado do "
+                       "cache) — dá pra recuperar de lá enquanto você não "
+                       "apagar essa pasta na mão.")
+            print(f"    [python] {msg}")
+            return json.dumps({"ok": not sobraram, "msg": msg})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"ok": False, "msg": f"não deu: {e}"})
+
+    @Slot(str, result=str)
+    def fundir_duplicados(self, pedido: str) -> str:
+        """Duas etapas: sem `aplicar` só devolve o PLANO, pra tela mostrar o
+        que vai acontecer antes de acontecer."""
+        from app.cache_tools import merge_duplicates
+
+        aplicar = bool(json.loads(pedido or "{}").get("aplicar"))
+        try:
+            r = merge_duplicates(self.cfg.cache_path, apply=aplicar)
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"ok": False, "msg": f"não deu: {e}"})
+        if aplicar:
+            msg = (f"{len(r['chars'])} personagem(ns) e {len(r['anime'])} "
+                   f"anime(s) fundidos, {r['moved']} arquivo(s) reorganizados.")
+            print(f"    [python] {msg}")
+            return json.dumps({"ok": True, "aplicado": True, "msg": msg})
+        linhas = [f"🎬 {' + '.join(s)} → {c}" for s, c in r["anime"]]
+        linhas += [f"👤 [{a.split(' [')[0]}] {' + '.join(s)} → {c}"
+                   for a, s, c in r["chars"]]
+        return json.dumps({"ok": True, "aplicado": False,
+                           "animes": len(r["anime"]), "chars": len(r["chars"]),
+                           "linhas": linhas[:20], "resto": max(0, len(linhas) - 20)})
+
+    @Slot(result=str)
+    def restaurar_padroes(self) -> str:
+        """Volta os números da análise ao padrão de fábrica. Só os da
+        análise — pasta de saída e chave de API não são 'ajuste fino'."""
+        from app.config import Config as _C
+
+        padrao = _C()
+        c = self.cfg
+        for campo in _CAMPO_DO_PRESET.values():
+            setattr(c, campo, getattr(padrao, campo))
+        c.save()
+        print("    [python] números da análise restaurados ao padrão")
+        return json.dumps({"ok": True, "msg": "Números da análise no padrão de fábrica."})
+
+    @Slot(result=str)
+    def sobre(self) -> str:
+        """Versão e interface em uso. A tela web não dizia nem em que versão
+        o app estava — e é justamente ela que precisa dizer, porque cair na
+        interface antiga é invisível de qualquer outro jeito."""
+        from app import __version__
+
+        return json.dumps({
+            "versao": __version__,
+            "interface": "nova (web)",
+            "logs": str(Path(self.cfg.cache_path) / "logs"),
+        })
 
     @Slot(str)
     def atalho(self, tecla: str) -> None:

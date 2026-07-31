@@ -53,6 +53,7 @@ def ffmpeg_available() -> bool:
 # em segundo plano; quem perguntar depois pega de graça.
 _CUDA: bool | None = None
 _GPU_NAME: str | None = None
+_CUDA_ERRO: str = ""
 
 
 def cuda_known() -> bool:
@@ -64,7 +65,7 @@ def cuda_known() -> bool:
 def cuda_available() -> bool:
     """True iff torch was built with CUDA AND a working NVIDIA GPU is
     visible. Anything else means the app will silently run on CPU."""
-    global _CUDA, _GPU_NAME
+    global _CUDA, _GPU_NAME, _CUDA_ERRO
     if _CUDA is not None:
         return _CUDA
     try:
@@ -75,9 +76,20 @@ def cuda_available() -> bool:
                 _GPU_NAME = torch.cuda.get_device_name(0)
             except Exception:
                 _GPU_NAME = None
-    except Exception:
+    except Exception as e:
+        # "Não tem GPU" e "não consegui checar" viravam a MESMA resposta, e
+        # o app afirmava categoricamente que não havia GPU numa máquina que
+        # tem — DLL do CUDA quebrada, antivírus segurando o import, disco
+        # lento. Guardar o motivo deixa quem pergunta distinguir os dois.
         _CUDA = False
+        _CUDA_ERRO = str(e)[:200]
     return _CUDA
+
+
+def cuda_error() -> str:
+    """Por que a checagem de CUDA falhou. Vazio quando o torch respondeu
+    normalmente (aí False significa mesmo "não há GPU utilizável")."""
+    return _CUDA_ERRO
 
 
 def gpu_name() -> str | None:

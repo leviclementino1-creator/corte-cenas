@@ -61,7 +61,11 @@ class JanelaWeb(QMainWindow):
         self.servidor = ServidorMiniatura(PAGINA)
         QWebEngineProfile.defaultProfile().installUrlSchemeHandler(b"cena", self.servidor)
 
-        self.ponte = Ponte(cfg.cache_path / "index.db", Path(cfg.output_path), ffmpeg=ffmpeg)
+        # O MESMO objeto de config que a janela recebeu — não um `Config.load()`
+        # paralelo lá dentro. Dois donos da mesma verdade é como a Ponte
+        # acabava lendo um cache diferente do que a janela abriu.
+        self.ponte = Ponte(cfg.cache_path / "index.db", Path(cfg.output_path),
+                           ffmpeg=ffmpeg, cfg=cfg)
         self.ponte.servidor = self.servidor
         self.canal = QWebChannel(self)
         self.canal.registerObject("ponte", self.ponte)
@@ -136,6 +140,44 @@ class JanelaWeb(QMainWindow):
     def _esconder_bandeja(self) -> None:
         if self._bandeja is not None:
             self._bandeja.hide()
+
+    # ---- fechar no meio de uma análise -----------------------------------
+    def closeEvent(self, ev):  # noqa: N802
+        """Trinta minutos de análise não morrem num clique no X.
+
+        `JanelaWeb` não tinha closeEvent: o QThread ia embora com o processo,
+        sem pergunta e sem encerramento limpo. O app Qt sempre perguntou
+        (main_window.py:215) — a interface nova perdeu isso na migração.
+        """
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QMessageBox
+
+        t = getattr(self.ponte, "_thread", None)
+        if isinstance(t, QThread) and t.isRunning():
+            r = QMessageBox.question(
+                self, "Análise em andamento",
+                "Tem uma análise rodando. Fechar mesmo assim?\n\n"
+                "• O processamento é interrompido agora\n"
+                "• Os clipes já cortados ficam salvos em shots/\n"
+                "• Rodar de novo aproveita o que já foi feito",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if r != QMessageBox.StandardButton.Yes:
+                ev.ignore()
+                return
+            w = getattr(self.ponte, "_worker", None)
+            if w is not None:
+                try:
+                    w.request_cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+            t.quit()
+            t.wait(3000)
+            if t.isRunning():
+                t.terminate()
+                t.wait(1000)
+        ev.accept()
 
     # ---- arrastar o episódio pra janela ----------------------------------
     def showEvent(self, ev):  # noqa: N802

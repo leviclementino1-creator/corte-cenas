@@ -17,6 +17,9 @@
   --accent-ink:#0c2b29; --on-accent:#08201e;
   --time:#e8a15c; --time-ink:#20190f;
   --ok:#6fcf8b; --danger:#e5686f; --danger-ink:#1f1418; --danger-line:#5b2a30;
+  /* âmbar de "funciona, mas pior do que podia" — CPU no lugar da GPU,
+     checagem que não deu certo. Não é erro; é degradação. */
+  --warn:#d9a441;
   --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   --display:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
   --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
@@ -46,7 +49,17 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
          font-size:12.5px;color:var(--txt);white-space:nowrap}
 /* nome próprio: `.rot` é o rótulo de 98px do formulário e esticava a cápsula */
 .capsula .leg{color:var(--dim)}
-.ponto{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+/* verde é o estado PROVADO, não o padrão: o selo nascia verde e afirmava
+   uma GPU que o computador podia não ter */
+.ponto{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.capsula.gpu .ponto{background:var(--ok)}
+.capsula.cpu .ponto{background:var(--warn,#d9a441)}
+.capsula.desconhecido .ponto{background:var(--warn,#d9a441)}
+.capsula.cpu .leg,.capsula.desconhecido .leg{color:var(--txt)}
+/* GPU boa pra analisar, mas cortando na CPU porque o NVENC foi recusado:
+   nem verde nem alarme — meio caminho, que é o que está acontecendo */
+.capsula.meia-boca .ponto{background:linear-gradient(90deg,var(--ok) 50%,
+                                    var(--warn,#d9a441) 50%)}
 
 .telas{height:calc(100vh - 44px)}
 .tela{height:100%;display:none}
@@ -162,7 +175,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .etapa.rodando .marca,.etapa.rodando .n{color:var(--accent)}
 /* a etapa onde a análise MORREU. Antes tudo virava ✓ verde, inclusive numa
    análise que nunca chegou ao fim */
-.etapa.parada{color:var(--txt)} .etapa.parada .marca{color:var(--bad)}
+.etapa.parada{color:var(--txt)} .etapa.parada .marca{color:var(--danger)}
+/* botão que já foi clicado e está esperando o efeito chegar */
+.btn.mole{opacity:.5;pointer-events:none}
 
 /* ================= 2. BIBLIOTECA =================================== */
 .acervo{width:var(--w-acervo);flex:0 0 var(--w-acervo);
@@ -402,16 +417,27 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 #recado.ruim{border-color:var(--danger-line);color:var(--danger)}
 
 /* --- batismo: um grupo por linha, fotos que dá pra descartar --------- */
-.dialogo.batismo{width:880px;max-height:90vh}
+/* 880px sobrava espaço dos dois lados e as fotos ficavam em 64px — pequenas
+   demais pra tarefa REAL desta tela, que é decidir se aquele rosto é da
+   pessoa ou de um intruso. Mais largura vira foto maior, não ar. */
+.dialogo.batismo{width:min(1180px,94vw);max-height:90vh}
 .dialogo .topo .sub{margin-left:auto;font-family:var(--mono);font-size:11px;
                     color:var(--faint);font-weight:400}
 .dialogo .rodape .dica{margin-right:auto;font-size:11.5px;color:var(--faint)}
 .grupo{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--line-soft)}
 .grupo:last-child{border-bottom:none}
-.grupo .fotos{display:flex;gap:6px;flex-wrap:wrap;flex:1;min-width:0}
-.grupo .foto{width:64px;height:64px;border-radius:4px;overflow:hidden;
-             position:relative;border:1px solid var(--line);flex:0 0 64px}
-.grupo .foto img{width:100%;height:100%;object-fit:cover;display:block}
+/* Grade de 8 colunas fixas, não flex-wrap: são 8 fotos por grupo (as MESMAS
+   8 que viram referência), e coluna fixa mantém o tamanho igual mesmo num
+   grupo com 3 fotos — assim comparar grupo com grupo continua justo. */
+.grupo .fotos{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;
+              flex:1;min-width:0;align-content:start}
+.grupo .foto{aspect-ratio:1;border-radius:4px;overflow:hidden;
+             position:relative;border:1px solid var(--line)}
+/* ARMADILHA (a mesma que zerou a grade da Biblioteca): altura em % dentro de
+   um pai que tira a altura de `aspect-ratio` pode dar 0. `inset:0` foge da
+   porcentagem e o quadro se resolve pelo próprio aspect-ratio. */
+.grupo .foto img{position:absolute;inset:0;width:100%;height:100%;
+                 object-fit:cover;display:block}
 /* rosto alheio infiltrado no grupo: clicar tira ele das referências, senão
    contamina o banco do personagem pra sempre */
 .grupo .foto.fora img{opacity:.25;filter:grayscale(1)}
@@ -444,7 +470,11 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   <div class="aba" data-tela="resultados">Resultados</div>
   <div class="aba" data-tela="biblioteca">Biblioteca</div>
   <div class="direita">
-    <div class="capsula"><span class="ponto"></span><span class="leg">RTX 4070</span></div>
+    <!-- Nasce NEUTRO e sem nome de placa. Este selo dizia "RTX 4070" fixo,
+         com a bolinha verde do CSS, em qualquer computador — inventava
+         hardware e inventava saúde. Quem preenche é o Python. -->
+    <div class="capsula" id="cap_gpu" title="descobrindo o dispositivo…">
+      <span class="ponto"></span><span class="leg">detectando…</span></div>
     <div class="capsula" id="abrir_config"><span class="leg">⚙</span>Configurações</div>
   </div>
 </div>
@@ -468,9 +498,12 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
         <div class="linha">
           <span class="rot">Temporada/Ep</span>
           <span class="mini-rot">T</span>
-          <div class="giro" data-giro="temporada"><span class="v">3</span><span class="setas"><span data-d="1">▲</span><span data-d="-1">▼</span></span></div>
+          <!-- 1 e 1, não o 3 e 2 da maquete: até escolher um arquivo esses
+               números são chute, e chute com cara de valor lido foi o que
+               fez um S03E05 ser gravado por cima do S03E02. -->
+          <div class="giro" data-giro="temporada"><span class="v">1</span><span class="setas"><span data-d="1">▲</span><span data-d="-1">▼</span></span></div>
           <span class="mini-rot">E</span>
-          <div class="giro" data-giro="episodio"><span class="v">2</span><span class="setas"><span data-d="1">▲</span><span data-d="-1">▼</span></span></div>
+          <div class="giro" data-giro="episodio"><span class="v">1</span><span class="setas"><span data-d="1">▲</span><span data-d="-1">▼</span></span></div>
           <span style="flex:1"></span>
           <span class="rot" style="width:52px;flex:0 0 52px">OP/ED</span>
           <div class="campo campo-curto" id="c_op" contenteditable spellcheck="false">1:30</div>
@@ -491,6 +524,10 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
            dia a dia — moraram nas Configurações. -->
       <div class="acoes">
         <div class="btn vazado">🔍&nbsp; Modo Descoberta</div>
+        <!-- Só aparece depois de fechar um batismo sem salvar: sem ele não
+             existia caminho de volta, e refazer a descoberta é a análise
+             inteira de novo. -->
+        <div class="btn vazado" id="btn_reabrir_batismo" style="display:none">↩&nbsp; Reabrir batismo</div>
         <span style="flex:1"></span>
         <div class="btn cinza">Analisar + IA nos duvidosos</div>
         <div class="btn cheio" id="btn_analisar">Analisar episódio</div>
@@ -656,14 +693,18 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 
       <div class="secao">
         <div class="cabecalho"><span class="num">03</span><span class="tit">Referências e cache</span><span class="traco"></span></div>
+        <!-- Cada um destes tinha ZERO listener: os únicos handlers de
+             `.btn-campo` filtravam por texto começando com "Escolher" ou
+             "Selecionar", e nenhum aqui começa assim. Com :hover no CSS,
+             pareciam vivos. Agora têm id e cada id tem fio. -->
         <div class="botoeira">
-          <div class="btn-campo" style="border-color:var(--accent-dim);color:var(--accent);font-weight:600">🔍 Testar refs (preview)</div>
-          <div class="btn-campo">📂 Abrir pasta de referências</div>
-          <div class="btn-campo">📂 Abrir pasta de cache</div>
-          <div class="btn-campo">🧩 Fundir duplicados</div>
-          <div class="btn-campo">🧹 Limpar fotos baixadas</div>
-          <div class="btn-campo">♻ Restaurar padrões</div>
-          <div class="btn-campo perigo">🗑 Apagar TODO o cache</div>
+          <div class="btn-campo" id="s_refs_resumo" style="border-color:var(--accent-dim);color:var(--accent);font-weight:600">🔍 Conferir referências</div>
+          <div class="btn-campo" id="s_abrir_refs">📂 Abrir pasta de referências</div>
+          <div class="btn-campo" id="s_abrir_cache">📂 Abrir pasta de cache</div>
+          <div class="btn-campo" id="s_fundir">🧩 Fundir duplicados</div>
+          <div class="btn-campo" id="s_limpar_fotos">🧹 Limpar fotos baixadas</div>
+          <div class="btn-campo" id="s_restaurar">♻ Restaurar padrões</div>
+          <div class="btn-campo perigo" id="s_apagar_cache">🗑 Apagar TODO o cache</div>
         </div>
         <div class="nota">Foto de personagem errado no meio das referências suja a identificação.
           <b>Limpar fotos baixadas</b> zera só o que veio da internet — a próxima análise baixa de novo.
@@ -673,10 +714,28 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
       <div class="secao">
         <div class="cabecalho"><span class="num">04</span><span class="tit">IA de apoio</span><span class="traco"></span></div>
         <div class="corpo">
+          <!-- A máscara era fixa: sem chave nenhuma o campo mostrava 28
+               bolinhas, e o modelo vinha cravado no HTML. O `config()` já
+               devolvia `tem_chave` e `modelo` e o JS não usava nem um nem
+               outro — a tela afirmava uma configuração que não existia. -->
           <div class="linha"><span class="rot">API key</span>
-            <div class="campo" style="font-family:var(--mono)">••••••••••••••••••••••••••••</div>
-            <div class="btn-campo">Mostrar</div></div>
-          <div class="linha"><span class="rot">Modelo</span><div class="campo">gemini-2.5-flash</div></div>
+            <div class="campo" id="s_chave" style="font-family:var(--mono)">—</div></div>
+          <div class="linha"><span class="rot">Modelo</span><div class="campo" id="s_modelo">—</div></div>
+          <div class="nota" style="padding-left:0">Sem chave, o botão
+            <b>Analisar + IA nos duvidosos</b> não tem o que chamar: a análise roda
+            só com o CLIP. A chave se configura no app clássico por enquanto.</div>
+        </div>
+      </div>
+
+      <div class="secao">
+        <div class="cabecalho"><span class="num">05</span><span class="tit">Sobre</span><span class="traco"></span></div>
+        <div class="corpo">
+          <div class="linha"><span class="rot">Versão</span>
+            <div class="campo" id="s_versao">—</div></div>
+          <div class="botoeira">
+            <div class="btn-campo" id="s_abrir_logs">📂 Abrir pasta de logs</div>
+          </div>
+          <div class="nota" style="padding-left:0" id="s_nota_interface"></div>
         </div>
       </div>
     </div>
@@ -754,10 +813,18 @@ document.querySelectorAll('.aba').forEach(a => a.addEventListener('click', () =>
   document.getElementById(a.dataset.tela).classList.add('viva');
   if (a.dataset.tela === 'biblioteca') mostraBiblioteca();
 }));
-document.getElementById('abrir_config').addEventListener('click',
-  () => document.getElementById('veu').classList.add('viva'));
-document.getElementById('fechar_config').addEventListener('click',
-  () => document.getElementById('veu').classList.remove('viva'));
+// Abrir E fechar sem salvar releem o Config. O `carregaConfig()` rodava UMA
+// vez, no boot: desmarcar uma caixa, clicar em Cancelar e reabrir mostrava a
+// caixa ainda desmarcada, como se aquele fosse o estado salvo — e o próximo
+// Salvar levava a mudança junto. Cancelar tem que desfazer.
+document.getElementById('abrir_config').addEventListener('click', () => {
+  document.getElementById('veu').classList.add('viva');
+  if (ponte) carregaConfig();
+});
+document.getElementById('fechar_config').addEventListener('click', () => {
+  document.getElementById('veu').classList.remove('viva');
+  if (ponte) carregaConfig();
+});
 
 // ---- cartão de cena (usado pela Biblioteca E pelos Resultados) --------
 function cartao(c){
@@ -843,14 +910,37 @@ document.getElementById('grade').addEventListener('click', e => {
   document.getElementById('i_quem').textContent = c.quem.length ? c.quem.join(', ') : '—';
   document.getElementById('i_conf').textContent =
     c.conf && c.conf.length ? c.conf.map(x => x.toFixed(2)).join(' / ') : '—';
-  document.getElementById('tv_vazio').textContent = 'preparando…';
+  // A CENA ANTERIOR SAI DE CENA ANTES DE QUALQUER COISA.
+  //
+  // Isto escrevia "preparando…" e, no erro, "sem prévia" — os dois num
+  // elemento que estava com `display:none` desde a primeira prévia do
+  // episódio e que nada voltava a mostrar. E o `tv.src` não era limpo:
+  // como o <video> tem `loop`, o clipe ANTERIOR seguia rodando enquanto a
+  // tabela ao lado já mostrava número, tempo e confiança da cena nova.
+  // Julgar a cena #0214 pelo vídeo da #0087 e decidir remover pela imagem
+  // errada era possível sem nenhum erro aparecer na tela.
+  const tv = document.getElementById('tv');
+  const vazio = document.getElementById('tv_vazio');
+  tv.pause();
+  tv.removeAttribute('src');
+  tv.load();                       // sem isto o Chromium segue com o buffer
+  document.getElementById('tv_loop').style.display = 'none';
+  vazio.style.display = '';
+  // "gerando" e não "preparando": o ffmpeg roda SÍNCRONO no Python e um
+  // clipe leva ~0,14 s — em cena longa dá pra ver, e a tela precisa dizer
+  // que está trabalhando em vez de parecer travada.
+  vazio.textContent = 'gerando prévia…';
+  const pedida = c.idx;
   // O clipe é H.264 e este Chromium não toca — o Python devolve uma prévia
   // WebM feita na hora (ver Ponte.previa).
   ponte.previa(c.idx, url => {
-    const tv = document.getElementById('tv');
-    if (!url) { document.getElementById('tv_vazio').textContent = 'sem prévia'; return; }
+    // clicou noutra cena enquanto esta era gerada: a resposta velha não pode
+    // sobrescrever a nova
+    const atual = document.querySelector('#grade .cartao.viva, #r_grade .cartao.viva');
+    if (atual && +atual.dataset.idx !== pedida) return;
+    if (!url) { vazio.textContent = 'sem prévia — o clipe não abriu'; return; }
     tv.src = url; tv.play().catch(()=>{});
-    document.getElementById('tv_vazio').style.display = 'none';
+    vazio.style.display = 'none';
     document.getElementById('tv_loop').style.display = '';
   });
   if (ponte) ponte.clicou('cartao_' + c.idx);
@@ -896,7 +986,10 @@ function montaEtapas(){
 
 function zeraProgresso(){
   t0Analise = performance.now(); ritmo = null; ultimo = null; ultimoPct = 0;
-  document.getElementById('btn_cancelar').style.display = '';
+  const bc = document.getElementById('btn_cancelar');
+  bc.style.display = '';
+  bc.classList.remove('mole');
+  bc.innerHTML = '✕&nbsp; Cancelar';
   document.getElementById('etapas').style.display = '';
   for (const k in pintado) delete pintado[k];
   document.querySelectorAll('.etapa').forEach(e => {
@@ -1170,10 +1263,23 @@ function terminaAnalise(d){
     });
     analisouNestaSessao = true;
     document.getElementById('res_corpo').style.display = '';
-    document.getElementById('r_titulo').textContent =
-      document.getElementById('titulo').textContent;
-    epAberto = null;
     carregaAcervo();
+    // A aba Resultados abre CHEIA, com o episódio que acabou de sair.
+    // Ela copiava o título da Biblioteca — que vale "—" pra quem nunca abriu
+    // a Biblioteca, ou "Biblioteca vazia" pra quem analisou o primeiro
+    // episódio da vida — e a grade ficava em branco porque quem a preenche é
+    // o `carregaCenas`, que só rodava ao clicar na árvore.
+    if (d.episodio_id){
+      epAberto = String(d.episodio_id);
+      document.getElementById('r_titulo').textContent = d.rotulo || '—';
+      document.getElementById('titulo').textContent = d.rotulo || '—';
+      filtro = null;
+      carregaCenas(epAberto);
+    } else {
+      epAberto = null;
+      document.getElementById('r_titulo').textContent =
+        document.getElementById('titulo').textContent;
+    }
     recado(d.cenas ? `Análise terminada — ${d.cenas} cena(s).`
                    : 'Análise terminada.');
     contaOQueSaiuTorto(d);
@@ -1309,10 +1415,37 @@ function abreBatismo(dados){
     n.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); }));
 
   document.getElementById('veu_batismo').classList.add('viva');
+  // enquanto está aberto não faz sentido oferecer reabrir
+  document.getElementById('btn_reabrir_batismo').style.display = 'none';
 }
 
-document.getElementById('bat_nao').addEventListener('click', () =>
-  document.getElementById('veu_batismo').classList.remove('viva'));
+// Fechar o batismo sem salvar SÓ escondia a caixa. O DiscoveryResult
+// continuava vivo no Python, mas nenhum slot o devolvia — não havia caminho
+// de volta, e refazer a descoberta custa a análise inteira. Agora confirma,
+// explica o que fica, e deixa o botão de reabrir à mão.
+document.getElementById('bat_nao').addEventListener('click', () => {
+  const nomeados = [...document.querySelectorAll('#bat_grupos .nome')]
+    .filter(n => n.textContent.trim()).length;
+  pergunta({
+    titulo: 'Fechar sem salvar',
+    texto: (nomeados
+             ? `Você já nomeou <b>${nomeados}</b> grupo(s). Nada disso foi gravado.<br><br>`
+             : '')
+         + '• Os cortes em <code>shots/</code> continuam onde estão<br>'
+         + '• Nenhum personagem novo é criado<br>'
+         + '• Dá pra voltar: o botão <b>Reabrir batismo</b> aparece na tela '
+         + 'de Analisar enquanto o app estiver aberto',
+    confirmar: 'Fechar sem salvar', negar: 'Continuar batizando',
+  }, () => {
+    document.getElementById('veu_batismo').classList.remove('viva');
+    document.getElementById('btn_reabrir_batismo').style.display = '';
+  });
+});
+document.getElementById('btn_reabrir_batismo').addEventListener('click', () =>
+  ponte.reabrir_batismo(json => {
+    const r = JSON.parse(json);
+    if (!r.ok) recado(r.msg, true);
+  }));
 
 document.getElementById('bat_sim').addEventListener('click', () => {
   const nomes = {};
@@ -1327,7 +1460,11 @@ document.getElementById('bat_sim').addEventListener('click', () => {
   ponte.batizar(JSON.stringify({nomes, tiradas}), json => {
     const r = JSON.parse(json);
     recado(r.msg, !r.ok);
-    if (r.ok) document.getElementById('veu_batismo').classList.remove('viva');
+    if (r.ok){
+      document.getElementById('veu_batismo').classList.remove('viva');
+      // batizado é fim de linha: não há o que reabrir
+      document.getElementById('btn_reabrir_batismo').style.display = 'none';
+    }
   });
 });
 document.querySelectorAll('.acoes .btn').forEach(b => {
@@ -1335,8 +1472,20 @@ document.querySelectorAll('.acoes .btn').forEach(b => {
   if (b.textContent.includes('IA')) b.addEventListener('click', () => comeca({ia: true}));
   else b.addEventListener('click', () => comeca({descoberta: true}));
 });
-document.getElementById('btn_cancelar').addEventListener('click',
-  () => ponte && ponte.cancelar());
+// Cancelar dá sinal de vida. Ele era mudo: o botão continuava ativo, a barra
+// continuava andando e o cancelamento é COOPERATIVO — o pipeline só olha o
+// pedido no próximo ponto de checagem, o que leva minutos se um modelo
+// estiver baixando. De fora, isso é igualzinho a um botão quebrado.
+document.getElementById('btn_cancelar').addEventListener('click', function(){
+  if (!ponte || this.classList.contains('mole')) return;
+  this.classList.add('mole');
+  this.textContent = 'Cancelando…';
+  ponte.cancelar(json => {
+    const r = JSON.parse(json);
+    recado(r.msg, !r.ok);
+    if (!r.ok){ this.classList.remove('mole'); this.textContent = '✕ Cancelar'; }
+  });
+});
 
 // ---- Resultados -------------------------------------------------------
 function mostraPersonagem(nome){
@@ -1578,8 +1727,15 @@ document.addEventListener('keydown', e => {
   const alvo = e.target;
   if (alvo instanceof Element && alvo.matches('input,textarea,[contenteditable]')) return;
   const k = e.key.toLowerCase();
-  if (k === 'escape') { menu.classList.remove('viva');
-                        document.getElementById('veu').classList.remove('viva'); return; }
+  if (k === 'escape') {
+    menu.classList.remove('viva');
+    const veu = document.getElementById('veu');
+    if (veu.classList.contains('viva')){
+      veu.classList.remove('viva');
+      if (ponte) carregaConfig();   // Esc também descarta o não salvo
+    }
+    return;
+  }
   if (k === 'arrowleft' || k === 'arrowright') {
     const atual = document.querySelector('#grade .cartao.viva');
     const todos = [...document.querySelectorAll('#grade .cartao')];
@@ -1603,8 +1759,24 @@ document.addEventListener('keydown', e => {
 function carregaConfig(){
   ponte.config(json => {
     const c = JSON.parse(json);
+    // Config que não carregou vinha como {saida, erro} — sem preset e sem
+    // caixas — e a tela ficava com TUDO desmarcado, do jeito que um Salvar
+    // por cima gravaria. Ler as configurações e não conseguir não pode
+    // parecer "está tudo desligado".
+    if (c.erro){
+      recado('Não deu pra ler as configurações: ' + c.erro
+           + '. Salvar agora sobrescreveria seus ajustes.', true);
+      document.getElementById('btn_salvar').classList.add('mole');
+      document.getElementById('c_saida').textContent = c.saida || '—';
+      document.getElementById('s_saida').textContent = c.saida || '—';
+      return;
+    }
+    document.getElementById('btn_salvar').classList.remove('mole');
     document.getElementById('c_saida').textContent = c.saida;
     document.getElementById('s_saida').textContent = c.saida;
+    document.getElementById('s_chave').textContent =
+      c.tem_chave ? '•••••••••••••••••••••• (configurada)' : 'sem chave';
+    document.getElementById('s_modelo').textContent = c.modelo || '—';
     document.querySelectorAll('.radio[data-preset]').forEach(r =>
       r.classList.toggle('viva', r.dataset.preset === c.preset));
     document.querySelectorAll('.caixa[data-cfg]').forEach(x => {
@@ -2001,12 +2173,104 @@ new QWebChannel(qt.webChannelTransport, canal => {
       c.classList.toggle('marcada');
       c.querySelector('.qd').textContent = c.classList.contains('marcada') ? '✓' : '';
     }));
+  // "Escolher..." (Configurações) e "Escolher pasta..." (Analisar) escrevem
+  // nos DOIS campos. O handler antigo casava os dois botões mas só escrevia
+  // em `#s_saida`: clicar na aba Analisar não mudava nada na tela e o valor
+  // ficava pendurado esperando um Salvar que o usuário não sabia que devia dar.
   document.querySelectorAll('.btn-campo').forEach(b => {
     if (!b.textContent.startsWith('Escolher')) return;
+    const naAnalise = !!b.closest('#analisar');
     b.addEventListener('click', () => ponte.escolher_pasta_saida(d => {
       if (!d) return;
       document.getElementById('s_saida').textContent = d;
+      document.getElementById('c_saida').textContent = d;
+      if (naAnalise)
+        recado('Saída escolhida. Confirme em Configurações → Salvar '
+             + 'pra ela valer nas próximas análises.');
     }));
+  });
+
+  // ---- os sete botões que não faziam nada -----------------------------
+  const liga = (id, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', fn);
+  };
+  const eco = json => { const r = JSON.parse(json); recado(r.msg, !r.ok); };
+
+  liga('s_abrir_refs', () => ponte.abrir_especial('refs', eco));
+  liga('s_abrir_cache', () => ponte.abrir_especial('cache', eco));
+  liga('s_abrir_logs', () => ponte.abrir_especial('logs', eco));
+
+  liga('s_refs_resumo', () => ponte.resumo_refs(json => {
+    const r = JSON.parse(json);
+    if (!r.ok) { recado(r.msg, true); return; }
+    pergunta({
+      titulo: 'Referências no cache',
+      texto: `<b>${r.fotos}</b> foto(s) de <b>${r.personagens}</b> personagem(ns) `
+           + `em <b>${r.animes}</b> anime(s).<br><br>`
+           + 'Foto de personagem errado no meio das refs suja a identificação '
+           + 'e o erro se repete em todo episódio novo. Vale abrir a pasta e '
+           + 'olhar quando um personagem começa a aparecer onde não devia.',
+      confirmar: '📂 Abrir pasta', negar: 'Fechar',
+    }, () => ponte.abrir_especial('refs', eco));
+  }));
+
+  liga('s_limpar_fotos', () => pergunta({
+    titulo: 'Limpar fotos baixadas',
+    texto: 'Apaga só as fotos que vieram do catálogo (AniList/MAL/Kitsu).<br><br>'
+         + '• O que <b>você</b> pôs na pasta na mão continua lá<br>'
+         + '• As refs de batismo (<code>auto_</code>) continuam<br>'
+         + '• A próxima análise baixa as do catálogo de novo',
+    confirmar: 'Limpar', negar: 'Cancelar',
+  }, () => ponte.limpar_fotos_baixadas(eco)));
+
+  liga('s_restaurar', () => pergunta({
+    titulo: 'Restaurar padrões',
+    texto: 'Volta os números da análise (limiar, margem, mínimo de cenas, '
+         + 'padding do rosto, créditos) ao padrão de fábrica.<br><br>'
+         + '• Pasta de saída, chave de API e os toggles <b>não</b> são tocados',
+    confirmar: 'Restaurar', negar: 'Cancelar',
+  }, () => ponte.restaurar_padroes(json => { eco(json); carregaConfig(); })));
+
+  liga('s_fundir', () => ponte.fundir_duplicados('{}', json => {
+    const p = JSON.parse(json);
+    if (!p.ok) { recado(p.msg, true); return; }
+    if (!p.animes && !p.chars){
+      recado('Nenhuma pasta duplicada de personagem ou anime. 👌');
+      return;
+    }
+    // Mostra o PLANO antes de aplicar: o que vai ser fundido com o quê.
+    pergunta({
+      titulo: 'Fundir duplicados',
+      texto: `<b>${p.chars}</b> personagem(ns) e <b>${p.animes}</b> anime(s) `
+           + 'duplicados.<br><br><span style="font-family:var(--mono);'
+           + 'font-size:11.5px">' + p.linhas.join('<br>')
+           + (p.resto ? `<br>… e mais ${p.resto}` : '') + '</span><br><br>'
+           + '• As fotos são <b>movidas</b> pra pasta de nome mais completo — '
+           + 'nada é apagado<br>'
+           + '• Reanalise os episódios depois pra refazer as contagens',
+      confirmar: '🧩 Fundir', negar: 'Cancelar',
+    }, () => ponte.fundir_duplicados(JSON.stringify({aplicar: true}), eco));
+  }));
+
+  liga('s_apagar_cache', () => pergunta({
+    titulo: 'Apagar TODO o cache',
+    texto: 'Remove o banco, as referências, os embeddings e os modelos '
+         + 'baixados.<br><br>'
+         + '• Vai tudo pra <b>cache_lixeira</b> (ao lado do cache) — '
+         + '<b>dá pra recuperar de lá</b> enquanto você não apagar na mão<br>'
+         + '• Some junto o que o app aprendeu: batismos e memória de curadoria<br>'
+         + '• Os clipes já cortados em <code>Output/</code> não são tocados<br>'
+         + '• A próxima análise baixa tudo de novo',
+    confirmar: 'Apagar o cache', negar: 'Cancelar',
+  }, () => ponte.apagar_cache(json => { eco(json); carregaAcervo(); })));
+
+  ponte.sobre(json => {
+    const s = JSON.parse(json);
+    document.getElementById('s_versao').textContent =
+      `Corte Cenas v${s.versao} — interface ${s.interface}`;
+    document.getElementById('s_nota_interface').textContent =
+      `Logs em ${s.logs}`;
   });
   document.getElementById('btn_salvar').addEventListener('click', () => {
     const viva = document.querySelector('.radio.viva');
@@ -2053,6 +2317,28 @@ new QWebChannel(qt.webChannelTransport, canal => {
   ponte.terminou.connect(carga => terminaAnalise(JSON.parse(carga)));
 
   ponte.descobriu.connect(json => abreBatismo(JSON.parse(json)));
+
+  // O selo do dispositivo, com o que a máquina REALMENTE tem.
+  ponte.dispositivo.connect(json => {
+    const d = JSON.parse(json);
+    const cap = document.getElementById('cap_gpu');
+    cap.className = 'capsula ' + d.estado;
+    cap.querySelector('.leg').textContent = d.nome;
+    const dicas = [];
+    if (d.estado === 'cpu')
+      dicas.push('Sem GPU CUDA — a análise roda na CPU e fica bem mais lenta.');
+    if (d.estado === 'desconhecido')
+      dicas.push('Não deu pra checar a GPU: ' + d.erro
+               + '. Pode ser que ela exista e o app não esteja usando.');
+    // NVENC é outra coisa: dá pra ter CUDA pra analisar e mesmo assim
+    // cortar na CPU, que é o caso de driver antigo demais pro encoder.
+    dicas.push(d.nvenc ? 'Cortes via GPU (NVENC).'
+      : 'Cortes via CPU (libx264)' + (d.nvenc_motivo ? ' — ' + d.nvenc_motivo : '')
+        + '. Atualizar o driver NVIDIA costuma acelerar bastante essa etapa.');
+    cap.title = dicas.join('\n');
+    if (!d.nvenc && d.estado === 'gpu') cap.classList.add('meia-boca');
+  });
+  ponte.descobrir_dispositivo();
 
   ponte.arquivoSolto.connect(poeArquivo);
 
