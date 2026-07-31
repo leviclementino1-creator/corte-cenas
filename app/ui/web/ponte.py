@@ -46,6 +46,13 @@ _CAMPO_DO_PRESET = {
 QUADROS_TIRA = 8
 
 
+def _PRESETS_UI():
+    """Os presets, sempre de `ui/presets.py` — nunca uma cópia."""
+    from app.ui.presets import PRESETS
+
+    return PRESETS
+
+
 def _pasta_dos_logs() -> Path:
     """Onde os logs REALMENTE ficam — perguntado pra quem escreve neles.
 
@@ -2212,6 +2219,16 @@ class Ponte(QObject):
                 # a saída de verdade, quando a desta sessão é provisória
                 "saida_indisponivel": getattr(c, "saida_indisponivel", ""),
                 "preset": atual,
+                # OS CINCO NÚMEROS, sempre. A tela precisa deles pra mostrar
+                # o cartão "Personalizado" com o que está valendo — antes ela
+                # só sabia que não batia com preset nenhum, e dizia isso num
+                # parágrafo em vez de mostrar o estado.
+                "valores": {curto: getattr(c, campo)
+                            for curto, campo in _CAMPO_DO_PRESET.items()},
+                # e os números de cada preset, pra escolher um preencher os
+                # campos na hora sem a página ter uma cópia dos valores
+                "presets": {nome: {k: p[k] for k in _CAMPO_DO_PRESET}
+                            for nome, p in _PRESETS_UI().items()},
                 "por_personagem": bool(c.organize_by_character_enabled),
                 "por_dupla": bool(c.organize_by_pair_enabled),
                 "ccip": bool(c.ccip_enabled),
@@ -2238,6 +2255,19 @@ class Ponte(QObject):
             if preset in PRESETS:
                 for curto, campo in _CAMPO_DO_PRESET.items():
                     setattr(c, campo, PRESETS[preset][curto])
+            # DEPOIS do preset, de propósito: quem mexeu num campo à mão
+            # quer aquele número, mesmo que um preset esteja marcado. Os
+            # limites são os mesmos dos spinboxes do app Qt.
+            LIMITES = {"threshold": (0.0, 1.0), "margin": (0.0, 1.0),
+                       "min_shots": (1, 50), "padding": (0.0, 1.0),
+                       "credit": (0.0, 1.0)}
+            for curto, valor in (d.get("valores") or {}).items():
+                campo = _CAMPO_DO_PRESET.get(curto)
+                if campo is None or valor is None:
+                    continue
+                lo, hi = LIMITES[curto]
+                v = int(valor) if curto == "min_shots" else float(valor)
+                setattr(c, campo, max(lo, min(hi, v)))
             for chave, campo in (
                 ("por_personagem", "organize_by_character_enabled"),
                 ("por_dupla", "organize_by_pair_enabled"),

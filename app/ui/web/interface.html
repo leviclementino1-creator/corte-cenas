@@ -201,6 +201,14 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
    fixa: "Jishou Akuyaku Reijou na Konyakusha no Kansatsu Kiroku." derramava
    por cima dos nós de baixo e levava a contagem junto. Título comprido não é
    caso raro — é como metade dos animes se chama. */
+.manuais{display:grid;gap:8px;padding:10px 12px;margin-top:6px;
+          background:var(--surface);border-radius:6px}
+.manuais label{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--dim)}
+.manuais input{width:88px;padding:5px 8px;border-radius:4px;
+               border:1px solid var(--linha);background:var(--bg);color:var(--txt);
+               font-family:var(--mono);font-size:13px}
+.manuais input:focus{outline:none;border-color:var(--accent)}
+.manuais span{font-size:11.5px;color:var(--faint)}
 .no .rot{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
          white-space:nowrap}
 .no .conta{margin-left:auto;flex:0 0 auto;padding-left:8px;
@@ -697,8 +705,30 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
             <div class="exp">O equilíbrio. É o que o benchmark mede — recomendado pra uso normal.</div></div>
           <div class="radio" data-preset="loose"><div class="cab"><span class="bola"></span>Pouco fiel</div>
             <div class="exp">Pega quase tudo, com mais engano junto. Bom pra caçar cena rara.</div></div>
+          <!-- Só aparece quando os números não batem com nenhum preset. Sem
+               ele a tela ficava com os TRÊS apagados e um parágrafo dizendo
+               que estava manual: um estado sem nome, que parecia defeito. -->
+          <div class="radio" data-preset="manual" id="r_manual" style="display:none">
+            <div class="cab"><span class="bola"></span>Personalizado</div>
+            <div class="exp" id="r_manual_nums">—</div></div>
         </div>
-        <div class="nota"><b>Mostrar valores manuais ⌄</b> — os cinco números por trás dos presets, se quiser mexer na mão.</div>
+        <div class="nota" id="nota_manuais" style="cursor:pointer"><b>Mostrar valores manuais ⌄</b> — os cinco números por trás dos presets, se quiser mexer na mão.</div>
+        <!-- Os cinco campos existiam no app Qt (settings_dialog.py, spinboxes)
+             e sumiram na migração: a nota acima prometia "se quiser mexer na
+             mão" e não abria nada. Quem tinha número fora dos presets não
+             tinha como ver nem ajustar. -->
+        <div class="manuais" id="manuais" style="display:none">
+          <label>Corte <input type="number" id="m_threshold" step="0.01" min="0" max="1">
+            <span>acima disso o rosto é considerado a pessoa</span></label>
+          <label>Margem <input type="number" id="m_margin" step="0.01" min="0" max="1">
+            <span>distância mínima pro segundo colocado</span></label>
+          <label>Mín. de cenas <input type="number" id="m_min_shots" step="1" min="1" max="50">
+            <span>personagem com menos que isso é descartado</span></label>
+          <label>Borda do rosto <input type="number" id="m_padding" step="0.05" min="0" max="1">
+            <span>quanto pegar em volta do rosto no recorte</span></label>
+          <label>Créditos <input type="number" id="m_credit" step="0.05" min="0" max="1">
+            <span>acima disso a cena é tratada como crédito</span></label>
+        </div>
         <div class="corpo" style="padding-top:2px">
           <span class="caixa" data-cfg="so_cortar" id="so_cortar"><span class="qd"></span>✂ Só cortar as cenas (sem identificar personagens)</span>
           <div class="nota" style="padding-left:24px">Pula o reconhecimento inteiro: sai só a pasta <span style="font-family:var(--mono);color:var(--dim)">shots/</span>, sem elenco e sem pastas por personagem.</div>
@@ -2281,10 +2311,41 @@ function carregaConfig(){
       x.querySelector('.qd').textContent = c[x.dataset.cfg] ? '✓' : '';
     });
     // "manual": os números foram mexidos na mão e não batem com preset nenhum
-    if (c.preset === 'manual')
+    // O CARTÃO "Personalizado" mostra os números em vez de explicá-los.
+    // Antes, números fora dos presets deixavam os três radios apagados e a
+    // tela dizia num parágrafo que estava "manual" — quem abria via um
+    // formulário sem nada marcado e achava que era bug (foi exatamente o que
+    // aconteceu). Agora o estado tem nome, e os cinco valores ficam à vista.
+    // Os números de cada preset vêm do Python (ui/presets.py) — a página não
+    // guarda cópia. Duas listas do que é "Auto" é como elas divergem, e foi
+    // assim que o padrão de instalação nova ficou fora de todos os presets.
+    PRESET_VALORES = c.presets || {};
+    // "Personalizado" também é um conjunto de números: sem esta linha, clicar
+    // em Auto e voltar pro Personalizado marcava o cartão certo e deixava os
+    // CAMPOS com os números do Auto — e o Salvar mandava os do Auto como se
+    // fossem os seus. Achado pelo teste, não pelo olho.
+    if (c.valores) PRESET_VALORES.manual = c.valores;
+    // e os cinco campos sempre mostram o que está valendo, preset ou não
+    if (c.valores)
+      for (const k in c.valores){
+        const campo = document.getElementById('m_' + k);
+        if (campo) campo.value = c.valores[k];
+      }
+    const cartaoManual = document.getElementById('r_manual');
+    if (c.preset === 'manual' && c.valores){
+      const v = c.valores;
+      document.getElementById('r_manual_nums').textContent =
+        `corte ${v.threshold} · margem ${v.margin} · mín. ${v.min_shots} cenas`
+        + ` · borda ${v.padding} · créditos ${v.credit}`;
+      cartaoManual.style.display = '';
+      cartaoManual.classList.add('viva');
       document.querySelector('#veu .nota').innerHTML =
-        '<b>Valores manuais</b> — os números atuais não batem com nenhum dos '
-        + 'três presets. Escolher um acima substitui os cinco de uma vez.';
+        '<b>Seus números</b> — foram ajustados na mão e não batem com nenhum '
+        + 'dos três presets. Escolher um acima substitui os cinco de uma vez.';
+    } else {
+      cartaoManual.style.display = 'none';
+      cartaoManual.classList.remove('viva');
+    }
   });
 }
 
@@ -2294,6 +2355,10 @@ function carregaConfig(){
 // personagem e reordenar não podem discordar entre si.
 // A aba Resultados só existe depois que ALGO foi analisado nesta sessão.
 let analisouNestaSessao = false;
+// Os números de cada preset, mandados pelo Python (ui/presets.py). A página
+// NÃO tem cópia deles: duas listas do que é "Auto" é como elas divergem — foi
+// assim que o padrão de instalação nova ficou fora de todos os presets.
+let PRESET_VALORES = {};
 let filtro = null;      // null = todas · '__sem__' = sem identificação
 let ordem = 'crono';
 let epAberto = null;
@@ -2754,10 +2819,33 @@ new QWebChannel(qt.webChannelTransport, canal => {
   // Radios e caixas eram desenho. Agora leem o Config real do app e o
   // Salvar grava — só os campos que ESTA tela mostra, senão salvar a partir
   // de uma tela incompleta apagaria ajuste que ela nem exibe.
+  document.getElementById('nota_manuais').addEventListener('click', () => {
+    const m = document.getElementById('manuais');
+    const abrindo = m.style.display === 'none';
+    m.style.display = abrindo ? '' : 'none';
+    document.querySelector('#nota_manuais b').textContent =
+      abrindo ? 'Esconder valores manuais ⌃' : 'Mostrar valores manuais ⌄';
+  });
+  // Mexer num campo É sair do preset. A tela precisa dizer isso na hora —
+  // senão a pessoa ajusta um número com "Auto" marcado, salva, e fica sem
+  // saber se guardou o Auto ou o ajuste.
+  document.querySelectorAll('.manuais input').forEach(i =>
+    i.addEventListener('input', () => {
+      document.querySelectorAll('.radio').forEach(x => x.classList.remove('viva'));
+      const m = document.getElementById('r_manual');
+      m.style.display = '';
+      m.classList.add('viva');
+      document.getElementById('r_manual_nums').textContent =
+        'seus números — clique em Salvar pra valer';
+    }));
   document.querySelectorAll('.radio[data-preset]').forEach(r =>
     r.addEventListener('click', () => {
       document.querySelectorAll('.radio').forEach(x => x.classList.remove('viva'));
       r.classList.add('viva');
+      // escolher um preset reescreve os cinco campos na hora: eles mostram
+      // o que VAI ser salvo, não o que estava antes
+      const v = PRESET_VALORES[r.dataset.preset];
+      if (v) for (const k in v) document.getElementById('m_' + k).value = v[k];
     }));
   document.querySelectorAll('.caixa[data-cfg]').forEach(c =>
     c.addEventListener('click', () => {
@@ -2870,6 +2958,14 @@ new QWebChannel(qt.webChannelTransport, canal => {
     document.querySelectorAll('.caixa[data-cfg]').forEach(c => {
       if (c.dataset.cfg !== 'so_cortar')
         pedido[c.dataset.cfg] = c.classList.contains('marcada');
+    });
+    // Os cinco números vão SEMPRE. Com preset marcado eles são os do preset
+    // (o clique reescreve os campos), então mandar não muda nada; com
+    // "Personalizado" são os da pessoa, e é a única forma de chegarem lá.
+    pedido.valores = {};
+    document.querySelectorAll('.manuais input').forEach(i => {
+      const v = parseFloat(i.value);
+      if (!Number.isNaN(v)) pedido.valores[i.id.slice(2)] = v;
     });
 
     const grava = () => ponte.salvar_config(JSON.stringify(pedido), json => {
