@@ -654,7 +654,14 @@ class SettingsDialog(QDialog):
             "• Resultados de análises no banco e elencos cacheados\n\n"
             "Os clipes na pasta de saída e os modelos baixados ficam. "
             "Não use durante uma análise em andamento.\n\n"
-            "Isso não tem volta."
+            # "Isso não tem volta." era falso e a própria mensagem de sucesso,
+            # 23 linhas abaixo neste método, já dizia o contrário: o
+            # `wipe_cache` faz `shutil.move` pra cache_lixeira. Aviso que
+            # exagera é tão ruim quanto aviso que falta — ensina a não
+            # acreditar nos outros.
+            "Tudo isso vai pra cache_lixeira, ao lado da pasta de cache — "
+            "dá pra recuperar de lá enquanto você não apagar essa pasta "
+            "na mão."
         )
         yes = box.addButton(
             "🗑 Apagar tudo", QMessageBox.ButtonRole.DestructiveRole

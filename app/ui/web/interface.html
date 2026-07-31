@@ -509,6 +509,14 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
           <div class="campo campo-curto" id="c_op" contenteditable spellcheck="false">1:30</div>
           <div class="campo campo-curto" id="c_ed" contenteditable spellcheck="false">1:30</div>
         </div>
+        <!-- O 1:30 já vem posto e ninguém dizia o que ele faz: 90 s do
+             começo e 90 s do fim eram jogados fora — nem cortados, nem
+             analisados — e o único registro era um print. Em recap, especial
+             ou episódio 1 isso come cena de verdade. -->
+        <div class="nota" style="padding-left:0">Esses trechos são a
+          <b>duração</b> da abertura e do encerramento, não o horário em que
+          eles acabam. Eles não são cortados nem analisados —
+          deixe <b>0:00</b> se o episódio não tiver.</div>
         <div class="linha">
           <span class="rot">Saída</span>
           <div class="campo" id="c_saida">G:\App Corte Cenas\Output</div>
@@ -1147,6 +1155,34 @@ function comeca(extra){
 }
 
 function segueAnalise(pedido, e){
+    // Arranjo feito no Explorer que o banco ainda não conhece: a reanálise
+    // faz rmtree em by_character/ e reconstrói pelo banco. Os clipes não se
+    // perdem (são hardlinks, o mestre fica em shots/), mas o arranjo some —
+    // e ninguém avisava nem antes nem depois.
+    if (e.arranjo_solto){
+      const n = e.arranjo_solto;
+      e.arranjo_solto = 0;
+      pergunta({
+        titulo: 'Tem arranjo de pasta que o app não conhece',
+        texto: `Achei <b>${n}</b> clipe(s) nas pastas por personagem que o app `
+             + 'ainda não registrou — provavelmente você arrumou no Explorer '
+             + 'e não sincronizou.<br><br>'
+             + '• A análise refaz as pastas <b>pelo banco</b>, então esse '
+             + 'arranjo se perde<br>'
+             + '• Os clipes em <code>shots/</code> não são tocados<br>'
+             + '• Sincronizar antes transforma o arranjo em curadoria lembrada',
+        opcoes: ['Sincronizar antes (recomendado)', 'Analisar assim mesmo'],
+        confirmar: 'Continuar',
+      }, escolha => {
+        if (escolha.startsWith('Sincronizar')){
+          recado('Abra a aba Resultados e use "🔄 Sincronizar pastas" antes.',
+                 true);
+          return;
+        }
+        segueAnalise(pedido, e);
+      });
+      return;
+    }
     if (!e.tem_analise){ dispara(pedido); return; }
     const quanto = e.cenas ? `<b>${e.cenas} cena(s)</b> já identificadas`
                            : 'identificação já salva';
@@ -1198,6 +1234,25 @@ function segueAnalise(pedido, e){
 function dispara(pedido){
   const volta = json => {
     const r = JSON.parse(json);
+    // "Mushoku" e "Mushoku Tensei" são a mesma série pra você e duas pastas
+    // pro app. O `pastas.py` existe pra resolver isso desde a v0.4.10, mas
+    // ninguém definia o `perguntar_pasta` — então o resolver criava a pasta
+    // nova E GRAVAVA a decisão, e depois disso nem o app Qt pergunta mais.
+    if (r.precisa_pasta){
+      pergunta({
+        titulo: 'Onde guardar este anime?',
+        texto: `Você digitou <b>${r.digitado}</b>, e já existe pasta parecida `
+             + 'na saída. Guardar tudo junto mantém o acervo do mesmo show '
+             + 'em um lugar só.<br><br>Esta escolha é lembrada — não pergunto '
+             + 'de novo.',
+        opcoes: r.parecidas.concat([`Criar "${r.digitado}" separada`]),
+        confirmar: 'Usar esta',
+      }, escolha => {
+        const nova = escolha.startsWith('Criar "') ? r.digitado : escolha;
+        dispara(Object.assign({}, pedido, {pasta_escolhida: nova}));
+      });
+      return;
+    }
     recado(r.ok && pedido.descoberta
       ? 'Procurando rostos — o batismo abre no fim.' : r.msg, !r.ok);
     // zeraProgresso() SÓ depois do ok. Rodando antes, um "já tem uma análise
@@ -1580,23 +1635,46 @@ document.addEventListener('mousedown', e => {
 menuAcervo.querySelectorAll('.item').forEach(it => it.addEventListener('click', () => {
   menuAcervo.classList.remove('viva');
   if (!alvoAcervo || !alvoAcervo.eps.length) return;
-  if (it.dataset.acao === 'abrir'){ ponte.abrir_pasta('episodio'); return; }
+  // o episódio que ele CLICOU, não o que está aberto no meio da tela
+  if (it.dataset.acao === 'abrir'){
+    const alvo = alvoAcervo && alvoAcervo.eps.length ? alvoAcervo.eps[0].id : null;
+    ponte.abrir_pasta(alvo ? 'ep:' + alvo : 'episodio', json => {
+      const r = JSON.parse(json);
+      if (!r.ok) recado(r.msg, true);
+    });
+    return;
+  }
 
   const eps = alvoAcervo.eps;
+  const ids = eps.map(e => e.id);
   const quais = eps.length === 1 ? `<b>${eps[0].rot}</b>`
                                  : `<b>${eps.length}</b> episódios`;
-  pergunta({
-    titulo: 'Apagar do acervo',
-    texto: `Tirar ${quais} do acervo?<br><br>`
-         + '• A pasta vai pra <code>Output/_lixeira</code> — <b>não</b> é apagada de verdade<br>'
-         + '• O personagem, as fotos de referência e o que o app aprendeu ficam',
-    confirmar: 'Apagar',
-  }, () => ponte.apagar_do_acervo(JSON.stringify({ids: eps.map(e => e.id)}), json => {
-    const r = JSON.parse(json);
-    recado(r.msg, !r.ok);
-    epAberto = null;
-    carregaAcervo();
-  }));
+  // O TAMANHO do estrago vem antes da pergunta. "O que o app aprendeu fica"
+  // era meia verdade: o `delete_episode` apaga o `manual_override` DAQUELE
+  // episódio, que é justamente a memória de curadoria dele — e arrastar a
+  // pasta de volta da lixeira NÃO traz isso.
+  ponte.detalhes_do_apagar(JSON.stringify({ids}), det => {
+    const d = JSON.parse(det);
+    pergunta({
+      titulo: 'Apagar do acervo',
+      texto: `Tirar ${quais} do acervo`
+           + (d.cenas ? ` (<b>${d.cenas}</b> cena(s))` : '') + '?<br><br>'
+           + '• A pasta vai pra <code>Output/_lixeira</code> — <b>não</b> é '
+           + 'apagada de verdade, dá pra arrastar de volta<br>'
+           + '• Os personagens e as fotos de referência ficam<br>'
+           + (d.curadoria
+              ? `• ⚠ A curadoria <b>deste episódio</b> (${d.curadoria} `
+                + 'remoção/movida lembradas) é apagada e <b>não volta</b> com '
+                + 'a pasta'
+              : '• Não há curadoria manual gravada neste episódio'),
+      confirmar: 'Apagar',
+    }, () => ponte.apagar_do_acervo(JSON.stringify({ids}), json => {
+      const r = JSON.parse(json);
+      recado(r.msg, !r.ok);
+      epAberto = null;
+      carregaAcervo();
+    }));
+  });
 }));
 menu.querySelectorAll('.item').forEach(it => it.addEventListener('click', () => {
   menu.classList.remove('viva');
@@ -1674,7 +1752,8 @@ function donoDaCena(idx){
 function pedeAcao(acao, idxs){
   if (!ponte || !idxs.length) return;
 
-  if (acao === 'abrir'){ ponte.abrir_pasta('episodio'); return; }
+  if (acao === 'abrir'){ ponte.abrir_pasta('episodio', json => {
+    const r = JSON.parse(json); if (!r.ok) recado(r.msg, true); }); return; }
 
   if (acao === 'juntar' || acao === 'desjuntar'){
     ponte.acao_cena(JSON.stringify({acao, idxs}), resposta);
@@ -2098,7 +2177,8 @@ document.getElementById('btn_recarregar').addEventListener('click', () => {
   carregaAcervo();
 });
 document.getElementById('btn_abrir_pasta').addEventListener('click', () => {
-  if (ponte) ponte.abrir_pasta('episodio');
+  if (ponte) ponte.abrir_pasta('episodio', json => {
+    const r = JSON.parse(json); if (!r.ok) recado(r.msg, true); });
 });
 
 // ---- ações da aba Resultados ------------------------------------------
@@ -2106,13 +2186,46 @@ document.querySelectorAll('.elenco [data-res]').forEach(b =>
   b.addEventListener('click', () => {
     if (!ponte) return;
     const acao = b.dataset.res;
-    if (acao === 'abrir') { ponte.abrir_pasta('episodio'); return; }
+    if (acao === 'abrir') { ponte.abrir_pasta('episodio', json => {
+    const r = JSON.parse(json); if (!r.ok) recado(r.msg, true); }); return; }
     if (acao === 'sync'){
+      // DUAS ETAPAS. Isto aplicava direto, e cada arquivo faltando virava
+      // um bloqueio PERMANENTE — sem o usuário ver o tamanho do que ia
+      // acontecer. Pior: pasta com nome desconhecido cria personagem novo,
+      // então renomear "Rimuru" pra "Rimuru Tempest" no Explorer deixava
+      // dois personagens no acervo e o aviso era um recado de 4s.
       recado('Conferindo as pastas…');
-      ponte.sincronizar(json => {
-        const r = JSON.parse(json);
-        recado(r.msg, !r.ok);
-        if (r.mudou) recarregaEpisodio();
+      ponte.sincronizar('{}', json => {
+        const p = JSON.parse(json);
+        if (!p.ok) { recado(p.msg, true); return; }
+        const itens = [];
+        if (p.sairiam)
+          itens.push(`• <b>${p.sairiam}</b> cena(s) saem da pasta de quem está `
+            + 'nelas — o app passa a LEMBRAR disso e a reanálise não devolve. '
+            + 'Pra desfazer, devolva o clipe pra pasta e sincronize de novo');
+        if (p.novos_total)
+          itens.push(`• <b>${p.novos_total}</b> personagem(ns) NOVO(s) criados a `
+            + `partir de pasta desconhecida: ${p.novos.join(', ')}`
+            + (p.novos_total > p.novos.length ? ' …' : '')
+            + '. Se isso for um nome que você mudou no Explorer, vai virar '
+            + 'personagem duplicado');
+        if (p.pastas_sumidas.length)
+          itens.push(`• A pasta de <b>${p.pastas_sumidas.join(', ')}</b> sumiu `
+            + 'por inteiro e vai ser IGNORADA — apagar uma pasta inteira não '
+            + 'vira remoção em massa');
+        if (!itens.length){
+          recado('Pastas já estavam em dia.');
+          return;
+        }
+        pergunta({
+          titulo: 'Sincronizar pastas',
+          texto: 'Isto é o que vou aplicar:<br><br>' + itens.join('<br><br>'),
+          confirmar: 'Aplicar', negar: 'Cancelar',
+        }, () => ponte.sincronizar(JSON.stringify({aplicar: true}), j2 => {
+          const r = JSON.parse(j2);
+          recado(r.msg, !r.ok);
+          if (r.mudou) recarregaEpisodio();
+        }));
       });
       return;
     }
@@ -2123,8 +2236,25 @@ document.querySelectorAll('.elenco [data-res]').forEach(b =>
       });
       return;
     }
-    // reforçar refs e exportar vertical continuam só no app Qt
-    recado('Ainda não migrado — use o app atual pra isso.', true);
+    // "use o app atual pra isso" mandava procurar um programa que não
+    // existe: o app "atual" é o MESMO executável com --classico, e isso não
+    // estava escrito em nenhum lugar. E some junto a explicação do que a
+    // função faz, que era tooltip no Qt.
+    pergunta({
+      titulo: 'Ainda não migrado',
+      texto: (b.textContent.includes('efor')
+        ? '<b>Reforçar refs com este episódio</b> guarda como referência os '
+          + 'crops que a análise acertou com folga (≥0.90). É o jeito barato '
+          + 'de melhorar o reconhecimento nos próximos episódios.'
+        : '<b>Exportar vertical</b> recorta cada cena em 9:16 centralizado no '
+          + 'rosto, pra Shorts/Reels.')
+        + '<br><br>Isto ainda só existe na interface antiga. Pra abrir ela:'
+        + '<br><br><span style="font-family:var(--mono);font-size:12px">'
+        + 'CorteCenas.exe --classico</span><br><br>'
+        + '(ou defina a variável de ambiente '
+        + '<span style="font-family:var(--mono)">CORTECENAS_UI=classico</span>)',
+      confirmar: 'Entendi', negar: 'Fechar',
+    }, () => {});
   }));
 document.getElementById('aviso_esquecidas').addEventListener('click', () => {
   pergunta({

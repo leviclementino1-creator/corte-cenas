@@ -70,6 +70,23 @@ class EpisodeInfo:
 
 def parse_mmss(text: str) -> float:
     """Parse 'MM:SS' or plain seconds. Returns 0 on empty/invalid."""
+    v = parse_mmss_estrito(text)
+    return 0.0 if v is None else v
+
+
+def parse_mmss_estrito(text: str) -> float | None:
+    """Igual ao `parse_mmss`, mas devolve None em vez de 0 quando o texto NÃO
+    é um tempo válido.
+
+    Os dois casos precisavam ser distinguíveis e não eram: digitar `1;30` ou
+    `90s` no campo do OP virava 0.0, exatamente como deixar em branco. O
+    resultado era a abertura inteira entrando na análise como ~40 cenas de
+    créditos, sem nenhum aviso. `1.30` era pior ainda: não levanta exceção
+    nenhuma, vira 1,3 segundo — um OP que "funcionou" e não pulou nada.
+
+    Quem quiser o comportamento tolerante continua chamando `parse_mmss`;
+    quem vai começar uma análise de 30 minutos usa este e pergunta antes.
+    """
     text = (text or "").strip()
     if not text:
         return 0.0
@@ -80,9 +97,10 @@ def parse_mmss(text: str) -> float:
                 return int(parts[0]) * 60 + float(parts[1])
             if len(parts) == 3:
                 return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            return None
         return float(text)
     except Exception:
-        return 0.0
+        return None
 
 
 def format_mmss(seconds: float) -> str:

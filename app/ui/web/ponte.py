@@ -533,8 +533,48 @@ class Ponte(QObject):
         except Exception:  # noqa: BLE001 — estimar não pode derrubar a análise
             pass
 
+        # ARRANJO FEITO NO EXPLORER E AINDA NÃO SINCRONIZADO.
+        #
+        # A reanálise chama `clear_grouping`, que faz rmtree em
+        # `by_character/` e `by_pair/` e reconstrói tudo pelo banco. Os
+        # clipes não se perdem (são hardlinks, o mestre fica em shots/), mas
+        # o arranjo que ainda não virou linha no banco some — e ninguém
+        # avisava nem antes nem depois. Quem passou a tarde arrumando pastas
+        # à mão e clicou em Analisar perdia a tarde.
+        arranjo_solto = 0
+        try:
+            from app.storage.organizer import sanitize
+
+            raiz = self._raiz_do_episodio(anime, temporada, episodio)
+            by_char = raiz / "by_character"
+            if by_char.exists():
+                with db.connect() as c:
+                    linha = c.execute(
+                        """SELECT e.id FROM episode e JOIN anime a ON a.id = e.anime_id
+                            WHERE a.title = ? COLLATE NOCASE
+                              AND e.season = ? AND e.episode = ?""",
+                        (anime, temporada, episodio)).fetchone()
+                if linha:
+                    eid = int(linha[0])
+                    atribs = db.assignments_for_episode(eid)
+                    # (pasta, arquivo) que o BANCO conhece
+                    conhecidos = {
+                        (sanitize(dono["name"]), Path(s["file"]).name)
+                        for s in db.shots_for_episode(eid)
+                        for dono in atribs.get(int(s["id"]), [])
+                    }
+                    for pasta in by_char.iterdir():
+                        if not pasta.is_dir():
+                            continue
+                        for f in pasta.iterdir():
+                            if f.is_file() and (pasta.name, f.name) not in conhecidos:
+                                arranjo_solto += 1
+        except Exception:  # noqa: BLE001 — contar não pode derrubar a análise
+            arranjo_solto = 0
+
         return json.dumps({"tem_analise": bool(tem), "cenas": cenas,
-                           "aviso_disco": aviso_disco})
+                           "aviso_disco": aviso_disco,
+                           "arranjo_solto": arranjo_solto})
 
     # ---- curadoria --------------------------------------------------------
     @Slot(result=str)
@@ -773,7 +813,7 @@ class Ponte(QObject):
 
         from app.pipeline_types import AIMode
         from app.ui.worker import PipelineWorker
-        from app.video_ingest import EpisodeInfo, parse_mmss
+        from app.video_ingest import EpisodeInfo, parse_mmss, parse_mmss_estrito
 
         if getattr(self, "_thread", None) is not None:
             return json.dumps({"ok": False, "msg": "já tem uma análise rodando"})
@@ -782,6 +822,60 @@ class Ponte(QObject):
         arquivo = Path(d.get("arquivo") or "")
         if not arquivo.exists():
             return json.dumps({"ok": False, "msg": "escolha um episódio primeiro"})
+
+        # EM QUAL PASTA ESTE ANIME MORA?
+        #
+        # `app/storage/pastas.py` existe pra isso desde a v0.4.10, e ninguém
+        # no app inteiro definia `perguntar_pasta` — então o `resolver` caía
+        # no último passo, criava a pasta com o nome digitado E GRAVAVA a
+        # decisão na memória. Depois disso nem o Qt pergunta mais, porque ele
+        # desiste cedo quando a chave já está lá. Digitar "Mushoku" numa
+        # análise e "Mushoku Tensei" na outra dava duas pastas do mesmo show,
+        # com o acervo partido no meio e sem volta fácil.
+        #
+        # A pergunta é feita AQUI, na thread da interface: o pipeline roda em
+        # thread de fundo e não pode abrir diálogo.
+        from app.storage import pastas as _pastas
+
+        anime_digitado = (d.get("anime") or "").strip()
+        if anime_digitado and not d.get("pasta_escolhida"):
+            try:
+                candidatas = _pastas.parecidas(anime_digitado, self._saida())
+            except Exception:  # noqa: BLE001
+                candidatas = []
+            if candidatas:
+                return json.dumps({
+                    "ok": False, "precisa_pasta": True,
+                    "digitado": anime_digitado, "parecidas": candidatas,
+                })
+        if d.get("pasta_escolhida"):
+            try:
+                _pastas.apontar(anime_digitado, str(d["pasta_escolhida"]),
+                                self.cfg.cache_path)
+            except Exception as e:  # noqa: BLE001
+                print(f"    [python] não deu pra gravar a pasta: {e}")
+
+        # OP/ED escritos errado eram INDISTINGUÍVEIS de campo vazio: o
+        # `parse_mmss` devolve 0.0 tanto pra "" quanto pra "1;30" ou "90s", e
+        # a abertura inteira entrava na análise como ~40 cenas de créditos
+        # sem ninguém avisar. Aqui a análise nem começa.
+        for chave, rotulo in (("op", "OP"), ("ed", "ED")):
+            bruto = (d.get(chave) or "").strip()
+            v = parse_mmss_estrito(bruto)
+            if v is None:
+                return json.dumps({"ok": False, "msg":
+                    f"'{bruto}' não é um tempo válido no campo {rotulo}. "
+                    f"Use MM:SS (ex.: 1:30) ou segundos (ex.: 90). "
+                    f"Deixe vazio se o episódio não tiver."})
+            # `1.30` é o caso traiçoeiro: não é erro de sintaxe, é ambiguidade.
+            # Vira 1,3 SEGUNDO, um OP que "funcionou" e não pulou nada. Não dá
+            # pra adivinhar a intenção, então o app não adivinha — recusa e
+            # pede pra escrever de um jeito que só tenha uma leitura.
+            if "." in bruto and 0 < v < 5:
+                return json.dumps({"ok": False, "msg":
+                    f"'{bruto}' no campo {rotulo} vale {v:.1f} SEGUNDOS, não "
+                    f"{bruto.replace('.', ':')} minutos. Use dois pontos "
+                    f"({bruto.replace('.', ':')}) ou os segundos direto."})
 
         try:
             info = EpisodeInfo(
@@ -1183,25 +1277,38 @@ class Ponte(QObject):
         return json.dumps({"ok": True, "msg": msg})
 
     # ---- ações da aba Resultados -----------------------------------------
-    @Slot(result=str)
-    def sincronizar(self) -> str:
-        """Explorer → app, nos dois sentidos.
+    @Slot(str, result=str)
+    def sincronizar(self, pedido: str = "") -> str:
+        """Explorer → app, nos dois sentidos. EM DUAS ETAPAS.
 
         Clipe arrastado pra pasta de outro personagem vira atribuição
         lembrada; clipe apagado da pasta vira remoção com memória. É a mesma
         `curation.apply_folder_moves` que a aba Resultados usa hoje.
 
+        Sem `aplicar`, só CONTA e devolve o plano. O botão aplicava direto e
+        cada arquivo faltando virava `record_manual('block')` — permanente —
+        sem o usuário ver o tamanho do que ia acontecer. E pasta com nome
+        desconhecido cria personagem novo: renomear "Rimuru" pra "Rimuru
+        Tempest" no Explorer deixava DOIS personagens no acervo, e o único
+        aviso era um recado de 4 s com dois números.
+
         A parte conservadora continua valendo: pasta INTEIRA sumida não vira
-        remoção silenciosa em massa — some da conta e fica pra decisão de
-        quem apagou.
+        remoção silenciosa em massa. Mas agora ela é CONTADA — dizer "Pastas
+        já estavam em dia" depois de ver a pasta da Nina inteira sumida e
+        decidir ignorar é a definição de aviso mentiroso.
         """
         from app.curation import apply_folder_moves
         from app.storage.organizer import refresh_shot_links, sanitize
 
         if self.ep_id is None or self.anime_id is None:
             return json.dumps({"ok": False, "msg": "nenhum episódio aberto"})
+        aplicar = bool(json.loads(pedido or "{}").get("aplicar"))
         db = self.db
         raiz = self.raiz
+
+        if not aplicar:
+            return self._plano_do_sync(db, raiz, sanitize)
+
         movidas = apply_folder_moves(db, self.ep_id, self.anime_id, raiz)
         n_movidas = sum(movidas.values()) if movidas else 0
 
@@ -1239,12 +1346,72 @@ class Ponte(QObject):
                     except Exception:  # noqa: BLE001
                         pass
 
+        # "Já estavam em dia" só quando NÃO havia nada a fazer. Pasta inteira
+        # sumida era vista, ignorada por segurança, e mesmo assim a mensagem
+        # dizia que estava tudo certo.
+        ignoradas = sorted({
+            d["name"]
+            for donos in db.assignments_for_episode(self.ep_id).values()
+            for d in donos
+            if by_char.exists() and not (by_char / sanitize(d["name"])).exists()
+        })
         if not n_movidas and not removidas:
-            msg = "Pastas já estavam em dia."
+            msg = ("Pastas já estavam em dia." if not ignoradas else
+                   "Nada a sincronizar — mas a pasta de "
+                   + ", ".join(ignoradas[:3])
+                   + (f" e mais {len(ignoradas) - 3}" if len(ignoradas) > 3 else "")
+                   + " sumiu por inteiro e foi ignorada por segurança "
+                     "(apagar uma pasta inteira não vira remoção em massa).")
         else:
             msg = f"{n_movidas} cena(s) movida(s) à mão · {removidas} removida(s)"
+            if ignoradas:
+                msg += (f" · {len(ignoradas)} pasta(s) inteiras sumidas foram "
+                        f"ignoradas: {', '.join(ignoradas[:3])}")
         print(f"    [python] sync: {msg}")
         return json.dumps({"ok": True, "msg": msg, "mudou": bool(n_movidas or removidas)})
+
+    def _plano_do_sync(self, db, raiz: Path, sanitize) -> str:
+        """O que o sync FARIA — contado, sem tocar em nada."""
+        atribs = db.assignments_for_episode(self.ep_id)
+        cenas = {int(s["id"]): s for s in db.shots_for_episode(self.ep_id)}
+        by_char = raiz / "by_character"
+
+        sairiam = 0
+        pastas_sumidas: set[str] = set()
+        if by_char.exists():
+            for sid, donos in atribs.items():
+                s = cenas.get(int(sid))
+                if not s:
+                    continue
+                nome_arq = Path(s["file"]).name
+                for d in donos:
+                    pasta = by_char / sanitize(d["name"])
+                    if not pasta.exists():
+                        pastas_sumidas.add(d["name"])
+                    elif not (pasta / nome_arq).exists():
+                        sairiam += 1
+
+        # pasta com nome que o banco não conhece = personagem NOVO
+        conhecidos = set()
+        try:
+            with db.connect() as c:
+                conhecidos = {sanitize(r["name"]) for r in c.execute(
+                    "SELECT name FROM character WHERE anime_id = ?", (self.anime_id,))}
+        except Exception:  # noqa: BLE001
+            pass
+        novos = []
+        if by_char.exists():
+            for p in sorted(by_char.iterdir()):
+                if p.is_dir() and p.name not in conhecidos and any(p.iterdir()):
+                    novos.append(p.name)
+
+        return json.dumps({
+            "ok": True, "plano": True,
+            "sairiam": sairiam,
+            "novos": novos[:12],
+            "novos_total": len(novos),
+            "pastas_sumidas": sorted(pastas_sumidas)[:12],
+        })
 
     @Slot(result=str)
     def exportar_refs(self) -> str:
@@ -1306,17 +1473,74 @@ class Ponte(QObject):
             "msg": f"{n_arq} imagens de {n_pers} personagens em {Path(destino).name}",
         })
 
-    @Slot(str)
-    def abrir_pasta(self, qual: str) -> None:
-        """Abre no Explorer. `qual` é 'episodio' ou o nome de um personagem."""
+    @Slot(str, result=str)
+    def abrir_pasta(self, qual: str) -> str:
+        """Abre no Explorer. `qual` é 'episodio', 'ep:<id>' ou o nome de um
+        personagem.
+
+        O menu do acervo calculava o episódio clicado e mandava 'episodio'
+        assim mesmo — e este slot abria `self.raiz`, que é o episódio ABERTO.
+        Clicar com o direito no S03E05 abria o S03E01. Antes de abrir
+        qualquer episódio, `raiz` ainda é a raiz de saída, então o botão
+        despejava o Output inteiro. E quando a pasta não existia o slot não
+        fazia nada e não devolvia nada: clique sem efeito e sem explicação.
+        """
         import subprocess
 
-        alvo = self.raiz if qual == "episodio" else self.raiz / "by_character" / qual
-        if not alvo.exists():
+        if qual.startswith("ep:"):
+            try:
+                eid = int(qual[3:])
+            except ValueError:
+                return json.dumps({"ok": False, "msg": "episódio inválido"})
+            with self.db.connect() as c:
+                r = c.execute(
+                    """SELECT e.season, e.episode, a.title
+                         FROM episode e JOIN anime a ON a.id = e.anime_id
+                        WHERE e.id = ?""", (eid,)).fetchone()
+            if r is None:
+                return json.dumps({"ok": False, "msg": "episódio não está no banco"})
+            alvo = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
+        elif qual == "episodio":
+            if self.ep_id is None:
+                return json.dumps({"ok": False, "msg":
+                    "Abra um episódio na árvore primeiro."})
             alvo = self.raiz
-        if alvo.exists():
-            subprocess.Popen(["explorer", str(alvo)])
-            print(f"    [python] abri {alvo}")
+        else:
+            alvo = self.raiz / "by_character" / qual
+
+        if not alvo.exists():
+            return json.dumps({"ok": False, "msg":
+                f"A pasta não existe mais em {self._saida()}."})
+        subprocess.Popen(["explorer", str(alvo)])
+        print(f"    [python] abri {alvo}")
+        return json.dumps({"ok": True, "msg": f"Abri {alvo}"})
+
+    @Slot(str, result=str)
+    def detalhes_do_apagar(self, pedido: str) -> str:
+        """Quantas cenas e quanta curadoria somem — o TAMANHO do estrago.
+
+        A caixinha dizia "o que o app aprendeu fica", e isso é meia verdade:
+        o `delete_episode` apaga o `manual_override` DAQUELE episódio, que é
+        exatamente a memória de curadoria dele. Arrastar a pasta de volta da
+        lixeira não traz isso — as fotos de referência e os personagens é que
+        ficam.
+        """
+        ids = [int(i) for i in json.loads(pedido).get("ids", [])]
+        if not ids:
+            return json.dumps({"cenas": 0, "curadoria": 0})
+        marcas = ",".join("?" * len(ids))
+        cenas = curadoria = 0
+        try:
+            with self.db.connect() as c:
+                cenas = int(c.execute(
+                    f"SELECT COUNT(*) FROM shot WHERE episode_id IN ({marcas})",
+                    ids).fetchone()[0])
+                curadoria = int(c.execute(
+                    f"SELECT COUNT(*) FROM manual_override "
+                    f"WHERE episode_id IN ({marcas})", ids).fetchone()[0])
+        except Exception:  # noqa: BLE001
+            pass
+        return json.dumps({"cenas": cenas, "curadoria": curadoria})
 
     @Slot()
     def descobrir_dispositivo(self) -> None:
