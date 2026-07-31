@@ -413,6 +413,81 @@ class Ponte(QObject):
         )
         return caminho or ""
 
+    @Slot(str, result=str)
+    def ler_arquivo(self, caminho: str) -> str:
+        """Anime, temporada e episódio tirados do NOME do arquivo.
+
+        Isto faltava, e era destruição de dado silenciosa. Os giros de T/E
+        nasciam com 3 e 2 escritos no HTML — números da maquete — e nada na
+        interface web chamava o `parse_filename`. Soltar
+        "Mushoku Tensei S03E05.mkv" e clicar em Analisar gravava o episódio
+        como S03E02: o `upsert_episode` casa por (anime, temporada, ep), acha
+        o E02 que já existia, e o `clear_episode_shots` seguinte apagava os
+        cortes DELE. O episódio certo era analisado por cima do errado.
+
+        O app Qt sempre fez isto (analyze_tab.py:477). O parser é o mesmo,
+        pra os dois lados errarem igual quando errarem.
+        """
+        from app.video_ingest import parse_filename
+
+        p = Path(caminho)
+        if not p.exists():
+            return json.dumps({"ok": False})
+        try:
+            info = parse_filename(p)
+        except Exception as e:  # noqa: BLE001
+            print(f"    [python] não deu pra ler o nome de {p.name}: {e}")
+            return json.dumps({"ok": False})
+        print(f"    [python] {p.name} -> {info.anime!r} "
+              f"S{info.season:02d}E{info.episode:02d}")
+        return json.dumps({
+            "ok": True,
+            "anime": info.anime or "",
+            "temporada": int(info.season),
+            "episodio": int(info.episode),
+        })
+
+    @Slot(str, result=str)
+    def estado_do_episodio(self, pedido: str) -> str:
+        """Este episódio já foi analisado? Quantas cenas tem?
+
+        A página pergunta ANTES de disparar qualquer coisa que apague
+        identificação — reanálise, "só cortar" e Modo Descoberta passam os
+        três por `clear_episode_shots`. O app Qt já perguntava na reanálise;
+        a web disparava calada nos três casos.
+        """
+        d = json.loads(pedido)
+        anime = (d.get("anime") or "").strip()
+        try:
+            temporada = int(d.get("temporada") or 1)
+            episodio = int(d.get("episodio") or 1)
+        except (TypeError, ValueError):
+            return json.dumps({"tem_analise": False, "cenas": 0})
+        if not anime:
+            return json.dumps({"tem_analise": False, "cenas": 0})
+
+        db = self.db
+        try:
+            tem = db.has_analysis(
+                str(d.get("arquivo") or ""), anime, temporada, episodio)
+        except Exception:  # noqa: BLE001
+            tem = False
+        cenas = 0
+        try:
+            with db.connect() as c:
+                r = c.execute(
+                    """SELECT COUNT(*) FROM shot s
+                         JOIN episode e ON e.id = s.episode_id
+                         JOIN anime a ON a.id = e.anime_id
+                        WHERE a.title = ? COLLATE NOCASE
+                          AND e.season = ? AND e.episode = ?""",
+                    (anime, temporada, episodio),
+                ).fetchone()
+                cenas = int(r[0]) if r else 0
+        except Exception:  # noqa: BLE001
+            pass
+        return json.dumps({"tem_analise": bool(tem), "cenas": cenas})
+
     # ---- curadoria --------------------------------------------------------
     @Slot(result=str)
     def elenco_do_anime(self) -> str:
@@ -503,10 +578,22 @@ class Ponte(QObject):
                 print(f"    [python] hardlinks de {r['idx']:04d}: {e}")
 
         quantas = len(linhas)
+        # O recado ENSINA a volta. `record_manual(..., 'block')` é permanente:
+        # a reanálise nunca mais devolve aquela cena pra aquele personagem, e
+        # o único jeito de desfazer é mover a cena de volta na mão. Remover
+        # uma cena cabe numa tecla (Del) e não passa por caixinha nenhuma —
+        # então o que a pessoa lê depois é a única chance de ela descobrir
+        # que a decisão foi lembrada, e como desdizê-la.
+        alvos = ", ".join(f"#{int(r['idx']):04d}" for r in linhas[:3])
+        if quantas > 3:
+            alvos += f" +{quantas - 3}"
         if acao == "mover":
-            msg = f"{quantas} cena(s) de {de} → {d.get('para')}"
+            msg = (f"{alvos}: {de} → {d.get('para')} · lembrado nas próximas "
+                   f"análises")
         else:
-            msg = f"{quantas} cena(s) fora da pasta de {de}"
+            msg = (f"{alvos} fora da pasta de {de} · o clipe fica em shots/ e "
+                   f"a reanálise não devolve ele. Pra desfazer, mova de volta "
+                   f"pro {de}.")
         print(f"    [python] {msg}")
         return json.dumps({"ok": True, "msg": msg})
 
@@ -556,6 +643,8 @@ class Ponte(QObject):
         db = self.db
         saida = self._saida()
         movidas, apagados = 0, 0
+        falhas: list[str] = []
+        sobrou_copia = False
         with db.connect() as c:
             linhas = c.execute(
                 """SELECT e.id, e.season, e.episode, a.title
@@ -566,20 +655,48 @@ class Ponte(QObject):
 
         for r in linhas:
             raiz = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
+            # O `delete_episode` estava FORA deste try, e isso desmentia a
+            # caixinha: ela promete "a pasta vai pra _lixeira, não é apagada
+            # de verdade", e quando o move falhava (arquivo aberto no
+            # Explorer, no VLC, ou a própria prévia .webm em uso) o registro
+            # sumia do mesmo jeito. Sobrava pasta órfã no disco e nenhuma
+            # cena, nenhuma atribuição, nenhuma curadoria no banco.
+            #
+            # Agora falha é falha: nada é apagado e o usuário sabe o motivo.
+            # É o que o app Qt já fazia (library_tab.py:948-961).
             try:
                 if enviar_para_lixeira(raiz, saida) is not None:
                     movidas += 1
             except Exception as e:  # noqa: BLE001
                 print(f"    [python] lixeira de {raiz}: {e}")
+                falhas.append(f"{raiz.parent.name}/{raiz.name}")
+                # o move de pasta não é atômico: a tentativa falha pode ter
+                # deixado uma cópia na lixeira, e o usuário precisa saber
+                # disso pra não confundir a cópia com um backup de algo que
+                # ele conseguiu apagar
+                if "cópia" in str(e):
+                    sobrou_copia = True
+                continue
             db.delete_episode(int(r["id"]))
             apagados += 1
 
         if self.ep_id in ids:
             self.ep_id = None
+        aviso_copia = (
+            " Uma cópia parcial ficou em Output/_lixeira — a original é a que "
+            "vale, confira antes de apagar a cópia." if sobrou_copia else "")
+        if falhas and not apagados:
+            return json.dumps({"ok": False, "msg":
+                "Não deu pra mover a pasta de " + ", ".join(falhas)
+                + " (algum arquivo está aberto em outro programa). "
+                "NADA foi apagado do acervo." + aviso_copia})
         msg = (f"{apagados} episódio(s) fora do acervo · "
                f"{movidas} pasta(s) na lixeira (Output/_lixeira)")
+        if falhas:
+            msg += (f" · {len(falhas)} ficaram como estavam "
+                    f"({', '.join(falhas)}): a pasta está em uso" + aviso_copia)
         print(f"    [python] {msg}")
-        return json.dumps({"ok": True, "msg": msg})
+        return json.dumps({"ok": not falhas, "msg": msg})
 
     # ---- progresso --------------------------------------------------------
     @Slot(result=str)
@@ -633,14 +750,27 @@ class Ponte(QObject):
         if not info.anime:
             return json.dumps({"ok": False, "msg": "falta o nome do anime"})
 
+        # "Só cortar" NÃO pode valer quando o clique foi num botão de IA ou
+        # no Modo Descoberta. O `pipeline.run` testa `cut_only` primeiro e
+        # sai antes de identificar: com a caixa marcada, clicar em
+        # "Analisar + IA" ignorava a IA inteira em silêncio — o usuário
+        # esperava o dobro do tempo e recebia cenas sem dono.
+        usa_ia = bool(d.get("ia"))
+        descoberta = bool(d.get("descoberta"))
+        so_cortar = bool(d.get("so_cortar")) and not usa_ia and not descoberta
+
         self._thread = QThread()
         self._worker = PipelineWorker(
             self.cfg, info,
-            use_ai_recognition=bool(d.get("ia")),
+            use_ai_recognition=usa_ia,
             ai_mode=AIMode.FULL,
             ai_review_ambiguous=bool(d.get("revisar")),
-            discovery=bool(d.get("descoberta")),
-            cut_only=bool(d.get("so_cortar")),
+            discovery=descoberta,
+            cut_only=so_cortar,
+            # "adicionar" preserva o que a análise anterior já identificou.
+            # A página pergunta antes; sem resposta o padrão é substituir,
+            # que é o mesmo padrão do app Qt.
+            merge_previous=(d.get("modo") == "adicionar"),
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)

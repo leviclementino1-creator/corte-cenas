@@ -858,6 +858,7 @@ document.querySelectorAll('.cena [data-acao]').forEach(b =>
   b.addEventListener('click', () => {
     const sel = document.querySelector('#grade .cartao.viva');
     if (!sel) { recado('Escolha uma cena primeiro.', true); return; }
+    gradeDaAcao = 'grade';   // este painel é da Biblioteca, sempre
     pedeAcao(b.dataset.acao, [+sel.dataset.idx]);
   }));
 // ---- progresso ---------------------------------------------------------
@@ -993,13 +994,109 @@ function pedidoDaAnalise(extra){
   }, extra || {});
 }
 
+// O arquivo escolhido (ou solto) PREENCHE anime, temporada e episódio.
+//
+// Isto faltava e era destruição silenciosa: os giros nasciam com 3 e 2 —
+// números da maquete — e nada aqui chamava o parser. Soltar um S03E05 e
+// clicar em Analisar gravava como S03E02 e o `clear_episode_shots` apagava
+// os cortes do E02 de verdade. O que o usuário digitou na mão vence: só
+// preenche campo que ainda está no padrão.
+function poeArquivo(caminho){
+  const campo = document.getElementById('c_arquivo');
+  campo.textContent = caminho;
+  campo.classList.remove('fraco');
+  if (!ponte) return;
+  ponte.ler_arquivo(caminho, json => {
+    const d = JSON.parse(json);
+    if (!d.ok) return;
+    const anime = document.getElementById('c_anime');
+    if (d.anime && !anime.textContent.trim()) anime.textContent = d.anime;
+    document.querySelector('.giro[data-giro=temporada] .v').textContent = d.temporada;
+    document.querySelector('.giro[data-giro=episodio] .v').textContent = d.episodio;
+    document.querySelector('[data-tela=analisar]').click();
+  });
+}
+
+// Três ações apagam a identificação do episódio antes de fazer o que
+// prometem — reanálise, "só cortar" e Modo Descoberta passam todas por
+// `clear_episode_shots`. O app Qt perguntava na reanálise; a web disparava
+// calada nas três.
 function comeca(extra){
   if (!ponte) return;
-  zeraProgresso();
-  ponte.analisar(JSON.stringify(pedidoDaAnalise(extra)), json => {
-    const r = JSON.parse(json);
-    recado(r.msg, !r.ok);
+  const pedido = pedidoDaAnalise(extra);
+  if (!pedido.arquivo){ recado('Escolha um episódio primeiro.', true); return; }
+  if (!pedido.anime){ recado('Falta o nome do anime.', true); return; }
+  // "Só cortar" não pode valer numa ação que identifica gente: o
+  // `pipeline.run` testa cut_only primeiro e saía antes da IA, em silêncio.
+  if ((pedido.ia || pedido.descoberta) && pedido.so_cortar){
+    pedido.so_cortar = false;
+    recado('"Só cortar" foi ignorado — esta ação identifica personagens.', true);
+  }
+
+  ponte.estado_do_episodio(JSON.stringify(pedido), json => {
+    const e = JSON.parse(json);
+    if (!e.tem_analise){ dispara(pedido); return; }
+    const quanto = e.cenas ? `<b>${e.cenas} cena(s)</b> já identificadas`
+                           : 'identificação já salva';
+
+    if (pedido.descoberta){
+      pergunta({
+        titulo: 'Modo Descoberta neste episódio',
+        texto: `Este episódio tem ${quanto}.<br><br>`
+             + '• A identificação atual é <b>apagada agora</b>, antes de você '
+             + 'dar nome a qualquer grupo<br>'
+             + '• Ela só volta quando você batizar os grupos, ou numa análise '
+             + 'completa depois<br>'
+             + '• Os clipes em <b>shots/</b> não são tocados<br>'
+             + '• Sua curadoria manual continua guardada',
+        confirmar: 'Apagar e procurar rostos',
+      }, () => dispara(pedido));
+      return;
+    }
+    if (pedido.so_cortar){
+      pergunta({
+        titulo: 'Só cortar num episódio já identificado',
+        texto: `Este episódio tem ${quanto}.<br><br>`
+             + '• "Só cortar" recorta as cenas e <b>não identifica ninguém</b> '
+             + '— a identificação atual é apagada<br>'
+             + '• As pastas por personagem continuam no disco com o conteúdo '
+             + 'antigo, então elas vão <b>discordar</b> do acervo<br>'
+             + '• Sua curadoria manual continua guardada e volta numa análise '
+             + 'completa',
+        confirmar: 'Cortar mesmo assim',
+      }, () => dispara(pedido));
+      return;
+    }
+    // O texto é o do app Qt (analyze_tab.py:567-580), que já era bom.
+    pergunta({
+      titulo: 'Reanalisar episódio',
+      texto: `Este episódio tem ${quanto}. Como aplicar o resultado novo?<br><br>`
+           + '• <b>Substituir</b>: as pastas refletem só a análise nova — chutes '
+           + 'errados da antiga somem (recomendado depois de reforçar refs)<br>'
+           + '• <b>Adicionar</b>: mantém tudo que já foi identificado e soma o '
+           + 'novo — nada se perde, mas erro antigo fica até você remover<br><br>'
+           + 'Sua curadoria manual (remover/mover/aprovar) é respeitada nas duas.',
+      opcoes: ['Substituir (recomendado)', 'Adicionar por cima'],
+      confirmar: 'Analisar',
+    }, escolha => dispara(Object.assign({}, pedido, {
+      modo: (escolha || '').startsWith('Adicionar') ? 'adicionar' : 'substituir',
+    })));
   });
+}
+
+function dispara(pedido){
+  const volta = json => {
+    const r = JSON.parse(json);
+    recado(r.ok && pedido.descoberta
+      ? 'Procurando rostos — o batismo abre no fim.' : r.msg, !r.ok);
+    // zeraProgresso() SÓ depois do ok. Rodando antes, um "já tem uma análise
+    // rodando" deixava a tela com cara de análise em curso e o Cancelar
+    // visível pra sempre — quem esconde o Cancelar é o `terminou`, que nesse
+    // caso nunca vem.
+    if (r.ok) zeraProgresso();
+  };
+  if (pedido.descoberta) ponte.descobrir(JSON.stringify(pedido), volta);
+  else ponte.analisar(JSON.stringify(pedido), volta);
 }
 
 document.getElementById('btn_analisar').addEventListener('click', () => comeca());
@@ -1079,13 +1176,7 @@ document.getElementById('bat_sim').addEventListener('click', () => {
 document.querySelectorAll('.acoes .btn').forEach(b => {
   if (b.id === 'btn_analisar') return;
   if (b.textContent.includes('IA')) b.addEventListener('click', () => comeca({ia: true}));
-  else b.addEventListener('click', () => {
-    zeraProgresso();
-    ponte.descobrir(JSON.stringify(pedidoDaAnalise()), json => {
-      const r = JSON.parse(json);
-      recado(r.ok ? 'Procurando rostos — o batismo abre no fim.' : r.msg, !r.ok);
-    });
-  });
+  else b.addEventListener('click', () => comeca({descoberta: true}));
 });
 document.getElementById('btn_cancelar').addEventListener('click',
   () => ponte && ponte.cancelar());
@@ -1148,6 +1239,7 @@ document.addEventListener('contextmenu', e => {
 
   const el = e.target.closest('.cartao');
   if (!el) { menu.classList.remove('viva'); return; }
+  gradeDaAcao = el.closest('#r_grade') ? 'r_grade' : 'grade';
   cenaDoMenu = cenas[+el.dataset.idx];
   if (!el.classList.contains('viva')) el.click();
   document.getElementById('menu_cab').textContent =
@@ -1233,9 +1325,23 @@ function pergunta({titulo, texto, opcoes, confirmar}, entao){
 // Espelha o `_handle_shot_action` do app: menu, botão e atalho entram todos
 // por aqui. O Python é quem decide e mexe no banco; o JS só pergunta o que
 // falta (pra qual personagem mover, confirmar quando são várias).
+// De qual grade veio a ação. A Biblioteca e os Resultados desenham o MESMO
+// cartão e compartilham o MESMO menu de contexto — mas cada uma tem sua
+// noção de "pasta aberta", e o `donoDaCena` respondia sempre pela
+// Biblioteca. Com um filtro ligado lá, agir num cartão dos Resultados
+// gravava o bloqueio no personagem ERRADO e ainda confirmava com o nome
+// errado ("1 cena fora da pasta de Rimuru" quando a cena era da Nina).
+let gradeDaAcao = 'grade';
+
 function donoDaCena(idx){
-  // em qual pasta a ação bate: a filtrada, se houver; senão a da cena
-  if (filtro && filtro !== '__sem__') return filtro;
+  // em qual pasta a ação bate: a aberta NAQUELA grade; senão a da cena
+  if (gradeDaAcao === 'r_grade'){
+    const p = document.querySelector('.pessoa.viva');
+    const nome = p && p.dataset.nome;
+    if (nome && nome !== '__sem__') return nome;
+  } else if (filtro && filtro !== '__sem__') {
+    return filtro;
+  }
   const c = cenas[idx];
   return c && c.quem.length ? c.quem : [];
 }
@@ -1328,6 +1434,7 @@ document.addEventListener('keydown', e => {
   const sel = document.querySelector('#grade .cartao.viva');
   if (!sel) { recado('Escolha uma cena primeiro.', true); return; }
   if (acao === 'tocar') { document.getElementById('tv').play().catch(()=>{}); return; }
+  gradeDaAcao = 'grade';   // atalho de teclado lê a grade da Biblioteca
   pedeAcao(acao, [+sel.dataset.idx]);
 });
 
@@ -1545,8 +1652,16 @@ function recarregaEpisodio(){
   const guardado = filtro;
   const escolhida = document.querySelector('#grade .cartao.viva');
   const idxEscolhido = escolhida ? escolhida.dataset.idx : null;
+  // O personagem aberto nos Resultados também sobrevive: sem isto, curar
+  // pelos Resultados devolvia a vista pro PRIMEIRO personagem da lista a
+  // cada clique — a mesma perda de lugar que a Biblioteca já tinha
+  // resolvido, só que na outra aba.
+  const pessoaAberta = document.querySelector('.pessoa.viva');
+  const nomeAberto = pessoaAberta ? pessoaAberta.dataset.nome : null;
 
   carregaCenas(epAberto, () => {
+    if (nomeAberto && document.querySelector(`.pessoa[data-nome="${nomeAberto}"]`))
+      mostraPersonagem(nomeAberto);
     if (guardado){
       const p = document.querySelector(`#filtros .pilula[data-nome="${guardado}"]`);
       if (p) p.click();
@@ -1798,21 +1913,13 @@ new QWebChannel(qt.webChannelTransport, canal => {
 
   ponte.descobriu.connect(json => abreBatismo(JSON.parse(json)));
 
-  ponte.arquivoSolto.connect(caminho => {
-    const campo = document.getElementById('c_arquivo');
-    campo.textContent = caminho;
-    campo.classList.remove('fraco');
-    document.querySelector('[data-tela=analisar]').click();
-  });
+  ponte.arquivoSolto.connect(poeArquivo);
 
   // "Selecionar..." abre o diálogo NATIVO do Qt e recebe o caminho de volta
   document.querySelectorAll('.btn-campo').forEach(b => {
     if (!b.textContent.startsWith('Selecionar')) return;
     b.addEventListener('click', () => ponte.escolher_arquivo(caminho => {
-      if (!caminho) return;
-      const campo = document.getElementById('c_arquivo');
-      campo.textContent = caminho;
-      campo.classList.remove('fraco');
+      if (caminho) poeArquivo(caminho);
     }));
   });
 });

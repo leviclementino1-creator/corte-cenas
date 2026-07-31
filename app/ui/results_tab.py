@@ -926,7 +926,9 @@ class ResultsTab(QWidget):
             f"• Cenas #{int(alvo[0]['idx']):04d} a #{int(alvo[-1]['idx']):04d}\n"
             "• Vira um arquivo só, sem recodificar (rápido e sem perda)\n"
             "• O app LEMBRA: as próximas análises já saem juntadas\n"
-            "• As outras cenas não mudam de número",
+            "• As outras cenas não mudam de número\n"
+            f"• Os outros {len(alvo) - 1} clipe(s) saem de shots/ e vão pra "
+            "Output/_lixeira — desjuntar só separa de novo na próxima análise",
         )
         if resp != QMessageBox.StandardButton.Yes:
             return

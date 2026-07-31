@@ -154,7 +154,16 @@ def merge_shots(
                                by_character=by_character, by_pair=by_pair)
         except Exception:
             pass
-        (root / r["file"]).unlink(missing_ok=True)
+        # LIXEIRA, não unlink. Este era o único ponto do app que destruía
+        # clipe de verdade — todo o resto move pra Output/_lixeira, e a regra
+        # existe porque um clique errado não pode custar horas de corte.
+        # Juntar cenas que não eram a mesma cena é um erro fácil de cometer e
+        # a "desjunção" só separa de novo na PRÓXIMA análise, então até lá o
+        # material precisa existir em algum lugar.
+        #
+        # Os keyframes continuam sumindo: são derivados, saem de novo do
+        # clipe em milissegundos.
+        arquivo_pra_lixeira(root / r["file"], root.parent.parent)
         for k in range(keyframes_per_shot):
             (root / "keyframes" / f"{int(r['idx']):04d}_{k}.jpg").unlink(missing_ok=True)
         db.delete_shot(int(r["id"]))
@@ -183,6 +192,32 @@ def merge_shots(
             "start": float(alvo["start"]), "end": novo_fim, "n": len(rows)}
 
 
+def arquivo_pra_lixeira(arquivo: Path, output_root: Path) -> Path | None:
+    """Um ARQUIVO pra lixeira — mesma regra da pasta, mesmo destino.
+
+    Nasceu pro `merge_shots`, que era o único lugar do app fazendo `unlink`
+    num clipe. O nome guardado carrega a pasta do episódio (`Anime_S03E02_
+    0142.mp4`) porque na lixeira, longe da árvore, um `0142.mp4` solto não
+    diz de onde veio.
+    """
+    import shutil
+    from datetime import datetime
+
+    arquivo = Path(arquivo)
+    if not arquivo.exists():
+        return None
+    destino = Path(output_root) / "_lixeira" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    destino.mkdir(parents=True, exist_ok=True)
+    ep = arquivo.parent.parent          # <saida>/<anime>/<slug>/shots/x.mp4
+    alvo = destino / f"{ep.parent.name}_{ep.name}_{arquivo.name}"
+    n = 2
+    while alvo.exists():
+        alvo = destino / f"{ep.parent.name}_{ep.name}_{arquivo.stem}_{n}{arquivo.suffix}"
+        n += 1
+    shutil.move(str(arquivo), str(alvo))
+    return alvo
+
+
 def enviar_para_lixeira(pasta: Path, output_root: Path) -> Path | None:
     """MOVE a pasta pra uma lixeira dentro do Output em vez de destruí-la.
 
@@ -206,7 +241,25 @@ def enviar_para_lixeira(pasta: Path, output_root: Path) -> Path | None:
     alvo = destino / f"{pasta.parent.name}_{pasta.name}"
     if alvo.exists():
         alvo = destino / f"{pasta.parent.name}_{pasta.name}_2"
-    shutil.move(str(pasta), str(alvo))
+    try:
+        shutil.move(str(pasta), str(alvo))
+    except OSError as e:
+        # MEDIDO com um clipe aberto em outro programa: `shutil.move` numa
+        # pasta não é atômico. Quando o rename direto não serve, ele faz
+        # copytree e DEPOIS rmtree — e se o rmtree tropeça num arquivo em
+        # uso, sobram as duas: a original (talvez já com arquivos a menos,
+        # porque o rmtree apagou até travar) e a cópia inteira na lixeira.
+        #
+        # A cópia NÃO é apagada aqui de propósito: nesse estado ela pode ser
+        # a única versão completa da pasta. Quem chamou precisa saber que ela
+        # existe, senão o usuário acha que a lixeira tem um backup de uma
+        # remoção que ele nunca conseguiu fazer.
+        if alvo.exists():
+            raise OSError(
+                f"{e} — uma cópia da pasta ficou em {alvo}; a original "
+                f"continua em {pasta} e pode estar incompleta"
+            ) from e
+        raise
     # Pasta do anime que ficou vazia some junto.
     try:
         pai = pasta.parent
