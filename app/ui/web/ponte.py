@@ -858,17 +858,41 @@ class Ponte(QObject):
                     f"{len(buracos)} no meio da sua escolha (a primeira é a "
                     f"#{buracos[0]:04d}). A junção vira uma janela de tempo: "
                     f"o que está no buraco seria engolido junto."})
-            ini = min(float(x["start"]) for x in linhas)
-            fim = max(float(x["end"]) for x in linhas)
+            alvo = sorted(linhas, key=lambda x: int(x["idx"]))
         else:
             proxima = self._shots.get(int(r["idx"]) + 1)
             if proxima is None:
                 return json.dumps({"ok": False, "msg": "Esta é a última cena do episódio."})
-            ini, fim = float(r["start"]), float(proxima["end"])
-        db.add_shot_merge(self.ep_id, ini, fim)
+            alvo = [r, proxima]
+
+        # JUNTA DE VERDADE, agora. Isto só chamava `add_shot_merge`, que grava
+        # a janela de tempo e deixa o trabalho pra próxima análise: o usuário
+        # clicava em "Juntar com a próxima", lia um recado verde e continuava
+        # vendo dois clipes. A UI Qt sempre chamou `curation.merge_shots`
+        # (library_tab.py e results_tab.py) — a web herdou o layout e não
+        # herdou a ação, que é o padrão desta interface inteira.
+        #
+        # O `merge_shots` concatena sem re-encodar (mesmo corte, mesmos
+        # parâmetros, contíguos), manda os clipes extras pra lixeira, funde os
+        # personagens, refaz keyframes e hardlinks — e grava o `shot_merge` no
+        # fim, então a memória por TEMPO continua valendo nas reanálises.
+        from app.curation import merge_shots
+
+        novo = merge_shots(
+            db, self.ep_id, alvo, self.raiz,
+            keyframes_per_shot=self.cfg.keyframes_per_shot,
+            by_character=self.cfg.organize_by_character_enabled,
+            by_pair=self.cfg.organize_by_pair_enabled,
+        )
+        if novo is None:
+            return json.dumps({"ok": False, "msg":
+                "Não deu pra juntar. Só dá pra juntar cenas VIZINHAS, e os "
+                "clipes das duas precisam estar em shots/."})
+        n = len(alvo)
         return json.dumps({"ok": True, "msg":
-            f"Junção marcada de {ini:.1f}s a {fim:.1f}s. Vale na próxima "
-            "análise deste episódio."})
+            f"{n} cenas viraram a #{int(novo['idx']):04d}. Os clipes antigos "
+            f"foram pra Output/_lixeira, e a junção fica lembrada nas "
+            f"próximas análises deste episódio."})
 
     @Slot(str, result=str)
     def apagar_do_acervo(self, pedido: str) -> str:
