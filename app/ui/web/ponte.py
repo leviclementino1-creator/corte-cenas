@@ -347,6 +347,7 @@ class Ponte(QObject):
         # é apagado escondido: fica contado em `orfaos` e as AÇÕES oferecem a
         # limpeza.
         self.orfaos = []
+        saida = self._saida()
         animes: dict[str, dict] = {}
         for r in linhas:
             raiz = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
@@ -386,7 +387,16 @@ class Ponte(QObject):
                 "cenas": sum(t["cenas"] for t in temps),
             })
         fora.sort(key=lambda x: x["titulo"].lower())
-        return json.dumps({"animes": fora, "orfaos": len(self.orfaos)})
+        # A pasta vai junto porque a Biblioteca É a pasta de saída: quando ela
+        # aparece vazia, a primeira pergunta é "vazia ONDE?". E é o mesmo dado
+        # que deixa o aviso de órfãos distinguir "apaguei a pasta" de "troquei
+        # a pasta de saída" — que são coisas opostas com a mesma aparência.
+        return json.dumps({
+            "animes": fora,
+            "orfaos": len(self.orfaos),
+            "total": len(linhas),
+            "saida": str(saida),
+        })
 
     @Slot(result=str)
     def escolher_arquivo(self) -> str:
@@ -846,9 +856,28 @@ class Ponte(QObject):
         Não há pasta pra mandar pra lixeira — ela já sumiu. O que some aqui é
         só o registro morto: cenas que apontam pra arquivos inexistentes. O
         personagem, as fotos de referência e o que o app aprendeu ficam, que
-        é a parte cara e não pertence a um episódio só."""
+        é a parte cara e não pertence a um episódio só.
+
+        MESMO ASSIM o banco vai pra lixeira antes. "A pasta sumiu" e "a pasta
+        de saída mudou" são indistinguíveis daqui: nos dois casos o disco não
+        tem o que o banco diz. No segundo, os episódios estão vivos na pasta
+        antiga e este botão apagaria o registro deles — recuperável, mas só
+        pra quem souber apontar a saída de volta. Uma cópia do .db custa
+        alguns MB e transforma um erro caro num arquivo que dá pra restaurar.
+        """
         if not self.orfaos:
             return json.dumps({"ok": True, "msg": "nada a limpar"})
+        import shutil
+        from datetime import datetime
+
+        try:
+            destino = (self._saida() / "_lixeira"
+                       / datetime.now().strftime("%Y%m%d_%H%M%S"))
+            destino.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.banco, destino / "index.db")
+            print(f"    [python] cópia do banco em {destino}")
+        except OSError as e:
+            print(f"    [python] não deu pra copiar o banco: {e}")
         db = self.db
         for ep in self.orfaos:
             db.delete_episode(ep)
@@ -1039,6 +1068,7 @@ class Ponte(QObject):
         Config fica como está, senão salvar a partir de uma tela incompleta
         apagaria ajuste que ela nem exibe."""
         d = json.loads(pedido)
+        antes = str(self._saida())
         try:
             c = self.cfg
             from app.ui.presets import PRESETS
@@ -1059,8 +1089,16 @@ class Ponte(QObject):
             if d.get("saida"):
                 c.output_dir = str(d["saida"])
             c.save()
-            print(f"    [python] configurações gravadas (preset={preset})")
-            return json.dumps({"ok": True, "msg": "Configurações salvas."})
+            depois = str(self._saida())
+            mudou = depois != antes
+            print(f"    [python] configurações gravadas (preset={preset})"
+                  + (f" — saída {antes} → {depois}" if mudou else ""))
+            # Quem chamou precisa saber que a SAÍDA mudou, não só que salvou:
+            # a Biblioteca inteira é lida de lá e acabou de ficar velha.
+            return json.dumps({
+                "ok": True, "msg": "Configurações salvas.",
+                "saida_mudou": mudou, "saida": depois,
+            })
         except Exception as e:  # noqa: BLE001
             return json.dumps({"ok": False, "msg": f"não deu pra salvar: {e}"})
 

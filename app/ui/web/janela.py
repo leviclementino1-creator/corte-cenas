@@ -16,7 +16,7 @@ from PySide6.QtWebEngineCore import (
     QWebEngineSettings,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QMainWindow, QWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QWidget
 
 from ...config import Config
 from .ponte import Ponte, ServidorMiniatura
@@ -72,6 +72,49 @@ class JanelaWeb(QMainWindow):
         self.vista.load(QUrl("cena:/pagina"))
 
         self._vigiados: set[int] = set()
+        self._bandeja: QSystemTrayIcon | None = None
+        self.ponte.terminou.connect(self._avisar_que_acabou)
+
+    # ---- aviso do Windows quando a análise termina -----------------------
+    def _avisar_que_acabou(self, motivo: str) -> None:
+        """Análise é longa; o usuário sai da frente. O recado na própria
+        página só serve pra quem está olhando pra ela.
+
+        A regra é a mesma do app Qt (`analyze_tab._notify`): SÓ com a janela
+        fora de foco. Quem está olhando não precisa de um balão dizendo o que
+        já está na tela.
+        """
+        if self.isActiveWindow():
+            return
+        titulos = {
+            "pronto": ("Corte Cenas — Análise pronta", "O episódio terminou de ser cortado."),
+            "batizado": ("Corte Cenas — Personagens salvos", "O batismo terminou."),
+            "cancelado": ("Corte Cenas — Análise cancelada", "Você parou a análise."),
+        }
+        titulo, corpo = titulos.get(
+            motivo, ("Corte Cenas — Análise parou", motivo[:180]))
+        QApplication.alert(self)  # pisca na barra de tarefas
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        if self._bandeja is None:
+            self._bandeja = QSystemTrayIcon(self.windowIcon(), self)
+            self._bandeja.setToolTip("Corte Cenas")
+            self._bandeja.activated.connect(lambda *_: self._voltar_pra_frente())
+            self._bandeja.messageClicked.connect(self._voltar_pra_frente)
+        self._bandeja.show()
+        self._bandeja.showMessage(
+            titulo, corpo, QSystemTrayIcon.MessageIcon.Information, 8000)
+        QTimer.singleShot(15000, self._esconder_bandeja)
+
+    def _voltar_pra_frente(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self._esconder_bandeja()
+
+    def _esconder_bandeja(self) -> None:
+        if self._bandeja is not None:
+            self._bandeja.hide()
 
     # ---- arrastar o episódio pra janela ----------------------------------
     def showEvent(self, ev):  # noqa: N802

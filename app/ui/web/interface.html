@@ -433,10 +433,13 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 </head>
 <body>
 
+<!-- Abre em ANALISAR. A Biblioteca era o padrão porque era a tela que eu mais
+     olhava enquanto construía — mas ela mostra o que JÁ foi feito, e quem
+     abre o app veio fazer. Instalação nova então abria numa tela vazia. -->
 <div class="abas">
-  <div class="aba" data-tela="analisar">Analisar</div>
+  <div class="aba viva" data-tela="analisar">Analisar</div>
   <div class="aba" data-tela="resultados">Resultados</div>
-  <div class="aba viva" data-tela="biblioteca">Biblioteca</div>
+  <div class="aba" data-tela="biblioteca">Biblioteca</div>
   <div class="direita">
     <div class="capsula"><span class="ponto"></span><span class="leg">RTX 4070</span></div>
     <div class="capsula" id="abrir_config"><span class="leg">⚙</span>Configurações</div>
@@ -446,7 +449,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 <div class="telas">
 
   <!-- ============================ ANALISAR ========================== -->
-  <div class="tela" id="analisar">
+  <div class="tela viva" id="analisar">
     <div class="secao">
       <div class="cabecalho"><span class="num">01</span><span class="tit">Episódio</span><span class="traco"></span></div>
       <div class="corpo">
@@ -520,7 +523,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   </div>
 
   <!-- ============================ BIBLIOTECA ======================== -->
-  <div class="tela viva" id="biblioteca">
+  <div class="tela" id="biblioteca">
     <aside class="acervo">
       <div class="sobrancelha">Acervo</div>
       <div id="arvore"></div>
@@ -746,6 +749,7 @@ document.querySelectorAll('.aba').forEach(a => a.addEventListener('click', () =>
   document.querySelectorAll('.tela').forEach(x => x.classList.remove('viva'));
   a.classList.add('viva');
   document.getElementById(a.dataset.tela).classList.add('viva');
+  if (a.dataset.tela === 'biblioteca') mostraBiblioteca();
 }));
 document.getElementById('abrir_config').addEventListener('click',
   () => document.getElementById('veu').classList.add('viva'));
@@ -1414,15 +1418,28 @@ function recolhe(ramo, fechar){
   });
 }
 
+// A saída que a Biblioteca está lendo AGORA. A tela toda sai daqui, então
+// quando ela aparece vazia é isto que responde "vazia onde?".
+let saidaDoAcervo = '';
+let acervoTemEpisodios = false;
+let todosOrfaos = false;
+
 function carregaAcervo(){
   ponte.acervo(json => {
     const resp = JSON.parse(json);
     const animes = resp.animes;
+    saidaDoAcervo = resp.saida || '';
+    acervoTemEpisodios = (resp.total || 0) > 0;
     // registro no banco sem pasta no disco: não entra na árvore (a biblioteca
     // mostra o que EXISTE), mas também não some calado
     const av = document.getElementById('aviso_orfaos');
     av.style.display = resp.orfaos ? '' : 'none';
     av.textContent = `⚠ ${resp.orfaos} episódio(s) sem pasta — limpar do banco`;
+    // Órfão em tudo e nenhum vivo = quase sempre a pasta de saída mudou de
+    // lugar, não que o usuário apagou o acervo. São situações opostas com a
+    // mesma aparência daqui, e a diferença importa: o botão de limpar apaga
+    // do banco episódios que podem estar inteiros na pasta antiga.
+    todosOrfaos = resp.orfaos > 0 && !animes.length;
     // pasta no disco que o banco nao conhece — a inversa do orfao
     ponte.esquecidas(j2 => {
       const e = JSON.parse(j2);
@@ -1432,7 +1449,23 @@ function carregaAcervo(){
     });
     const arv = document.getElementById('arvore');
     if (!animes.length) {
+      // O `return` daqui saía deixando o miolo como estava: título "—" e a
+      // meta em "carregando…" PARA SEMPRE, porque quem tira o "carregando"
+      // é o carregaCenas que nunca ia rodar. Biblioteca vazia agora diz que
+      // está vazia, e diz de qual pasta ela está falando.
       arv.innerHTML = '<div class="no n1" style="font-style:italic">Nada cortado ainda</div>';
+      document.getElementById('titulo').textContent =
+        todosOrfaos ? 'Nenhum episódio nesta pasta' : 'Biblioteca vazia';
+      document.getElementById('meta').innerHTML = todosOrfaos
+        ? `O banco conhece ${resp.orfaos} episódio(s), mas nenhum está em `
+          + `<b>${saidaDoAcervo}</b>. Se você mudou a pasta de saída, é só `
+          + `apontá-la de volta nas Configurações — nada foi perdido.`
+        : `Nada foi cortado ainda. Vá em <b>Analisar</b>, solte um episódio `
+          + `e o resultado aparece aqui. A Biblioteca mostra o que existe em `
+          + `<b>${saidaDoAcervo}</b>.`;
+      document.getElementById('filtros').innerHTML = '';
+      document.getElementById('grade').innerHTML = '';
+      epAberto = null;
       return;
     }
     // A árvore recolhe. Com um anime só dá pra viver sem, mas a Biblioteca
@@ -1466,10 +1499,26 @@ function carregaAcervo(){
       abreEpisodio(no.dataset.ep, no.dataset.rot, no);
     });
 
-    // abre sozinho o primeiro que ainda existe no disco
+    // Abre sozinho o primeiro que ainda existe no disco — mas SÓ se a
+    // Biblioteca estiver na frente. A árvore é uma consulta de milissegundos;
+    // abrir um episódio são centenas de miniaturas decodificadas. Com o app
+    // abrindo em Analisar, isso era trabalho inteiro pra uma aba que ninguém
+    // está vendo. Fica pendurado e acontece na primeira visita.
     const primeiro = arv.querySelector('.no[data-ep]:not(.sumido)');
-    if (primeiro) abreEpisodio(primeiro.dataset.ep, primeiro.dataset.rot, primeiro);
+    if (!primeiro) return;
+    aoAbrirBiblioteca = () => abreEpisodio(
+      primeiro.dataset.ep, primeiro.dataset.rot, primeiro);
+    if (document.getElementById('biblioteca').classList.contains('viva'))
+      mostraBiblioteca();
   });
+}
+
+// O que a Biblioteca deixou pendurado pra quando ela aparecer.
+let aoAbrirBiblioteca = null;
+function mostraBiblioteca(){
+  const f = aoAbrirBiblioteca;
+  aoAbrirBiblioteca = null;
+  if (f) f();
 }
 
 function abreEpisodio(id, rotulo, no){
@@ -1631,8 +1680,19 @@ document.getElementById('aviso_esquecidas').addEventListener('click', () => {
 document.getElementById('aviso_orfaos').addEventListener('click', () => {
   pergunta({
     titulo: 'Episódios sem pasta',
-    texto: 'A pasta desses episódios não existe mais no disco.<br><br>'
-         + '• Some só o registro morto — não há pasta pra mandar pra lixeira<br>'
+    // Este aviso pode significar duas coisas opostas e daqui elas são
+    // idênticas: ou a pasta foi apagada, ou a SAÍDA mudou e os episódios
+    // estão inteiros no lugar antigo. Confirmar no segundo caso apaga
+    // registro de coisa viva — então o texto conta a segunda hipótese.
+    texto: `Nenhuma pasta desses episódios foi encontrada em `
+         + `<b>${saidaDoAcervo}</b>.<br><br>`
+         + (todosOrfaos
+            ? '⚠ <b>NENHUM</b> episódio do banco está aí. Se você trocou a '
+              + 'pasta de saída, eles continuam na antiga — aponte-a de volta '
+              + 'nas Configurações em vez de limpar.<br><br>'
+            : '')
+         + '• Some só o registro — não há pasta pra mandar pra lixeira<br>'
+         + '• Uma cópia do banco vai pra <b>_lixeira</b> antes, por garantia<br>'
          + '• O personagem, as fotos de referência e o que o app aprendeu ficam',
     confirmar: 'Limpar',
   }, () => ponte.limpar_orfaos(json => {
@@ -1674,19 +1734,40 @@ new QWebChannel(qt.webChannelTransport, canal => {
   });
   document.getElementById('btn_salvar').addEventListener('click', () => {
     const viva = document.querySelector('.radio.viva');
-    const pedido = {
-      preset: viva ? viva.dataset.preset : null,
-      saida: document.getElementById('s_saida').textContent.trim(),
-    };
+    const novaSaida = document.getElementById('s_saida').textContent.trim();
+    const pedido = { preset: viva ? viva.dataset.preset : null, saida: novaSaida };
     document.querySelectorAll('.caixa[data-cfg]').forEach(c => {
       if (c.dataset.cfg !== 'so_cortar')
         pedido[c.dataset.cfg] = c.classList.contains('marcada');
     });
-    ponte.salvar_config(JSON.stringify(pedido), json => {
+
+    const grava = () => ponte.salvar_config(JSON.stringify(pedido), json => {
       const r = JSON.parse(json);
       recado(r.msg, !r.ok);
-      if (r.ok) document.getElementById('veu').classList.remove('viva');
+      if (!r.ok) return;
+      document.getElementById('veu').classList.remove('viva');
+      // A Biblioteca É a pasta de saída. Trocar a pasta e deixar a árvore
+      // como estava mostrava um acervo que não existe mais naquele lugar —
+      // e cada clique nele buscava miniatura numa pasta que não é a de agora.
+      if (r.saida_mudou){ epAberto = null; carregaAcervo(); }
     });
+
+    // Trocar a saída NÃO move nada, e o efeito só aparece na Biblioteca —
+    // que fica vazia e ainda oferece "limpar do banco" os episódios que
+    // estão vivos na pasta antiga. Silencioso demais pra uma troca dessas.
+    if (novaSaida && novaSaida !== saidaDoAcervo && acervoTemEpisodios){
+      pergunta({
+        titulo: 'Trocar a pasta de saída',
+        texto: `De <b>${saidaDoAcervo}</b><br>para <b>${novaSaida}</b><br><br>`
+             + '• <b>Nada é movido</b> — o que já foi cortado continua na pasta antiga<br>'
+             + '• A Biblioteca passa a mostrar só o que existir na pasta nova, '
+             + 'e provavelmente vai ficar vazia<br>'
+             + '• Nada é apagado: apontar a saída de volta traz o acervo de volta',
+        confirmar: 'Trocar mesmo assim',
+      }, grava);
+      return;
+    }
+    grava();
   });
 
   // O episódio arrastado pra janela chega por AQUI: quem pegou o caminho
