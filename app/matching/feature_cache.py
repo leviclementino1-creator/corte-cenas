@@ -74,10 +74,25 @@ class FeatureCache:
             # tamanho). E escrita ATÔMICA: fechar o app no meio de um save
             # corrompia o cache e jogava fora a análise inteira — agora o
             # arquivo velho só é trocado quando o novo está completo.
-            tmp = self.path.with_suffix(".npz.tmp")
+            # O provisório TEM que terminar em `.npz`. O `np.savez` acrescenta
+            # a extensão quando o nome não a tem: com `.npz.tmp` ele escrevia
+            # em `face_cache.npz.tmp.npz` e o `replace` procurava um
+            # `face_cache.npz.tmp` que nunca existiu. Resultado — o cache de
+            # detecções+embeddings NUNCA foi salvo desde que a escrita virou
+            # atômica, e cada análise deixava um .tmp.npz de 5 MB pra trás. A
+            # reanálise "instantânea" reembeddava tudo de novo, e a falha
+            # morria neste `except` como uma linha no log.
+            tmp = self.path.with_suffix(".tmp.npz")
             np.savez(tmp, __meta__=np.array(header), **self._arrays)
             tmp.replace(self.path)
             self._dirty = False
+            # lixo das versões que erravam o nome
+            velho = self.path.with_suffix(".npz.tmp.npz")
+            if velho.exists():
+                try:
+                    velho.unlink()
+                except OSError:
+                    pass
         except Exception as e:
             print(f"[FeatureCache] Falha ao salvar {self.path.name}: {e}")
 
