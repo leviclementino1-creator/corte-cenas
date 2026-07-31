@@ -41,6 +41,39 @@
 >
 > A seção "Avisos que já estão bons" no fim continua sendo o melhor lugar
 > pra copiar padrão de aviso.
+>
+> ---
+>
+> ## O que a lista NÃO pegou — e o Levi pegou em duas horas de uso
+>
+> Terminada a lista, ele abriu o app e usou. Saíram **nove** defeitos que 67
+> acusações de leitura de código não tinham visto, e o motivo é o mesmo em
+> todos: **eles precisam de um segundo anime na biblioteca, de uma análise
+> rodando, ou de mais de uma cena marcada.** Nenhum aparece num app parado.
+>
+> | O que ele viu | O que era | Commit |
+> |---|---|---|
+> | "não mostra progresso nenhum" | o QWebChannel para de entregar sinal Python→JS enquanto uma análise existe. A tela só tinha sido testada pelo `ensaiar()`, que roda SEM análise | `9d61f07` |
+> | "bateu 100% e não abriu o batismo" | mesmo canal; e o caminho da Descoberta dava `return` sem encerrar a thread, o que também travava o Cancelar e condenava o `batizar` | `cfb1d3b` |
+> | "o app fechou sozinho" | `finished.connect(lambda ...)` → conexão DIRETA → o fim da análise rodava na thread do worker e destruía a própria QThread. `qFatal`, 0xc0000409, sem traceback | `f76395a` |
+> | "não abriu em Resultados" | ninguém trocava de aba (o Qt faz desde sempre), e o fim do batismo ia sem `episodio_id` | `4831963` |
+> | "a UI bugou quando o anime entrou" | nome comprido é item anônimo de flex: quebra em 3 linhas dentro de uma linha de 28px | `4831963` |
+> | "a prévia não carrega" | ela carregava — de outra cena. E a guarda de resposta atrasada lia o PRIMEIRO `.viva`, não o último clicado | `4831963` |
+> | "removi e não removeu" | `cenas[dataset.idx]` mistura POSIÇÃO de array com NÚMERO de cena. Episódio com OP pulado começa na #0022: `cenas[22]` é a #0044 | `42b9810` |
+> | (não relatado, achado na auditoria) | Del com os Resultados na frente agia na seleção invisível da Biblioteca | `42b9810` |
+> | (não relatado, achado na auditoria) | Shift+clique + J gravava junção de 21 minutos sem perguntar | `42b9810` |
+>
+> **A lição, que vale mais que os nove:** ler código acha o que está escrito
+> errado. Não acha o que **nunca foi exercitado**. Os cinco piores do dia
+> moram em estados que só existem com o app trabalhando — thread viva, duas
+> abas cheias, dois animes, seleção múltipla — e o teste que "provava" o
+> progresso rodava justamente no único estado em que ele funciona.
+>
+> Também não achei nada disso auditando: quem achou foi o Levi usando, e
+> depois uma auditoria em cinco frentes com cético adversarial por achado
+> (15 levantados, 11 confirmados). O `feature_cache` que **nunca salvou desde
+> que virou "atômico"** (`c4ebfe8`) apareceu porque fui olhar uma pasta no
+> disco pra responder outra pergunta.
 
 ## O padrão que isso tudo desenha
 
