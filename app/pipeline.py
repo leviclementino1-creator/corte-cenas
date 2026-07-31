@@ -187,7 +187,18 @@ class Pipeline:
         source_warnings = list(provider.source_warnings)
         for w in source_warnings:
             print(f"[CorteCenas] AVISO de fonte: {w}", flush=True)
-        cb("fetch_characters", 1.0, f"{len(bundle.characters)} personagens")
+        # O comentário acima prometia avisar "no progresso agora", e não
+        # avisava: o `cb` mandava só a contagem. Elenco que veio pela metade
+        # (Jikan em 504, AniList em 429, disjuntor aberto) produz uma análise
+        # que parece boa e identifica menos gente do que devia — e sem esta
+        # linha nada distingue isso de um anime com elenco pequeno.
+        if source_warnings:
+            cb("fetch_characters", 1.0,
+               f"{len(bundle.characters)} personagens — ATENÇÃO: "
+               f"{'; '.join(source_warnings)[:160]}. O elenco pode estar "
+               f"incompleto; reanalisar mais tarde costuma recuperar")
+        else:
+            cb("fetch_characters", 1.0, f"{len(bundle.characters)} personagens")
 
         anime_id = self.db.upsert_anime(
             anilist_id=bundle.anilist_id,
@@ -1204,6 +1215,9 @@ class Pipeline:
                 gclient = self._build_ai_client()
             except RuntimeError as e:
                 print(f"[AI grupo] Pulado: {e}", flush=True)
+                cb("ai_review", 1.0,
+                   f"IA nos grupos PULADA ({e}) — {len(group_review)} grupo(s) "
+                   f"ficam sem nome e vão pro batismo no fim")
                 gclient = None
                 leftover_clusters.extend(group_review)
             if gclient is not None:
@@ -1450,7 +1464,15 @@ class Pipeline:
             try:
                 client = self._build_ai_client()
             except RuntimeError as e:
+                # Isto era só um `print`. Sem chave de API ou com a quota
+                # estourada, a revisão inteira era pulada e a análise
+                # terminava como sucesso legítimo — o usuário tinha pedido
+                # "Analisar + IA", esperado o tempo todo, e não ficava
+                # sabendo que a parte da IA nunca rodou.
                 print(f"[AI review] Pulado: {e}", flush=True)
+                cb("ai_review", 1.0,
+                   f"Revisão IA PULADA ({e}) — o resultado é só do CLIP. "
+                   f"A chave fica em Configurações → IA de apoio")
                 client = None
             if client is not None:
                 from .ai_review import QuotaExhaustedError as _Quota
@@ -1470,6 +1492,9 @@ class Pipeline:
                         except _Quota as e:
                             print(f"[AI review] Quota esgotou no {j}º duvidoso — "
                                   f"mantendo o resultado do CLIP. {e}", flush=True)
+                            cb("ai_review", 1.0,
+                               f"Quota da IA acabou no {j}º de {len(ambiguous)} "
+                               f"duvidosos — o resto ficou com o palpite do CLIP")
                             break
                         except Exception as e:
                             errors += 1
@@ -2248,10 +2273,46 @@ class Pipeline:
                 f"[CorteCenas] Skip manual: início {info.skip_head_seconds:.0f}s, "
                 f"fim {info.skip_tail_seconds:.0f}s → {before - len(shots)} shots ignorados"
             )
+            # OP/ED que cobrem o episódio inteiro. Digitar 15:00 no OP de um
+            # episódio de 12 min — ou trocar OP e ED de lugar — esvaziava a
+            # lista aqui, e a análise seguia até o fim com total_shots=0:
+            # barra em 100%, tudo ✓, nenhuma cena. O único registro era este
+            # print, num log que ninguém abre.
+            #
+            # Os campos são a DURAÇÃO de cada trecho, não o horário em que
+            # ele termina — e é justamente essa confusão que produz o caso.
+            if not shots:
+                raise ValueError(
+                    f"O OP ({info.skip_head_seconds:.0f}s) e o ED "
+                    f"({info.skip_tail_seconds:.0f}s) juntos cobrem o episódio "
+                    f"inteiro ({total_duration:.0f}s): não sobrou nenhuma cena "
+                    f"pra analisar.\n"
+                    f"Esses campos são a DURAÇÃO da abertura e do encerramento, "
+                    f"não o horário em que eles acabam. Deixe 0:00 se o "
+                    f"episódio não tiver abertura."
+                )
+            if before and len(shots) < before * 0.2:
+                cb("detect_shots", 1.0,
+                   f"ATENÇÃO: o OP/ED descartou {before - len(shots)} de "
+                   f"{before} cenas — sobraram só {len(shots)}")
+
+        # Cortar na CPU em vez da GPU muda o tempo desta etapa em várias
+        # vezes, e nenhuma tela do app mencionava NVENC: o usuário via a
+        # análise lenta sem saber que a causa é um driver desatualizado —
+        # que é justamente o tipo de coisa que ele consegue resolver.
+        from .ffmpeg_locate import nvenc_available, nvenc_reason
+
+        via_cpu = "" if nvenc_available() else " · via CPU (NVENC recusado)"
 
         def cut_cb(done: int, total: int, skipped: int) -> None:
             suffix = f" ({skipped} já em cache)" if skipped else ""
-            cb("cut_shots", done / max(total, 1), f"{done}/{total} shots{suffix}")
+            cb("cut_shots", done / max(total, 1),
+               f"{done}/{total} shots{suffix}{via_cpu}")
+
+        if via_cpu:
+            motivo = nvenc_reason()
+            print(f"[CorteCenas] Cortes na CPU (libx264){': ' + motivo if motivo else ''}",
+                  flush=True)
 
         cut_results = cut_all_shots(
             info.source,
@@ -2262,6 +2323,14 @@ class Pipeline:
             reencode=cfg.reencode_shots,
             on_progress=cut_cb,
         )
+        # Cena que o ffmpeg não conseguiu cortar sumia da conta em silêncio:
+        # o `cut_all_shots` filtra os None e ninguém comparava com o total.
+        # Vai pro progresso, que é o canal que a tela lê.
+        perdidas = len(shots) - len(cut_results)
+        if perdidas > 0:
+            cb("cut_shots", 1.0,
+               f"{len(cut_results)}/{len(shots)} shots — {perdidas} não deram "
+               f"(disco cheio? arquivo em uso?); reanalisar tenta só essas")
         self._write_episode_readme(episode_root)
         return episode_root, metadata_dir, cut_results
 

@@ -5,6 +5,7 @@ contexto do Chromium e tratar o arrastar-soltar. O resto mora na `Ponte`.
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -76,7 +77,7 @@ class JanelaWeb(QMainWindow):
         self.ponte.terminou.connect(self._avisar_que_acabou)
 
     # ---- aviso do Windows quando a análise termina -----------------------
-    def _avisar_que_acabou(self, motivo: str) -> None:
+    def _avisar_que_acabou(self, carga: str) -> None:
         """Análise é longa; o usuário sai da frente. O recado na própria
         página só serve pra quem está olhando pra ela.
 
@@ -86,13 +87,33 @@ class JanelaWeb(QMainWindow):
         """
         if self.isActiveWindow():
             return
+        try:
+            d = json.loads(carga)
+        except (ValueError, TypeError):
+            d = {"como": str(carga)}
+        como = d.get("como", "")
         titulos = {
             "pronto": ("Corte Cenas — Análise pronta", "O episódio terminou de ser cortado."),
             "batizado": ("Corte Cenas — Personagens salvos", "O batismo terminou."),
             "cancelado": ("Corte Cenas — Análise cancelada", "Você parou a análise."),
+            "refs_faltando": ("Corte Cenas — Faltam referências",
+                              "A análise parou: nenhum personagem tem fotos suficientes."),
+            "anime_nao_achado": ("Corte Cenas — Anime não encontrado",
+                                 "A análise parou. Abra o app pra escolher o que fazer."),
         }
+        if como == "pronto" and d.get("cenas"):
+            titulos["pronto"] = (
+                "Corte Cenas — Análise pronta",
+                f"{d['cenas']} cena(s) cortadas"
+                + (f", {len(d.get('personagens') or [])} personagem(ns) identificados."
+                   if d.get("personagens") else "."))
+        # Um traceback cortado no caractere 180 não é aviso, é ruído: o
+        # `motivo` de uma falha vem com a exceção inteira. Vai só a primeira
+        # linha, que é o que o app Qt já fazia.
+        primeira = (d.get("detalhe") or "").strip().splitlines()
         titulo, corpo = titulos.get(
-            motivo, ("Corte Cenas — Análise parou", motivo[:180]))
+            como, ("Corte Cenas — Análise parou",
+                   (primeira[0][:160] if primeira else "Abra o app pra ver o motivo.")))
         QApplication.alert(self)  # pisca na barra de tarefas
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return

@@ -774,14 +774,22 @@ class Ponte(QObject):
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        self._etapa_atual = ""
+        self._worker.stage.connect(self._anota_etapa)
         self._worker.stage.connect(self.progresso)          # mesma assinatura
-        self._worker.finished.connect(lambda _r: self._fim_da_analise("pronto"))
-        self._worker.failed.connect(lambda m: self._fim_da_analise(f"falhou: {m}"))
+        self._worker.finished.connect(self._fim_com_resultado)
+        self._worker.failed.connect(
+            lambda m: self._fim_da_analise("falhou", detalhe=str(m)))
         self._worker.cancelled.connect(lambda: self._fim_da_analise("cancelado"))
+        # O segundo argumento é a PASTA DAS REFS e estava sendo jogado fora
+        # (`lambda m, _p:`). Sem ele some o "Abrir pasta de refs", que é a
+        # ação que resolve o problema.
         self._worker.refs_missing.connect(
-            lambda m, _p: self._fim_da_analise(f"refs faltando: {m}"))
+            lambda m, p: (setattr(self, "_refs_dir", str(p or "")),
+                          self._fim_da_analise(
+                              "refs_faltando", detalhe=str(m), refs_dir=str(p or ""))))
         self._worker.anime_not_found.connect(
-            lambda m: self._fim_da_analise(f"anime não encontrado: {m}"))
+            lambda m: self._fim_da_analise("anime_nao_achado", detalhe=str(m)))
         self._worker.discovery_ready.connect(self._guarda_descoberta)
         self._thread.start()
         print(f"    [python] análise começou: {info.anime} S{info.season:02d}E{info.episode:02d}")
@@ -873,23 +881,89 @@ class Ponte(QObject):
         self._worker = DiscoveryCommitWorker(self.cfg, disc, nomes, tiradas)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        self._etapa_atual = ""
+        self._worker.stage.connect(self._anota_etapa)
         self._worker.stage.connect(self.progresso)
         self._worker.finished.connect(lambda _r: self._fim_da_analise("batizado"))
-        self._worker.failed.connect(lambda m: self._fim_da_analise(f"falhou: {m}"))
+        self._worker.failed.connect(
+            lambda m: self._fim_da_analise("falhou", detalhe=str(m)))
         self._thread.start()
         print(f"    [python] batismo de {len(nomes)} grupo(s): "
               f"{', '.join(sorted(nomes.values()))}")
         return json.dumps({"ok": True, "msg": f"Salvando {len(nomes)} personagem(ns)…"})
 
-    def _fim_da_analise(self, motivo: str) -> None:
+    # Etapas ANTES desta não escrevem no banco: o `clear_episode_shots` roda
+    # depois do elenco (pipeline.py:213). Cancelar até aqui não custa nada;
+    # daí pra frente o resultado anterior já foi embora.
+    _ETAPAS_SEM_ESTRAGO = ("parse", "detect_shots", "cut_shots")
+
+    def _anota_etapa(self, sid: str, _fracao: float, _msg: str) -> None:
+        self._etapa_atual = sid
+
+    def _fim_da_analise(self, como: str, **extra) -> None:
+        """Fim da análise — e a página precisa saber QUAL fim.
+
+        Isto emitia uma string só, e o JS testava `=== 'cancelado'`: todo o
+        resto — falha, refs faltando, anime não encontrado — virava tarja
+        verde "Análise terminada." com a barra em 100% e ✓ em cada etapa. O
+        usuário ia procurar as cenas na pasta, não achava nada, e não tinha
+        como saber por quê. As mensagens boas que o Python produz (a pasta
+        das refs, a oferta do Modo Descoberta) morriam aqui.
+
+        Agora vai um objeto: `como` diz o tipo de fim, e o resto é o que
+        aquela tela precisa pra ser útil em vez de só bonita.
+        """
         t = getattr(self, "_thread", None)
         if t is not None:
             t.quit()
             t.wait(4000)
         self._thread = None
         self._worker = None
-        print(f"    [python] análise terminou: {motivo}")
-        self.terminou.emit(motivo)
+        etapa = getattr(self, "_etapa_atual", "")
+        self._etapa_atual = ""
+        carga = {"como": como, "etapa": etapa}
+        carga.update(extra)
+        if como == "cancelado":
+            # Só o cancelamento durante o corte é inofensivo. Depois do
+            # elenco o banco já foi limpo, e o que sobrou é um resultado
+            # PARCIAL misturado com as pastas da análise antiga.
+            carga["perdeu_resultado"] = etapa not in self._ETAPAS_SEM_ESTRAGO
+        print(f"    [python] análise terminou: {como}"
+              + (f" ({extra.get('detalhe', '')[:90]})" if extra.get("detalhe") else ""))
+        self.terminou.emit(json.dumps(carga))
+
+    def _fim_com_resultado(self, r) -> None:
+        """Fim BEM-SUCEDIDO — que nem sempre é bom.
+
+        O `finished` carrega um `PipelineResult` e a ponte jogava ele fora
+        com um `lambda _r:`. Dentro dele vão os três avisos que o app Qt
+        mostra e a web nunca mostrou: protagonista sem refs utilizáveis
+        (as cenas dele contaminam quem se parece com ele), elenco com
+        suspeitos, e grupos de cena que ninguém conseguiu nomear.
+
+        Análise que termina com quase tudo sem dono é um fracasso que se
+        parece com sucesso — e era exatamente assim que ela aparecia.
+        """
+        extra: dict = {}
+        try:
+            extra["cenas"] = int(getattr(r, "total_shots", 0) or 0)
+            extra["personagens"] = list(getattr(r, "identified_characters", []) or [])
+            if getattr(r, "low_refs_warning", None):
+                extra["refs_fracas"] = str(r.low_refs_warning)
+                extra["refs_dir"] = str(getattr(r, "refs_dir", "") or "")
+                self._refs_dir = extra["refs_dir"]
+            suspeitos = [c["name"] for c in (getattr(r, "cast_review", None) or [])
+                         if c.get("suspicious")]
+            if suspeitos:
+                extra["suspeitos"] = suspeitos
+            sobras = getattr(r, "leftover_groups", None)
+            if sobras is not None and getattr(sobras, "groups", None):
+                extra["grupos_sem_nome"] = len(sobras.groups)
+                # o payload do batismo é o MESMO que a Descoberta usa
+                self._guarda_descoberta(sobras)
+        except Exception as e:  # noqa: BLE001 — nenhum aviso vale derrubar o fim
+            print(f"    [python] não deu pra ler o resultado: {e}")
+        self._fim_da_analise("pronto", **extra)
 
     @Slot()
     def ensaiar(self) -> None:
@@ -914,7 +988,8 @@ class Ponte(QObject):
                     passos = 8
                     for p in range(passos + 1):
                         if self.isInterruptionRequested():
-                            ponte.terminou.emit("cancelado")
+                            ponte.terminou.emit(json.dumps(
+                                {"como": "cancelado", "etapa": sid}))
                             return
                         fracao = (k + p / passos) / len(STAGES)
                         ponte.progresso.emit(
@@ -922,7 +997,7 @@ class Ponte(QObject):
                             f"{rotulo} {p * 40}/{passos * 40}" if p else rotulo,
                         )
                         self.msleep(45)
-                ponte.terminou.emit("pronto")
+                ponte.terminou.emit(json.dumps({"como": "pronto", "cenas": 331}))
 
         self._ensaio = Ensaio()
         self._ensaio.start()
@@ -1152,6 +1227,23 @@ class Ponte(QObject):
         if alvo.exists():
             subprocess.Popen(["explorer", str(alvo)])
             print(f"    [python] abri {alvo}")
+
+    @Slot(result=str)
+    def abrir_refs(self) -> str:
+        """Abre a pasta de referências do último "refs faltando".
+
+        Um slot próprio em vez de um `abrir_caminho(qualquer_coisa)`: o
+        caminho vem do Python e nunca da página, então não há como o JS
+        mandar o Explorer abrir o que quiser.
+        """
+        import subprocess
+
+        alvo = Path(getattr(self, "_refs_dir", "") or "")
+        if not alvo or not alvo.exists():
+            return json.dumps({"ok": False, "msg": "a pasta de refs não existe (ainda)"})
+        subprocess.Popen(["explorer", str(alvo)])
+        print(f"    [python] abri as refs em {alvo}")
+        return json.dumps({"ok": True, "msg": f"Abri {alvo}"})
 
     @Slot(str)
     def atalho(self, tecla: str) -> None:

@@ -49,6 +49,7 @@ def ffmpeg_binary() -> str:
 
 
 _NVENC_AVAILABLE: bool | None = None
+_NVENC_REASON: str = ""
 
 
 def nvenc_available() -> bool:
@@ -60,7 +61,7 @@ def nvenc_available() -> bool:
     compiled into every build but fails at runtime without an NVIDIA driver.
     So we run a real 0.1s test encode of a synthetic frame into the null
     muxer. Costs ~200 ms, cached for the rest of the process."""
-    global _NVENC_AVAILABLE
+    global _NVENC_AVAILABLE, _NVENC_REASON
     if _NVENC_AVAILABLE is None:
         import subprocess
         try:
@@ -82,12 +83,25 @@ def nvenc_available() -> bool:
                 # nvcuda.dll", ...) — gold for remote logs.
                 reason = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
                 if reason:
-                    print(f"[CorteCenas] NVENC recusado: {reason[0][:160]}", flush=True)
-        except Exception:
+                    _NVENC_REASON = reason[0][:160]
+                    print(f"[CorteCenas] NVENC recusado: {_NVENC_REASON}", flush=True)
+        except Exception as e:
             _NVENC_AVAILABLE = False
+            _NVENC_REASON = str(e)[:160]
         mode = "disponível — cortes via GPU" if _NVENC_AVAILABLE else "indisponível — cortes via CPU (libx264)"
         print(f"[CorteCenas] NVENC {mode}", flush=True)
     return _NVENC_AVAILABLE
+
+
+def nvenc_reason() -> str:
+    """Por que o NVENC foi recusado — vazio se ele está disponível.
+
+    O motivo já era descoberto e ia só pro log. Cortar na CPU em vez da GPU
+    muda o tempo da etapa em VÁRIAS vezes, e nenhuma tela do app mencionava
+    NVENC ou libx264: o usuário via uma análise lenta e não tinha como saber
+    que a causa era um driver desatualizado, que é coisa que ele resolve.
+    """
+    return _NVENC_REASON or ""
 
 
 def ffprobe_binary() -> str:

@@ -458,4 +458,19 @@ def cut_all_shots(
             raise
 
     # Original shot order, minus the ones ffmpeg couldn't cut.
-    return [r for r in indexed if r is not None]
+    #
+    # E as que ele NÃO conseguiu cortar são contadas em voz alta. Este filtro
+    # engolia em silêncio todo shot que o `process` devolveu None: disco
+    # cheio, arquivo travado por outro programa, codec que o ffmpeg recusa.
+    # Ninguém comparava `len(cut_results)` com `len(shots)`, então 40 cenas
+    # perdidas no meio de 300 chegavam ao fim como "análise pronta".
+    #
+    # Não levanta: cortar 260 de 300 ainda é resultado útil. Quem chamou
+    # compara `len(retorno)` com `len(shots)` — a conta já está na mão dele,
+    # não vale guardar isso num estado global.
+    saida = [r for r in indexed if r is not None]
+    if len(saida) < total:
+        print(f"[CorteCenas] ATENÇÃO: {total - len(saida)} de {total} cena(s) "
+              f"o ffmpeg não conseguiu cortar (disco cheio? arquivo em uso?) "
+              f"— reanalisar tenta de novo só essas", flush=True)
+    return saida

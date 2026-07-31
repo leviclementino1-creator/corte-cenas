@@ -160,6 +160,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .etapa.feita .n{color:var(--faint)}
 .etapa.rodando{background:var(--accent-ink);color:var(--txt);font-weight:600}
 .etapa.rodando .marca,.etapa.rodando .n{color:var(--accent)}
+/* a etapa onde a análise MORREU. Antes tudo virava ✓ verde, inclusive numa
+   análise que nunca chegou ao fim */
+.etapa.parada{color:var(--txt)} .etapa.parada .marca{color:var(--bad)}
 
 /* ================= 2. BIBLIOTECA =================================== */
 .acervo{width:var(--w-acervo);flex:0 0 var(--w-acervo);
@@ -1099,6 +1102,160 @@ function dispara(pedido){
   else ponte.analisar(JSON.stringify(pedido), volta);
 }
 
+// ---- o fim da análise, que não é um só --------------------------------
+// Isto testava `como === 'cancelado'` e tratava TODO o resto como sucesso:
+// falha, refs faltando e anime não encontrado viravam tarja verde "Análise
+// terminada.", barra em 100% e ✓ em cada etapa. O usuário ia procurar as
+// cenas na pasta, não achava nada, e não tinha como saber por quê.
+const FIM_BOM = {pronto: 1, batizado: 1};
+
+function paraNaEtapa(etapa){
+  // a etapa que estava rodando fica ✕, e as depois dela nem começaram —
+  // pintar 100% e ✓ numa análise que morreu é a mentira principal daqui
+  const el = etapa && document.querySelector(`.etapa[data-id="${etapa}"]`);
+  if (el){
+    el.className = 'etapa parada';
+    const m = el.querySelector('.marca');
+    if (m) m.textContent = '✕';
+  }
+  document.getElementById('p_pct').textContent = '—';
+}
+
+// Análise que TERMINA mas termina torta. O `PipelineResult` carrega três
+// avisos que o app Qt mostra e a web jogava fora junto com o objeto:
+// protagonista sem refs utilizáveis (as cenas dele contaminam quem se
+// parece com ele), elenco com suspeitos, e grupos de cena que ninguém
+// conseguiu nomear. Sem isso, um resultado quase todo sem dono chegava com
+// a mesma cara de um resultado perfeito.
+function contaOQueSaiuTorto(d){
+  const partes = [];
+  if (d.refs_fracas)
+    partes.push(String(d.refs_fracas).replace(/\n/g, '<br>'));
+  if (d.suspeitos && d.suspeitos.length)
+    partes.push(`<b>Elenco suspeito:</b> ${d.suspeitos.join(', ')} — `
+      + 'aparecem pouco ou com confiança baixa. Vale conferir na Biblioteca '
+      + 'antes de tratar as pastas deles como boas.');
+  if (d.grupos_sem_nome)
+    partes.push(`<b>${d.grupos_sem_nome} grupo(s) de cena sem nome.</b> São `
+      + 'rostos que apareceram bastante e o app não casou com ninguém do '
+      + 'elenco — dar nome a eles costuma ser o que mais melhora o próximo '
+      + 'episódio.');
+  if (!partes.length) return;
+
+  pergunta({
+    titulo: 'A análise terminou, mas com ressalvas',
+    texto: partes.join('<br><br>'),
+    confirmar: d.grupos_sem_nome ? '🔍 Batizar os grupos'
+             : (d.refs_dir ? '📂 Abrir pasta de refs' : 'Entendi'),
+    negar: 'Depois',
+  }, () => {
+    if (d.grupos_sem_nome) return;      // o batismo já abriu sozinho
+    if (d.refs_dir) ponte.abrir_refs(json => {
+      const r = JSON.parse(json);
+      if (!r.ok) recado(r.msg, true);
+    });
+  });
+}
+
+function terminaAnalise(d){
+  const como = d.como || '';
+  document.getElementById('btn_cancelar').style.display = 'none';
+
+  if (FIM_BOM[como]){
+    document.getElementById('p_pct').textContent = '100%';
+    document.querySelector('.barra i').style.width = '100%';
+    document.querySelectorAll('.etapa').forEach(e => {
+      e.className = 'etapa feita';
+      e.querySelector('.marca').textContent = '✓';
+    });
+    analisouNestaSessao = true;
+    document.getElementById('res_corpo').style.display = '';
+    document.getElementById('r_titulo').textContent =
+      document.getElementById('titulo').textContent;
+    epAberto = null;
+    carregaAcervo();
+    recado(d.cenas ? `Análise terminada — ${d.cenas} cena(s).`
+                   : 'Análise terminada.');
+    contaOQueSaiuTorto(d);
+    return;
+  }
+
+  if (como === 'cancelado'){
+    paraNaEtapa(d.etapa);
+    // Só cancelar durante o corte é inofensivo. Depois disso o banco já
+    // tinha sido limpo, e o que ficou é um resultado PARCIAL convivendo com
+    // as pastas da análise antiga — dizer só "Análise cancelada." esconde
+    // que o acervo daquele episódio agora está pela metade.
+    if (d.perdeu_resultado){
+      pergunta({
+        titulo: 'Cancelada depois de já ter mexido no acervo',
+        texto: 'O resultado anterior deste episódio já tinha sido substituído '
+             + 'quando você cancelou.<br><br>'
+             + '• O que ficou no acervo é <b>parcial</b> — rode a análise de '
+             + 'novo antes de curar<br>'
+             + '• Os clipes em <code>shots/</code> estão inteiros<br>'
+             + '• Sua curadoria manual continua guardada',
+        confirmar: 'Entendi', negar: 'Fechar',
+      }, () => {});
+      return;
+    }
+    recado('Análise cancelada — nada foi perdido, os clipes já cortados ficam '
+         + 'em cache e a próxima análise continua de onde parou.');
+    return;
+  }
+
+  // ---- os três fins ruins ---------------------------------------------
+  paraNaEtapa(d.etapa);
+  const motivo = (d.detalhe || '').trim();
+
+  if (como === 'refs_faltando'){
+    recado('A análise parou: faltam referências.', true);
+    pergunta({
+      titulo: 'Faltam fotos de referência',
+      texto: (motivo || 'Nenhum personagem ficou com fotos suficientes.')
+               .replace(/\n/g, '<br>')
+           + '<br><br>• Ponha de 3 a 8 prints do rosto de cada um na pasta de '
+           + 'refs — elas valem pros próximos episódios também<br>'
+           + '• Ou use o <b>Modo Descoberta</b>, que agrupa os rostos sem '
+           + 'saber quem é ninguém e deixa você batizar',
+      confirmar: '📂 Abrir pasta de refs', negar: 'Fechar',
+    }, () => ponte.abrir_refs(json => {
+      const r = JSON.parse(json);
+      if (!r.ok) recado(r.msg, true);
+    }));
+    return;
+  }
+
+  if (como === 'anime_nao_achado'){
+    recado('A análise parou: anime não encontrado.', true);
+    pergunta({
+      titulo: 'Não achei este anime',
+      texto: (motivo || 'As fontes não devolveram nada com esse nome.')
+               .replace(/\n/g, '<br>')
+           + '<br><br>• Confira o nome (o oficial em japonês romanizado '
+           + 'costuma achar mais)<br>'
+           + '• Ou rode o <b>Modo Descoberta</b>: ele não precisa de elenco, '
+           + 'agrupa os rostos e você dá os nomes',
+      confirmar: '🔍 Modo Descoberta', negar: 'Fechar',
+    }, () => comeca({descoberta: true}));
+    return;
+  }
+
+  // falha genérica: a primeira linha é o que interessa, o resto é traceback
+  const primeira = motivo.split('\n')[0] || 'motivo desconhecido';
+  recado('A análise falhou.', true);
+  pergunta({
+    titulo: 'A análise falhou',
+    texto: `<b>${primeira}</b><br><br>`
+         + (motivo.includes('\n')
+            ? '<span style="opacity:.7">O detalhe completo está no log.</span><br><br>'
+            : '')
+         + '• Os clipes já cortados ficam em <code>shots/</code><br>'
+         + '• Rodar de novo aproveita o que já foi feito',
+    confirmar: 'Entendi', negar: 'Fechar',
+  }, () => {});
+}
+
 document.getElementById('btn_analisar').addEventListener('click', () => comeca());
 
 // ---- tela de batismo ---------------------------------------------------
@@ -1295,7 +1452,11 @@ function recado(txt, ruim){
 
 // ---- caixinha de escolha / confirmação --------------------------------
 // O app usa QInputDialog e QMessageBox; aqui a pergunta é da própria página.
-function pergunta({titulo, texto, opcoes, confirmar}, entao){
+// `negar` renomeia o botão da esquerda. Um aviso de erro que oferece
+// "Abrir pasta de refs" | "Cancelar" sugere que dá pra cancelar a falha —
+// ali o certo é "Fechar".
+function pergunta({titulo, texto, opcoes, confirmar, negar}, entao){
+  document.getElementById('cx_nao').textContent = negar || 'Cancelar';
   const cx = document.getElementById('caixinha');
   document.getElementById('cx_titulo').textContent = titulo;
   document.getElementById('cx_texto').innerHTML = texto || '';
@@ -1889,27 +2050,7 @@ new QWebChannel(qt.webChannelTransport, canal => {
   // foi o Qt (o objeto File do Chromium não tem caminho nenhum).
   montaEtapas();
   ponte.progresso.connect(pinta);
-  ponte.terminou.connect(como => {
-    recado(como === 'cancelado' ? 'Análise cancelada.' : 'Análise terminada.');
-    document.getElementById('btn_cancelar').style.display = 'none';
-    if (como === 'pronto' || como === 'batizado'){
-      // agora sim: houve análise nesta sessão
-      analisouNestaSessao = true;
-      document.getElementById('res_corpo').style.display = '';
-      document.getElementById('r_titulo').textContent =
-        document.getElementById('titulo').textContent;
-      epAberto = null;
-      carregaAcervo();
-    }
-    if (como !== 'cancelado'){
-      document.getElementById('p_pct').textContent = '100%';
-      document.querySelector('.barra i').style.width = '100%';
-      document.querySelectorAll('.etapa').forEach(e => {
-        e.className = 'etapa feita';
-        e.querySelector('.marca').textContent = '✓';
-      });
-    }
-  });
+  ponte.terminou.connect(carga => terminaAnalise(JSON.parse(carga)));
 
   ponte.descobriu.connect(json => abreBatismo(JSON.parse(json)));
 
