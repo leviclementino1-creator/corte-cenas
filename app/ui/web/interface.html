@@ -429,10 +429,6 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .grupo .sug:hover{border-color:var(--accent-dim);color:var(--accent)}
 .grupo .sug.forte{border-color:var(--accent-dim);color:var(--accent)}
 
-#medidor{position:fixed;right:12px;bottom:12px;background:rgba(11,14,18,.94);
-         border:1px solid var(--accent-dim);border-radius:6px;padding:10px 12px;
-         font-family:var(--mono);font-size:11px;color:var(--accent);line-height:1.7;
-         z-index:99;pointer-events:none;white-space:pre}
 </style>
 </head>
 <body>
@@ -733,7 +729,6 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 
 <div id="recado"></div>
 
-<div id="medidor">medindo…</div>
 
 <script src="/qwebchannel.js"></script>
 <script>
@@ -1536,6 +1531,7 @@ function carregaCenas(id, depois){
         `<div class="pilula" data-nome="${n}">${n} <span class="n">${k}</span></div>`).join('') +
       (semDono ? `<div class="pilula" data-nome="__sem__">sem identificação <span class="n">${semDono}</span></div>` : '');
 
+    const t0Grade = performance.now();
     const ms = desenhaGrade();
 
     // duplas mais frequentes
@@ -1547,19 +1543,25 @@ function carregaCenas(id, depois){
     // uma análise TERMINA aqui. Carregar o episódio na Biblioteca não pode
     // preenchê-la — abrir o app sem ter analisado nada e achar a aba cheia
     // faz o usuário duvidar do que está vendo.
-    if (!analisouNestaSessao) return;
-    document.getElementById('r_meta').innerHTML =
-      `<b>${cenas.length}</b> shots · <b>${nomes.length}</b> personagens · <b>${relogio(total)}</b>` +
-      (topo.length ? '<br>top duplas: ' + topo.map(([d,k]) => `${d} <b>${k}</b>`).join(' · ') : '');
+    //
+    // Isto é um `if`, e não um `return` como eu escrevi na primeira vez: o
+    // return cortava o resto da função e levava junto a contagem das
+    // miniaturas e o `loading="eager"` — só as 88 visíveis carregavam, e as
+    // outras 305 nunca.
+    if (analisouNestaSessao){
+      document.getElementById('r_meta').innerHTML =
+        `<b>${cenas.length}</b> shots · <b>${nomes.length}</b> personagens · <b>${relogio(total)}</b>` +
+        (topo.length ? '<br>top duplas: ' + topo.map(([d,k]) => `${d} <b>${k}</b>`).join(' · ') : '');
 
-    document.getElementById('r_elenco').innerHTML =
-      nomes.map(([n,k]) =>
-        `<div class="pessoa" data-nome="${n}"><span class="nome">${n}</span><span class="n">${k}</span></div>`
-      ).join('') +
-      `<div class="pessoa orfa" data-nome="__sem__"><span class="nome">sem identificação</span><span class="n">${semDono}</span></div>`;
-    document.querySelectorAll('.pessoa').forEach(p =>
-      p.addEventListener('click', () => mostraPersonagem(p.dataset.nome)));
-    if (nomes.length) mostraPersonagem(nomes[0][0]);
+      document.getElementById('r_elenco').innerHTML =
+        nomes.map(([n,k]) =>
+          `<div class="pessoa" data-nome="${n}"><span class="nome">${n}</span><span class="n">${k}</span></div>`
+        ).join('') +
+        `<div class="pessoa orfa" data-nome="__sem__"><span class="nome">sem identificação</span><span class="n">${semDono}</span></div>`;
+      document.querySelectorAll('.pessoa').forEach(p =>
+        p.addEventListener('click', () => mostraPersonagem(p.dataset.nome)));
+      if (nomes.length) mostraPersonagem(nomes[0][0]);
+    }
 
     ponte.marca('montou_' + cenas.length + '_cartoes', ms);
 
@@ -1567,10 +1569,11 @@ function carregaCenas(id, depois){
     let prontas = 0;
     const conta = () => {
       if (++prontas < imgs.length) return;
-      const t = performance.now() - T0;
-      ponte.marca('todas_miniaturas', t);
-      document.getElementById('medidor').textContent =
-        `grade  ${ms.toFixed(0)} ms\n${imgs.length} minis  ${t.toFixed(0)} ms`;
+      // Medida vai pro Python (é de lá que o laboratório lê) e não pra um
+      // painel na tela: aquilo era debug meu e vazou pro app.
+      // E conta a partir DESTA grade, não do T0 da página — medindo do T0
+      // dava "144375 ms" só porque a janela estava aberta havia dois minutos.
+      ponte.marca('todas_miniaturas', performance.now() - t0Grade);
     };
     imgs.forEach(i => i.complete ? conta() : (i.onload = conta, i.onerror = conta));
     setTimeout(() => imgs.forEach(i => i.loading = 'eager'), 50);
