@@ -173,7 +173,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
     color:var(--dim);gap:6px}
 .no:hover{background:var(--surface)}
 .no.viva{background:var(--surface-2);color:var(--txt);box-shadow:inset 3px 0 0 var(--accent)}
-.no .seta{width:9px;color:var(--off);font-size:9px}
+.no .seta{width:9px;color:var(--off);font-size:9px;flex:0 0 9px}
+.no.ramo{cursor:default}
+.no.ramo:hover .seta{color:var(--accent)}
 .no .conta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--time)}
 .no.n1{padding-left:10px}.no.n2{padding-left:24px}.no.n3{padding-left:38px}
 /* pasta ausente: itálico apagado, mas continua na lista — quem apagou
@@ -499,24 +501,24 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
         <div class="prog-esq">
           <div class="prog-topo">
             <div class="oque">
-              <span class="titulo" id="p_titulo">Cortando cenas</span>
-              <span class="conta" id="p_conta"><b>214</b> de <b>331</b></span>
+              <span class="titulo" id="p_titulo">Aguardando</span>
+              <span class="conta" id="p_conta"></span>
             </div>
-            <span class="pct" id="p_pct">64%</span>
+            <span class="pct" id="p_pct">—</span>
           </div>
-          <div class="barra"><i style="width:64%"></i><i class="pale" style="width:8%"></i></div>
+          <div class="barra"><i style="width:0%"></i><i class="pale" style="width:0%"></i></div>
           <div class="tempos">
-            <div><span class="r">decorrido</span><span class="v">02:41</span></div>
-            <div><span class="r">resta ~</span><span class="v amb">01:29</span></div>
-            <div><span class="r">ritmo</span><span class="v">1.3 cena/s</span></div>
+            <div><span class="r">decorrido</span><span class="v">--:--</span></div>
+            <div><span class="r">resta ~</span><span class="v amb">--:--</span></div>
+            <div><span class="r">ritmo</span><span class="v">—</span></div>
           </div>
-          <div class="arquivo-atual">escrevendo → Output\S03E02\Farion, Nina\0214.mp4</div>
+          <div class="arquivo-atual"></div>
           <div class="linha" style="gap:8px">
-            <div class="btn perigo">✕&nbsp; Cancelar</div>
+            <div class="btn perigo" id="btn_cancelar" style="display:none">✕&nbsp; Cancelar</div>
             <div class="btn fantasma">📂&nbsp; Abrir pasta de saída</div>
           </div>
         </div>
-        <div class="etapas" id="etapas"></div>
+        <div class="etapas" id="etapas" style="display:none"></div>
       </div>
     </div>
   </div>
@@ -585,10 +587,11 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
   <!-- ============================ RESULTADOS ======================== -->
   <div class="tela" id="resultados">
     <div class="res-topo">
-      <h1 id="r_titulo">Mushoku Tensei III — S03E02</h1>
-      <div class="meta" id="r_meta">carregando…</div>
+      <h1 id="r_titulo">Nenhum episódio processado nesta sessão</h1>
+      <div class="meta" id="r_meta">Analise um episódio e o resultado aparece aqui.
+        Pra ver o que já está no acervo, use a Biblioteca.</div>
     </div>
-    <div class="res-corpo">
+    <div class="res-corpo" id="res_corpo" style="display:none">
       <aside class="elenco">
         <div class="sobrancelha">Elenco</div>
         <div class="lista" id="r_elenco"></div>
@@ -890,6 +893,8 @@ function montaEtapas(){
 
 function zeraProgresso(){
   t0Analise = performance.now(); ritmo = null; ultimo = null; ultimoPct = 0;
+  document.getElementById('btn_cancelar').style.display = '';
+  document.getElementById('etapas').style.display = '';
   for (const k in pintado) delete pintado[k];
   document.querySelectorAll('.etapa').forEach(e => {
     e.className = 'etapa';
@@ -1083,7 +1088,7 @@ document.querySelectorAll('.acoes .btn').forEach(b => {
     });
   });
 });
-document.querySelector('.btn.perigo').addEventListener('click',
+document.getElementById('btn_cancelar').addEventListener('click',
   () => ponte && ponte.cancelar());
 
 // ---- Resultados -------------------------------------------------------
@@ -1352,6 +1357,8 @@ function carregaConfig(){
 // A grade é sempre desenhada por AQUI: filtro e ordem são estado, não dois
 // caminhos separados de montar cartão. Assim trocar de episódio, filtrar por
 // personagem e reordenar não podem discordar entre si.
+// A aba Resultados só existe depois que ALGO foi analisado nesta sessão.
+let analisouNestaSessao = false;
 let filtro = null;      // null = todas · '__sem__' = sem identificação
 let ordem = 'crono';
 let epAberto = null;
@@ -1395,6 +1402,23 @@ document.querySelector('.ordem .trilho').addEventListener('click', e => {
   desenhaGrade();
 });
 
+function recolhe(ramo, fechar){
+  ramo.classList.toggle('fechado', fechar);
+  ramo.querySelector('.seta').textContent = fechar ? '▸' : '▾';
+  const chave = ramo.dataset.ramo;
+  document.querySelectorAll(`#arvore .no[data-pai]`).forEach(f => {
+    // fecha filhos E netos: fechar o anime tem que sumir com os episódios
+    // das temporadas dele, não só com as temporadas
+    if (!f.dataset.pai.startsWith(chave)) return;
+    if (fechar){ f.style.display = 'none'; return; }
+    // ao abrir, só reaparece quem não está dentro de outro ramo fechado
+    const dono = document.querySelector(`#arvore .no[data-ramo="${f.dataset.pai}"]`);
+    f.style.display = (dono && dono.classList.contains('fechado')) ? 'none' : '';
+    if (f.classList.contains('ramo') && f.classList.contains('fechado'))
+      recolhe(f, true);
+  });
+}
+
 function carregaAcervo(){
   ponte.acervo(json => {
     const resp = JSON.parse(json);
@@ -1416,19 +1440,33 @@ function carregaAcervo(){
       arv.innerHTML = '<div class="no n1" style="font-style:italic">Nada cortado ainda</div>';
       return;
     }
-    arv.innerHTML = animes.map(a =>
-      `<div class="no n1" title="${a.oficial}"><span class="seta">▾</span>${a.titulo}<span class="conta">${a.cenas}</span></div>` +
-      a.temporadas.map(t =>
-        `<div class="no n2"><span class="seta">▾</span>Temporada ${t.temporada}<span class="conta">${t.cenas}</span></div>` +
+    // A árvore recolhe. Com um anime só dá pra viver sem, mas a Biblioteca
+    // existe pra guardar VÁRIOS — e aí uma lista que nunca fecha vira uma
+    // parede de episódios. Anime e temporada viram pastas de verdade.
+    arv.innerHTML = animes.map((a, ai) =>
+      `<div class="no n1 ramo" data-ramo="a${ai}" title="${a.oficial}">` +
+      `<span class="seta">▾</span>${a.titulo}<span class="conta">${a.cenas}</span></div>` +
+      a.temporadas.map((t, ti) =>
+        `<div class="no n2 ramo" data-ramo="a${ai}t${ti}" data-pai="a${ai}">` +
+        `<span class="seta">▾</span>Temporada ${t.temporada}` +
+        `<span class="conta">${t.cenas}</span></div>` +
         t.eps.map(e =>
           `<div class="no n3${e.ok ? '' : ' sumido'}" data-ep="${e.id}"
+                data-pai="a${ai}t${ti}"
                 data-rot="${e.titulo} — S${String(e.temporada).padStart(2,'0')}E${String(e.episodio).padStart(2,'0')}">` +
           `Episódio ${String(e.episodio).padStart(2,'0')}${e.ok ? '' : '  (sumiu)'}` +
           `<span class="conta">${e.cenas}</span></div>`).join('')
       ).join('')
     ).join('');
 
+    // Com mais de um anime, começa tudo fechado: a lista inteira aberta é
+    // uma parede. Com um só, aberto — não faz sentido esconder o único.
+    if (animes.length > 1)
+      arv.querySelectorAll('.no.n1.ramo').forEach(n => recolhe(n, true));
+
     arv.addEventListener('click', ev => {
+      const ramo = ev.target.closest('.no.ramo');
+      if (ramo){ recolhe(ramo, !ramo.classList.contains('fechado')); return; }
       const no = ev.target.closest('.no[data-ep]'); if (!no) return;
       abreEpisodio(no.dataset.ep, no.dataset.rot, no);
     });
@@ -1445,7 +1483,6 @@ function abreEpisodio(id, rotulo, no){
   document.querySelectorAll('#arvore .no').forEach(x => x.classList.remove('viva'));
   if (no) no.classList.add('viva');
   document.getElementById('titulo').textContent = rotulo;
-  document.getElementById('r_titulo').textContent = rotulo;
   document.getElementById('meta').textContent = 'carregando…';
   // some com a cena aberta: ela é do episódio ANTERIOR
   document.getElementById('tv').removeAttribute('src');
@@ -1506,6 +1543,11 @@ function carregaCenas(id, depois){
     for (const c of cenas) if (c.quem.length === 2)
       duplas[[...c.quem].sort().join('+')] = (duplas[[...c.quem].sort().join('+')]||0)+1;
     const topo = Object.entries(duplas).sort((a,b)=>b[1]-a[1]).slice(0,2);
+    // A aba Resultados é da SESSÃO, não do acervo: ela só se enche quando
+    // uma análise TERMINA aqui. Carregar o episódio na Biblioteca não pode
+    // preenchê-la — abrir o app sem ter analisado nada e achar a aba cheia
+    // faz o usuário duvidar do que está vendo.
+    if (!analisouNestaSessao) return;
     document.getElementById('r_meta').innerHTML =
       `<b>${cenas.length}</b> shots · <b>${nomes.length}</b> personagens · <b>${relogio(total)}</b>` +
       (topo.length ? '<br>top duplas: ' + topo.map(([d,k]) => `${d} <b>${k}</b>`).join(' · ') : '');
@@ -1650,6 +1692,16 @@ new QWebChannel(qt.webChannelTransport, canal => {
   ponte.progresso.connect(pinta);
   ponte.terminou.connect(como => {
     recado(como === 'cancelado' ? 'Análise cancelada.' : 'Análise terminada.');
+    document.getElementById('btn_cancelar').style.display = 'none';
+    if (como === 'pronto' || como === 'batizado'){
+      // agora sim: houve análise nesta sessão
+      analisouNestaSessao = true;
+      document.getElementById('res_corpo').style.display = '';
+      document.getElementById('r_titulo').textContent =
+        document.getElementById('titulo').textContent;
+      epAberto = null;
+      carregaAcervo();
+    }
     if (como !== 'cancelado'){
       document.getElementById('p_pct').textContent = '100%';
       document.querySelector('.barra i').style.width = '100%';

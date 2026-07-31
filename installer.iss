@@ -12,7 +12,23 @@
 ; ============================================================
 
 #define AppName        "Corte Cenas"
-#define AppVersion     "0.4.10"
+
+; A VERSÃO É LIDA DE app\__init__.py, não escrita aqui.
+;
+; Ela estava fixa neste arquivo, e o resultado foi silencioso e feio: subir a
+; versão do app pra 0.5.0 e o Inno gerar um "CorteCenas-Setup-0.4.10.exe" com
+; o conteúdo da 0.5.0 dentro — sobrescrevendo o instalador da release
+; anterior. Nada avisa; o build termina com "Successful compile".
+;
+; Uma fonte só: quem manda é o __version__ do código.
+#define VerLinha = FileRead(FileOpen("app\__init__.py"))
+#expr FileClose(FileOpen("app\__init__.py"))
+#define VerIni = Pos('"', VerLinha) + 1
+#define AppVersion = Copy(VerLinha, VerIni, Pos('"', Copy(VerLinha, VerIni)) - 1)
+#if AppVersion == ""
+  #error Nao consegui ler __version__ de app\__init__.py
+#endif
+
 #define AppPublisher   "Levi Clementino"
 #define AppExeName     "CorteCenas.exe"
 #define AppId          "{{7A3F8B21-4C5D-4E6F-9A1B-2C3D4E5F6A7B}"
