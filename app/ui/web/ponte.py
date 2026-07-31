@@ -1055,8 +1055,14 @@ class Ponte(QObject):
     def _fim_sem_anime(self, msg: str) -> None:
         self._fim_da_analise("anime_nao_achado", detalhe=str(msg))
 
-    def _fim_batizado(self, _r=None) -> None:
-        self._fim_da_analise("batizado")
+    def _fim_batizado(self, r=None) -> None:
+        # O `lambda _r:` daqui jogava fora o PipelineResult do commit — a
+        # mesma doença do `_fim_com_resultado`. O batismo salvava 12
+        # personagens em 332 cenas e o fim ia pra página sem `episodio_id`,
+        # sem `cenas` e sem `rotulo`: a aba Resultados abria em branco depois
+        # de um batismo que tinha dado certo.
+        extra = self._le_o_resultado(r, sobras_reabrem=False) if r is not None else {}
+        self._fim_da_analise("batizado", **extra)
 
     def _descoberta_pronta(self, disc) -> None:
         """Fim do Modo Descoberta — e ele é um FIM, coisa que ninguém dizia.
@@ -1313,6 +1319,18 @@ class Ponte(QObject):
         Análise que termina com quase tudo sem dono é um fracasso que se
         parece com sucesso — e era exatamente assim que ela aparecia.
         """
+        extra = self._le_o_resultado(r, sobras_reabrem=True)
+        self._fim_da_analise("pronto", **extra)
+
+    def _le_o_resultado(self, r, sobras_reabrem: bool) -> dict:
+        """Tira do `PipelineResult` tudo que a tela precisa.
+
+        Vale pros DOIS fins bons — a análise normal e o commit do batismo. O
+        batismo passava um `lambda _r:` e jogava o resultado fora inteiro:
+        salvava 12 personagens em 332 cenas e mandava pra página um fim sem
+        `episodio_id`, sem `cenas` e sem `rotulo`. A aba Resultados abria
+        vazia depois de um batismo que tinha dado certo.
+        """
         extra: dict = {}
         try:
             extra["cenas"] = int(getattr(r, "total_shots", 0) or 0)
@@ -1338,11 +1356,16 @@ class Ponte(QObject):
             sobras = getattr(r, "leftover_groups", None)
             if sobras is not None and getattr(sobras, "groups", None):
                 extra["grupos_sem_nome"] = len(sobras.groups)
-                # o payload do batismo é o MESMO que a Descoberta usa
-                self._guarda_descoberta(sobras)
+                # Só a análise normal reabre o batismo com as sobras. Depois
+                # de um batismo, reabrir a tela de nomes por causa do que
+                # sobrou seria mandar a pessoa de volta pro começo do que ela
+                # acabou de terminar.
+                if sobras_reabrem:
+                    # o payload do batismo é o MESMO que a Descoberta usa
+                    self._guarda_descoberta(sobras)
         except Exception as e:  # noqa: BLE001 — nenhum aviso vale derrubar o fim
             print(f"    [python] não deu pra ler o resultado: {e}")
-        self._fim_da_analise("pronto", **extra)
+        return extra
 
     @Slot()
     def ensaiar(self) -> None:

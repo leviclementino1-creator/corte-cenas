@@ -194,7 +194,15 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .no .seta{width:9px;color:var(--off);font-size:9px;flex:0 0 9px}
 .no.ramo{cursor:default}
 .no.ramo:hover .seta{color:var(--accent)}
-.no .conta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--time)}
+/* O nome PRECISA ser um item de flex que encolhe. Solto, ele virava um item
+   anônimo que quebra em várias linhas dentro de uma linha de 28px de altura
+   fixa: "Jishou Akuyaku Reijou na Konyakusha no Kansatsu Kiroku." derramava
+   por cima dos nós de baixo e levava a contagem junto. Título comprido não é
+   caso raro — é como metade dos animes se chama. */
+.no .rot{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+         white-space:nowrap}
+.no .conta{margin-left:auto;flex:0 0 auto;padding-left:8px;
+           font-family:var(--mono);font-size:11px;color:var(--time)}
 .no.n1{padding-left:10px}.no.n2{padding-left:24px}.no.n3{padding-left:38px}
 /* pasta ausente: itálico apagado, mas continua na lista — quem apagou
    merece ver que apagou (mesma regra do app) */
@@ -931,6 +939,10 @@ function selecionadas(){
 }
 
 let ancora = null;   // pro Shift: de onde o intervalo começa
+// Qual cena o painel "A cena" está mostrando. É ela que decide se uma prévia
+// que chegou atrasada ainda vale — a seleção do DOM não serve pra isso desde
+// que dá pra marcar várias.
+let cenaNoPainel = null;
 
 document.getElementById('grade').addEventListener('click', e => {
   const el = e.target.closest('.cartao'); if (!el) return;
@@ -985,13 +997,20 @@ document.getElementById('grade').addEventListener('click', e => {
   // que está trabalhando em vez de parecer travada.
   vazio.textContent = 'gerando prévia…';
   const pedida = c.idx;
+  cenaNoPainel = c.idx;
   // O clipe é H.264 e este Chromium não toca — o Python devolve uma prévia
   // WebM feita na hora (ver Ponte.previa).
   ponte.previa(c.idx, url => {
-    // clicou noutra cena enquanto esta era gerada: a resposta velha não pode
-    // sobrescrever a nova
-    const atual = document.querySelector('#grade .cartao.viva, #r_grade .cartao.viva');
-    if (atual && +atual.dataset.idx !== pedida) return;
+    // Clicou noutra cena enquanto esta era gerada: a resposta velha não pode
+    // sobrescrever a nova.
+    //
+    // Isto perguntava ao DOM qual cartão estava `.viva` — e `querySelector`
+    // devolve o PRIMEIRO em ordem de documento, não o último clicado. Assim
+    // que a seleção múltipla entrou (Ctrl/Shift marcam vários), o primeiro
+    // marcado passou a ser outro: a comparação dava diferente, a resposta era
+    // descartada e a prévia ficava em "gerando prévia…" pra sempre. Quem
+    // manda é o painel, que sabe qual cena está mostrando.
+    if (cenaNoPainel !== pedida) return;
     if (!url) { vazio.textContent = 'sem prévia — o clipe não abriu'; return; }
     tv.src = url; tv.play().catch(()=>{});
     vazio.style.display = 'none';
@@ -1446,6 +1465,11 @@ function terminaAnalise(d){
     analisouNestaSessao = true;
     document.getElementById('res_corpo').style.display = '';
     carregaAcervo();
+    // ABRE a aba Resultados. O app Qt faz `setCurrentWidget(self.results)` no
+    // fim da análise desde sempre; a web preenchia a tela e deixava a pessoa
+    // na de Analisar, olhando pra uma barra em 100% sem nada pra fazer. Quem
+    // não conhecia o app achava que não tinha saído nada.
+    document.querySelector('.aba[data-tela="resultados"]').click();
     // A aba Resultados abre CHEIA, com o episódio que acabou de sair.
     // Ela copiava o título da Biblioteca — que vale "—" pra quem nunca abriu
     // a Biblioteca, ou "Biblioteca vazia" pra quem analisou o primeiro
@@ -2104,7 +2128,11 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (k === 'arrowleft' || k === 'arrowright') {
-    const atual = document.querySelector('#grade .cartao.viva');
+    // a ÚLTIMA clicada, não a primeira marcada: com várias selecionadas o
+    // `querySelector` devolve a primeira em ordem de documento e a seta
+    // pulava pra longe de onde a pessoa estava
+    const atual = (ancora && ancora.classList.contains('viva'))
+      ? ancora : document.querySelector('#grade .cartao.viva');
     const todos = [...document.querySelectorAll('#grade .cartao')];
     const i = atual ? todos.indexOf(atual) : -1;
     const alvo = todos[Math.max(0, Math.min(todos.length-1, i + (k==='arrowright'?1:-1)))];
@@ -2280,16 +2308,18 @@ function carregaAcervo(){
     // parede de episódios. Anime e temporada viram pastas de verdade.
     arv.innerHTML = animes.map((a, ai) =>
       `<div class="no n1 ramo" data-ramo="a${ai}" title="${a.oficial}">` +
-      `<span class="seta">▾</span>${a.titulo}<span class="conta">${a.cenas}</span></div>` +
+      `<span class="seta">▾</span><span class="rot">${a.titulo}</span>` +
+      `<span class="conta">${a.cenas}</span></div>` +
       a.temporadas.map((t, ti) =>
         `<div class="no n2 ramo" data-ramo="a${ai}t${ti}" data-pai="a${ai}">` +
-        `<span class="seta">▾</span>Temporada ${t.temporada}` +
+        `<span class="seta">▾</span><span class="rot">Temporada ${t.temporada}</span>` +
         `<span class="conta">${t.cenas}</span></div>` +
         t.eps.map(e =>
           `<div class="no n3${e.ok ? '' : ' sumido'}" data-ep="${e.id}"
                 data-pai="a${ai}t${ti}"
                 data-rot="${e.titulo} — S${String(e.temporada).padStart(2,'0')}E${String(e.episodio).padStart(2,'0')}">` +
-          `Episódio ${String(e.episodio).padStart(2,'0')}${e.ok ? '' : '  (sumiu)'}` +
+          `<span class="rot">Episódio ${String(e.episodio).padStart(2,'0')}` +
+          `${e.ok ? '' : '  (sumiu)'}</span>` +
           `<span class="conta">${e.cenas}</span></div>`).join('')
       ).join('')
     ).join('');
