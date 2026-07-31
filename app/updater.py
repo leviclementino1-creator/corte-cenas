@@ -183,7 +183,8 @@ def _zip_deps_fingerprint(zf) -> str | None:
     return None
 
 
-def _apply_delta_and_quit(zip_path: str, parent: QWidget | None) -> None:
+def _apply_delta_and_quit(zip_path: str, parent: QWidget | None,
+                          tag_esperada: str = "") -> None:
     """Extract the delta zip, launch the elevated PowerShell helper, quit."""
     import ctypes
     import shutil
@@ -271,12 +272,23 @@ def _apply_delta_and_quit(zip_path: str, parent: QWidget | None) -> None:
     # num .log que ninguém lia, e uma cópia que falhou no meio deixava o app
     # em estado misto sem nenhum aviso. No próximo arranque o app compara a
     # versão que está rodando com a que era esperada.
+    # A versão esperada vem da TAG da release, não de dentro do zip.
+    #
+    # Na primeira versão disto eu lia `_internal/app/__init__.py` do delta —
+    # e esse arquivo NÃO EXISTE lá: o delta carrega o `CorteCenas.exe` com o
+    # código Python compilado dentro, mais alguns dados soltos. A função
+    # devolvia None sempre, a marca ficava vazia, e o aviso de "a atualização
+    # não foi aplicada" nunca disparava. Eu tinha construído um aviso morto,
+    # que é o defeito que esta auditoria inteira está caçando.
+    #
+    # Quem chama já tem a tag no escopo. Sem parsing, sem arquivo novo no
+    # zip, sem nada pra sair de sincronia depois.
     try:
         from .config import Config
 
         marca = Path(Config.load().cache_path) / "update_pendente.json"
         marca.write_text(json.dumps({
-            "esperada": _esperada_do_zip(zip_path) or "",
+            "esperada": (tag_esperada or "").lstrip("v"),
             "de": __version__,
         }), encoding="utf-8")
     except Exception:  # noqa: BLE001 — a marca é diagnóstico, não requisito
@@ -285,21 +297,6 @@ def _apply_delta_and_quit(zip_path: str, parent: QWidget | None) -> None:
     app = QApplication.instance()
     if app is not None:
         app.quit()
-
-
-def _esperada_do_zip(zip_path: str) -> str | None:
-    """A versão que o delta traz dentro — pra saber, no próximo arranque, se
-    a atualização pegou ou ficou pela metade."""
-    import re as _re
-    import zipfile as _zipfile
-
-    try:
-        with _zipfile.ZipFile(zip_path) as zf:
-            txt = zf.read("_internal/app/__init__.py").decode("utf-8", "replace")
-        m = _re.search(r'__version__\s*=\s*"([^"]+)"', txt)
-        return m.group(1) if m else None
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def avisar_se_update_falhou(parent: QWidget | None = None) -> None:
@@ -438,7 +435,7 @@ def check_and_offer_update(
         try:
             if sys.platform == "win32":
                 if is_delta:
-                    _apply_delta_and_quit(path, parent)
+                    _apply_delta_and_quit(path, parent, tag_esperada=remote_tag)
                     return
                 # Full-installer path: ShellExecuteW with lpVerb="runas" so
                 # the UAC prompt shows even from an unelevated caller. The
