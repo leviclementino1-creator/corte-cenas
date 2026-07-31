@@ -827,6 +827,7 @@ class Ponte(QObject):
             for k in (self.raiz / "keyframes").glob(f"{int(r['idx']):04d}_*.jpg"):
                 k.unlink(missing_ok=True)
             db.delete_shot(int(r["id"]))
+            self._esquece_imagens([int(r["idx"])])
             foram.append(int(r["idx"]))
 
         if not foram:
@@ -843,6 +844,30 @@ class Ponte(QObject):
                     f"lugar.")
         print(f"    [python] {len(foram)} cena(s) pra lixeira: {alvos}")
         return json.dumps({"ok": True, "msg": msg, "apagadas": len(foram)})
+
+    def _esquece_imagens(self, idxs) -> None:
+        """Joga fora tudo que o app guardou da APARÊNCIA destas cenas.
+
+        Três caches guardam imagem por CAMINHO, e o caminho não muda quando o
+        conteúdo muda: a miniatura e a tira de hover no `ServidorMiniatura`,
+        e o WebM da prévia em `metadata/previas_web/`. Depois de juntar duas
+        cenas o `shots/0022.mp4` é um arquivo NOVO e mais longo — mas o
+        cartão seguia mostrando a miniatura velha, o hover a tira velha e o
+        player o clipe curto. Da cadeira do usuário, "juntou" não fez nada.
+
+        Some com os três; o próximo pedido regenera a partir do arquivo de
+        verdade (a tira leva ~0,1 s, a prévia ~0,15 s).
+        """
+        serv = getattr(self, "servidor", None)
+        for i in idxs:
+            clipe = self.raiz / "shots" / f"{int(i):04d}.mp4"
+            if serv is not None:
+                # as chaves são o caminho com barra normal, do jeito que a
+                # página pede em `cena:/mini/...` e `cena:/tira/...`
+                serv.cache.pop("t:" + str(clipe).replace("\\", "/"), None)
+                for kf in (self.raiz / "keyframes").glob(f"{int(i):04d}_*.jpg"):
+                    serv.cache.pop(str(kf).replace("\\", "/"), None)
+            (self.previas / f"{int(i):04d}.webm").unlink(missing_ok=True)
 
     def _juntar(self, acao: str, linhas: list) -> str:
         """Juntar cenas vizinhas num clipe só (ou desfazer). Mexe nas CENAS,
@@ -903,6 +928,9 @@ class Ponte(QObject):
             return json.dumps({"ok": False, "msg":
                 "Não deu pra juntar. Só dá pra juntar cenas VIZINHAS, e os "
                 "clipes das duas precisam estar em shots/."})
+        # o clipe da primeira mudou de conteudo e os outros sumiram: as
+        # imagens guardadas dos dois lados nao valem mais
+        self._esquece_imagens([int(x["idx"]) for x in alvo])
         n = len(alvo)
         return json.dumps({"ok": True, "msg":
             f"{n} cenas viraram a #{int(novo['idx']):04d}. Os clipes antigos "

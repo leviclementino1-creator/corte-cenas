@@ -146,7 +146,18 @@ class Config:
     face_exclusive_when_detected: bool = True
     min_references_per_character: int = 2   # chars with fewer refs are ignored
     argmax_margin: float = 0.03             # best must beat 2nd by this
-    min_shots_per_character: int = 4        # post-hoc: chars under this get dropped
+    # 3, o mesmo do preset Auto. Era 4, e por causa desse ÚNICO número uma
+    # instalação nova abria as Configurações com nenhum preset marcado e a
+    # frase "os números atuais não batem com nenhum dos três presets" — os
+    # outros quatro campos batiam com o Auto. Dois lugares guardando o mesmo
+    # ajuste é como eles divergem; a tela chama o Auto de "o que o benchmark
+    # mede", então quem manda é o preset.
+    #
+    # Medido antes de mexer: o episódio-gabarito (Mushoku S03E02) não tem
+    # NENHUM personagem com exatamente 3 cenas, então o juiz não se move —
+    # este campo só decide quem some entre 3 e 4 aparições. No Dr. Stone do
+    # Levi são três coadjuvantes (Francois, Magma, Ukyo) que o 4 apagaria.
+    min_shots_per_character: int = 3        # post-hoc: chars under this get dropped
     min_keyframe_votes: int = 2             # char must be detected in >=N keyframes
 
     # Modo híbrido (CLIP decide, IA revisa os duvidosos): um shot SEM
