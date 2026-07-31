@@ -1,35 +1,46 @@
 # Inventário de avisos — Corte Cenas v0.5.0
 
-> **ESTADO EM 30/07/2026 — trabalho PARADO no meio, retomar por aqui.**
+> **ESTADO EM 31/07/2026 — TODOS OS 51 ITENS CORRIGIDOS.**
 >
 > Auditoria de tudo que o app avisa e de tudo que deveria avisar e não avisa.
 > 67 acusações levantadas, 66 sobreviveram à verificação, 51 depois de tirar
 > repetido. Distribuição: 35 alta, 29 média, 2 baixa.
 >
-> **Decisão do Levi: a lista TODA antes de publicar a v0.5.0.** A v0.5.0 está
-> versionada em `app/__init__.py` mas NÃO foi buildada nem publicada — o
-> build em `dist/` e o `releases/CorteCenas-Update-0.5.0.zip` são anteriores
-> a estas correções e a várias outras. Buildar só no fim.
+> O Levi pediu a lista TODA antes de publicar a v0.5.0, e ela foi feita em
+> cinco ondas, cada uma testada e commitada:
 >
-> As ondas viraram tarefas #92 a #96. Nenhuma começou.
+> | Onda | O que é | Itens | Commit |
+> |---|---|---|---|
+> | A | destrói dado | 1.4 1.5 1.6 1.7 2.2 2.3 3.1 3.4 | `43ef413` |
+> | B | mente sobre sucesso | 1.1 1.2 1.3 1.10 1.11 1.12 1.17 1.18 5.11 | `e9c0298` |
+> | C | UI web incompleta | 1.8 1.9 1.14 1.19 1.20 2.1 2.4 4.1 4.2 4.3 4.4 4.5 5.8 5.9 5.10 | `dcded45` |
+> | D | arranque/updater | 1.13 5.1 5.2 5.3 5.4 5.5 5.6 5.7 | `92d2ae2` |
+> | E | o resto | 1.15 1.16 1.21 2.5 2.6 2.7 2.8 3.2 3.3 3.5 4.6 | `50a881f` |
 >
-> | Onda | O que é | Itens |
-> |---|---|---|
-> | A #92 | destrói dado | 1.4 1.5 1.6 1.7 2.2 2.3 3.1 3.4 |
-> | B #93 | mente sobre sucesso | 1.1 1.2 1.3 1.10 1.11 1.12 1.17 1.18 5.11 |
-> | C #94 | UI web incompleta | 1.8 1.9 1.14 1.19 1.20 2.1 2.4 4.1 4.2 4.3 4.4 4.5 5.8 5.9 |
-> | D #95 | arranque/updater | 1.13 5.1 5.2 5.3 5.4 5.5 5.6 5.7 5.10 |
-> | E #96 | o resto | 1.15 1.16 1.21 2.5 2.6 2.7 2.8 3.2 3.3 3.5 4.6 |
+> **O texto abaixo descreve o estado ANTES das correções.** Ele fica como
+> está de propósito: é o registro do que estava errado e por quê, e vale
+> mais como memória do que como lista de tarefas. Cada correção está
+> comentada no código, no lugar onde o defeito morava.
 >
-> **Conferidos por mim, lendo o código** (não confie no resto sem checar —
-> o verificador só derrubou 1 de 67, taxa leniente demais):
-> - 1.5 — `parse_filename` existe em `video_ingest.py:152` e tem UM uso:
->   `analyze_tab.py:477`. Zero em `app/ui/web/`.
-> - 3.1 — `db.delete_episode` em `ponte.py:574` está FORA do `try` da lixeira.
-> - 1.1 e 4.1 — li os dois nesta sessão, batem.
+> **Achados que só apareceram DURANTE o conserto** (nenhum estava na lista):
+> - `shutil.move` numa pasta não é atômico — falha no meio deixa a cópia na
+>   lixeira E a original, possivelmente incompleta (onda A).
+> - `var(--bad)` não existe no CSS: o ✕ da etapa que morreu não ficaria
+>   vermelho. Era `--danger` (onda C).
+> - `Ponte.cfg` era uma property com `Config.load()` a cada acesso — a Ponte
+>   ignorava a config recebida, e isso tornou impossível isolar um teste.
+>   Custou o cache do Levi, recuperado da `cache_lixeira` (onda C).
+> - Duas mensagens novas mentiam: `clean_catalog_refs` desempacotado
+>   invertido e `wipe_cache` lido como "movidos" quando devolve "não
+>   movidos" (onda C).
+> - Um `print` com `→` DENTRO do try de `salvar_config`: em console cp1252
+>   ele levanta, o `except` pega, e um Salvar que funcionou virava "não deu
+>   pra salvar" (onda D).
+> - NVENC recusado na máquina do Levi: driver com nvenc API 13.0, exigido
+>   13.1 — todos os cortes indo pra CPU (onda B).
 >
-> Comece pela seção "Avisos que já estão bons" no fim: são os moldes prontos
-> pra consertar o resto, quase todos no lado Qt.
+> A seção "Avisos que já estão bons" no fim continua sendo o melhor lugar
+> pra copiar padrão de aviso.
 
 ## O padrão que isso tudo desenha
 
