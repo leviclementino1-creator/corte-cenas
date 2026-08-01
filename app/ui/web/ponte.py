@@ -852,6 +852,62 @@ class Ponte(QObject):
         print(f"    [python] {len(foram)} cena(s) pra lixeira: {alvos}")
         return json.dumps({"ok": True, "msg": msg, "apagadas": len(foram)})
 
+    def caminhos_das_cenas(self, idxs) -> list[str]:
+        """Os arquivos das cenas pedidas, só os que existem no disco.
+
+        Separado do `arrastar_cenas` porque o `QDrag.exec()` BLOQUEIA até a
+        pessoa soltar o mouse — não dá pra testar o que foi arrastado depois
+        que ele já rodou. Aqui dá.
+        """
+        fora = []
+        for i in idxs:
+            r = self._shots.get(int(i))
+            if r is None:
+                continue
+            p = self.raiz / r["file"]
+            if p.exists():
+                fora.append(str(p))
+        return fora
+
+    @Slot(str, result=str)
+    def arrastar_cenas(self, pedido: str) -> str:
+        """Arrasto NATIVO do clipe pra fora do app — pro editor, pro Explorer.
+
+        A página não consegue fazer isso sozinha: um arrasto entre programas
+        do Windows carrega o CAMINHO do arquivo, e o `File` do Chromium não
+        tem caminho (é a mesma limitação que faz o drop de episódio ser
+        tratado no Qt). Então o `dragstart` do cartão cancela o arrasto do
+        Chromium e chama aqui; quem arrasta é o Qt.
+
+        Medido antes de escrever: um `QDrag` iniciado deste jeito cai na
+        timeline do After Effects (`exec` devolveu `CopyAction`).
+
+        `exec()` bloqueia até soltar — o app fica parado durante o arrasto, o
+        que é exatamente o que se espera de um arrasto.
+        """
+        from PySide6.QtCore import QMimeData, Qt, QUrl
+        from PySide6.QtGui import QDrag
+
+        vista = getattr(self, "vista", None)
+        if vista is None:
+            return json.dumps({"ok": False, "msg": "sem vista pra arrastar"})
+        idxs = [int(i) for i in (json.loads(pedido).get("idxs") or [])]
+        caminhos = self.caminhos_das_cenas(idxs)
+        if not caminhos:
+            return json.dumps({"ok": False, "msg":
+                "Não achei o clipe desta cena em shots/."})
+
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(c) for c in caminhos])
+        # texto também: editor que não aceita arquivo às vezes aceita caminho
+        mime.setText("\n".join(caminhos))
+        drag = QDrag(vista)
+        drag.setMimeData(mime)
+        print(f"    [python] arrastando {len(caminhos)} clipe(s)")
+        resultado = drag.exec(Qt.DropAction.CopyAction)
+        return json.dumps({"ok": True, "n": len(caminhos),
+                           "resultado": str(resultado)})
+
     def _esquece_imagens(self, idxs) -> None:
         """Joga fora tudo que o app guardou da APARÊNCIA destas cenas.
 

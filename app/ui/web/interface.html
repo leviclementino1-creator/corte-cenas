@@ -911,6 +911,7 @@ function cartao(c){
   const el = document.createElement('div');
   el.className = 'cartao';
   el.dataset.idx = c.idx;
+  el.draggable = true;   // arrastar pro editor — ver o listener de dragstart
   const quem = c.quem.length ? c.quem.join(', ') : 'sem identificação';
   el.innerHTML =
     `<div class="quadro">
@@ -1909,6 +1910,29 @@ document.addEventListener('contextmenu', e => {
   menu.style.top = Math.min(e.clientY, innerHeight - h - 8) + 'px';
   menu.classList.add('viva');
 });
+// ARRASTAR O CLIPE PRA FORA DO APP (editor, Explorer).
+//
+// O `preventDefault` é essencial: sem ele o Chromium começa o arrasto DELE,
+// que não carrega caminho de arquivo nenhum e chega no editor como nada. Quem
+// arrasta é o Qt, do outro lado da ponte — medido caindo na timeline do After
+// Effects antes de isto existir.
+//
+// Vale a mesma regra do menu: se o cartão faz parte de uma seleção múltipla,
+// arrasta o conjunto todo.
+['grade', 'r_grade'].forEach(qual =>
+  document.getElementById(qual).addEventListener('dragstart', e => {
+    const el = e.target.closest('.cartao'); if (!el) return;
+    e.preventDefault();
+    gradeDaAcao = qual;
+    const idx = +el.dataset.idx;
+    const sel = selecionadas();
+    const idxs = (sel.includes(idx) && sel.length > 1) ? sel : [idx];
+    ponte.arrastar_cenas(JSON.stringify({idxs}), json => {
+      const r = JSON.parse(json);
+      if (!r.ok) recado(r.msg, true);
+    });
+  }));
+
 document.addEventListener('mousedown', e => {
   if (e.target.closest('.menu')) return;
   menu.classList.remove('viva');

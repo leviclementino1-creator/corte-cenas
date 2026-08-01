@@ -67,6 +67,12 @@ class JanelaWeb(QMainWindow):
         self.ponte = Ponte(cfg.cache_path / "index.db", Path(cfg.output_path),
                            ffmpeg=ffmpeg, cfg=cfg)
         self.ponte.servidor = self.servidor
+        # A vista é quem inicia o arrasto nativo pra fora do app (arrastar um
+        # clipe pro After Effects). O Chromium não consegue: um arrasto entre
+        # programas do Windows carrega o CAMINHO do arquivo, e o objeto File
+        # do lado dele não tem caminho — a mesma limitação que faz o drop de
+        # episódio ser tratado aqui no Qt, só que ao contrário.
+        self.ponte.vista = self.vista
         self.canal = QWebChannel(self)
         self.canal.registerObject("ponte", self.ponte)
         self.vista.page().setWebChannel(self.canal)
