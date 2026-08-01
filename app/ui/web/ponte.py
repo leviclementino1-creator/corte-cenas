@@ -86,6 +86,31 @@ def registra_esquema() -> None:
     QWebEngineUrlScheme.registerScheme(esq)
 
 
+def _com_selo(prefixo: str, caminho: str) -> str:
+    """A URL da imagem com a hora do arquivo pendurada no fim.
+
+    ARMADILHA MEDIDA: limpar o cache do Python NÃO tira a imagem velha da
+    tela. O Chromium tem cache próprio, e a URL não mudava quando o arquivo
+    mudava. Depois de juntar duas cenas, os três keyframes da #0022 tinham
+    md5 novo no disco e o clipe tinha 1,8 s a mais — e as 330 miniaturas
+    "carregaram" em 19 ms (contra 3256 ms na primeira vez) com ZERO pedidos
+    chegando aqui. O cartão dizia 7,9 s mostrando a imagem de 6,1 s.
+
+    Com `?v=<mtime>` a URL anda junto com o arquivo: o cache do Chromium
+    continua valendo enquanto o arquivo é o mesmo (que é o que faz a grade
+    de 331 cartões voltar instantânea) e cai sozinho quando não é. A query
+    não entra no `path()`, então o nome do arquivo chega inteiro do outro
+    lado — medido, com `Syntax.Path`.
+    """
+    if not caminho:
+        return ""
+    try:
+        selo = Path(caminho).stat().st_mtime_ns
+    except OSError:
+        selo = 0
+    return prefixo + caminho.replace("\\", "/") + f"?v={selo}"
+
+
 class ServidorMiniatura(QWebEngineUrlSchemeHandler):
     """O servidor do app. Responde três coisas em `cena:/`:
 
@@ -115,6 +140,10 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
 
     def requestStarted(self, job: QWebEngineUrlRequestJob) -> None:  # noqa: N802
         caminho = job.requestUrl().path()
+        # O selo de versão (`?v=<mtime>`, ver `_com_selo`) entra na CHAVE do
+        # cache: arquivo trocado é chave nova, então o que ficou guardado do
+        # arquivo velho nunca é servido no lugar do novo.
+        selo = job.requestUrl().query()
         self.servidas += 1
 
         if caminho in ("/pagina", "/", ""):
@@ -141,7 +170,8 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
 
         if caminho.startswith("/tira/"):
             alvo = caminho[len("/tira/") :]
-            dados = self.cache.get("t:" + alvo)
+            chave = "t:" + alvo + selo
+            dados = self.cache.get(chave)
             if dados is None:
                 t0 = time.perf_counter()
                 dados = self._tira(alvo)
@@ -151,13 +181,14 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
                     self.falhas += 1
                     job.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
                     return
-                self.cache["t:" + alvo] = dados
+                self.cache[chave] = dados
             self._responde(job, b"image/jpeg", dados)
             return
 
         if caminho.startswith("/mini/"):
             alvo = caminho[len("/mini/") :]
-            dados = self.cache.get(alvo)
+            chave = alvo + selo
+            dados = self.cache.get(chave)
             if dados is None:
                 t0 = time.perf_counter()
                 dados = self._reduz(alvo)
@@ -167,7 +198,7 @@ class ServidorMiniatura(QWebEngineUrlSchemeHandler):
                     self.falhas += 1
                     job.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
                     return
-                self.cache[alvo] = dados
+                self.cache[chave] = dados
             self._responde(job, b"image/jpeg", dados)
             return
 
@@ -920,16 +951,28 @@ class Ponte(QObject):
 
         Some com os três; o próximo pedido regenera a partir do arquivo de
         verdade (a tira leva ~0,1 s, a prévia ~0,15 s).
+
+        QUEM FAZ A TELA MUDAR NÃO É DAQUI: limpar este cache resolvia só
+        metade, porque o Chromium tem cache PRÓPRIO e o pedido nem chegava
+        no Python (medido: 0 pedidos, 330 miniaturas em 19 ms). Quem resolve
+        é o `?v=<mtime>` do `_com_selo`. Isto aqui continua valendo por dois
+        motivos: o WebM da prévia, que é arquivo e some de verdade, e não
+        deixar a memória crescer com versão que ninguém vai pedir de novo —
+        por isso a limpeza é por PREFIXO, que o selo virou parte da chave.
         """
         serv = getattr(self, "servidor", None)
         for i in idxs:
             clipe = self.raiz / "shots" / f"{int(i):04d}.mp4"
             if serv is not None:
-                # as chaves são o caminho com barra normal, do jeito que a
-                # página pede em `cena:/mini/...` e `cena:/tira/...`
-                serv.cache.pop("t:" + str(clipe).replace("\\", "/"), None)
-                for kf in (self.raiz / "keyframes").glob(f"{int(i):04d}_*.jpg"):
-                    serv.cache.pop(str(kf).replace("\\", "/"), None)
+                # as chaves são o caminho com barra normal (do jeito que a
+                # página pede em `cena:/mini/...` e `cena:/tira/...`) mais o
+                # selo de versão no fim
+                alvos = ["t:" + str(clipe).replace("\\", "/")]
+                alvos += [str(kf).replace("\\", "/")
+                          for kf in (self.raiz / "keyframes").glob(f"{int(i):04d}_*.jpg")]
+                for k in [k for k in list(serv.cache)
+                          if any(k.startswith(a) for a in alvos)]:
+                    serv.cache.pop(k, None)
             (self.previas / f"{int(i):04d}.webm").unlink(missing_ok=True)
 
     def _juntar(self, acao: str, linhas: list) -> str:
@@ -2514,8 +2557,8 @@ class Ponte(QObject):
                     "juntada": any(
                         m["start"] - 0.05 <= (r["start"] + r["end"]) / 2.0 <= m["end"] + 0.05
                         for m in juncoes),
-                    "mini": "cena:/mini/" + kf.replace("\\", "/") if kf else "",
-                    "tira": "cena:/tira/" + clipe.replace("\\", "/") if clipe else "",
+                    "mini": _com_selo("cena:/mini/", kf),
+                    "tira": _com_selo("cena:/tira/", clipe),
                     "clipe": "file:///" + clipe.replace("\\", "/") if clipe else "",
                 }
             )
