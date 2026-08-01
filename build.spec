@@ -8,6 +8,8 @@ Output: dist/CorteCenas/ (onedir mode).
 Zip this folder to share with users who have an NVIDIA GPU + CUDA 12.8 driver.
 FFmpeg binary must be available on the target machine's PATH.
 """
+from pathlib import Path
+
 from PyInstaller.utils.hooks import (
     collect_data_files,
     collect_submodules,
@@ -63,6 +65,10 @@ datas += [("apply_update.ps1", ".")]
 # gen_deps_fingerprint.py). O updater compara o do delta zip com o local:
 # deps diferentes = delta entregaria app quebrado -> forca setup completo.
 datas += [("app/deps_fingerprint.txt", "app")]
+# A LISTA do que foi empacotado — escrita mais abaixo, depois da poda.
+# É ela que deixa o updater distinguir "tiraram arquivo" de
+# "acrescentaram arquivo": só o segundo quebra o delta.
+datas += [("app/pacote.txt", "app")]
 # App icon (all sizes) — needed at runtime for QApplication.setWindowIcon().
 # A interface inteira é UM arquivo HTML — sem ele o app abre uma janela em
 # branco, e o erro só aparece em runtime.
@@ -136,6 +142,22 @@ a.datas = [t for t in a.datas if _cabe_no_pacote(t[0])]
 a.binaries = [t for t in a.binaries if _cabe_no_pacote(t[0])]
 print(f"[build.spec] poda do WebEngine: {_antes - len(a.datas) - len(a.binaries)} "
       f"arquivos fora (debug do DevTools + idiomas não usados)")
+
+# --- O manifesto do pacote ---------------------------------------------
+# Escrito DEPOIS da poda, pra listar o que de fato vai no pacote. O
+# `deps_fingerprint` (hash do requirements + do spec) só sabe dizer "mudou";
+# ele mandou o Levi baixar 2 GB numa release que só REMOVEU arquivo.
+#
+# `_internal/app/` fica de fora de propósito: é justamente o que o delta
+# carrega, então mudança ali nunca é motivo pra recusar o delta.
+_no_pacote = sorted(
+    d.replace("\\", "/")
+    for d, _o, _k in (a.datas + a.binaries)
+    if not d.replace("\\", "/").startswith("app/")
+)
+Path("app/pacote.txt").write_text("\n".join(_no_pacote) + "\n", encoding="utf-8")
+print(f"[build.spec] manifesto: {len(_no_pacote)} arquivos empacotados "
+      "-> app/pacote.txt")
 
 pyz = PYZ(a.pure)
 

@@ -44,3 +44,6 @@ benchmarks/perf_last.json
 # saida do build de teste do PoC web (poc_web/build_poc.spec)
 poc_web/dist/
 poc_web/build/
+
+# gerado pelo build.spec a cada build (a lista do que foi empacotado)
+app/pacote.txt

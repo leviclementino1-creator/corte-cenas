@@ -183,6 +183,62 @@ def _zip_deps_fingerprint(zf) -> str | None:
     return None
 
 
+def _pacote_local() -> set[str] | None:
+    """A lista de arquivos empacotados NESTA instalação (v0.5.2+)."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return None
+    try:
+        txt = (Path(meipass) / "app" / "pacote.txt").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return {ln.strip() for ln in txt.splitlines() if ln.strip()} or None
+
+
+def _pacote_do_zip(zf) -> set[str] | None:
+    """A lista de arquivos empacotados na release nova."""
+    try:
+        txt = zf.read("_internal/app/pacote.txt").decode("utf-8")
+    except Exception:  # noqa: BLE001 — zip sem manifesto é release antiga
+        return None
+    return {ln.strip() for ln in txt.splitlines() if ln.strip()} or None
+
+
+def _delta_basta(zf) -> tuple[bool, str]:
+    """O delta de ~55 MB dá conta desta atualização?
+
+    O delta carrega o exe e `_internal/app`; as bibliotecas ficam como estão.
+    Então a pergunta certa não é "o pacote mudou?", é "o pacote novo precisa
+    de algum arquivo que esta instalação NÃO tem?".
+
+    O `deps_fingerprint` (hash de requirements.txt + build.spec) só sabia
+    responder a primeira, e por isso mandou baixar 2 GB numa release que só
+    REMOVEU arquivo: podar 120 MB do WebEngine mexeu no spec, o hash mudou, e
+    o delta — que teria funcionado — foi recusado.
+
+    Com as duas listas na mão os dois casos se separam: acrescentar arquivo
+    quebra o delta, tirar não.
+    """
+    local, remoto = _pacote_local(), _pacote_do_zip(zf)
+    if local and remoto:
+        faltando = sorted(remoto - local)
+        if not faltando:
+            a_menos = len(local - remoto)
+            return True, (f"pacote novo tem {a_menos} arquivo(s) a menos e "
+                          "nenhum a mais" if a_menos else "pacote idêntico")
+        amostra = ", ".join(Path(f).name for f in faltando[:3])
+        return False, (f"a versão nova traz {len(faltando)} arquivo(s) que "
+                       f"esta instalação não tem: {amostra}"
+                       f"{'…' if len(faltando) > 3 else ''}")
+
+    # Instalação antiga, sem manifesto: cai no fingerprint. Grosso, mas nunca
+    # deixa passar um delta perigoso.
+    lfp, rfp = _local_deps_fingerprint(), _zip_deps_fingerprint(zf)
+    if lfp and rfp and lfp != rfp:
+        return False, "componentes internos mudaram (sem manifesto pra detalhar)"
+    return True, "sem manifesto dos dois lados, e o fingerprint bate"
+
+
 def _apply_delta_and_quit(zip_path: str, parent: QWidget | None,
                           tag_esperada: str = "") -> None:
     """Extract the delta zip, launch the elevated PowerShell helper, quit."""
@@ -201,21 +257,18 @@ def _apply_delta_and_quit(zip_path: str, parent: QWidget | None,
 
     with _zipfile.ZipFile(zip_path) as zf:
         # O delta só carrega o NOSSO código; torch/PySide/etc. ficam como
-        # estão. Se o requirements.txt mudou entre a instalação e a release
-        # nova, aplicar o delta produziria um app quebrado — recusa e manda
-        # pro instalador completo.
-        local_fp = _local_deps_fingerprint()
-        remote_fp = _zip_deps_fingerprint(zf)
-        if local_fp and remote_fp and local_fp != remote_fp:
-            print(
-                f"[updater] Delta recusado: deps mudaram "
-                f"(local {local_fp[:12]}… != release {remote_fp[:12]}…)",
-                flush=True,
-            )
+        # estão. Se a versão nova PRECISA de algum arquivo que esta
+        # instalação não tem, aplicar o delta produziria um app quebrado —
+        # recusa e manda pro instalador completo. Ver `_delta_basta`.
+        basta, porque = _delta_basta(zf)
+        print(f"[updater] {'delta aceito' if basta else 'DELTA RECUSADO'}: "
+              f"{porque}", flush=True)
+        if not basta:
             quiet.warning(
                 parent, "Atualização precisa do instalador completo",
-                "Essa versão mudou componentes internos do app, então a "
-                "atualização rápida de ~53 MB não é suficiente.\n\n"
+                f"Essa versão acrescentou arquivos ao app — {porque} — e a "
+                "atualização rápida de ~55 MB só troca o programa em si, não "
+                "as bibliotecas.\n\n"
                 "Vou abrir a página da release — baixe o "
                 "CorteCenas-Setup-X.Y.Z.exe (~2 GB) e execute por cima da "
                 "instalação atual (configurações e clipes são preservados).",
