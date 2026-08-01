@@ -68,6 +68,14 @@ datas += [("app/deps_fingerprint.txt", "app")]
 # A LISTA do que foi empacotado — escrita mais abaixo, depois da poda.
 # É ela que deixa o updater distinguir "tiraram arquivo" de
 # "acrescentaram arquivo": só o segundo quebra o delta.
+#
+# O `touch` não é enfeite: o `Analysis` exige que o arquivo EXISTA agora,
+# e o conteúdo só é conhecido depois da poda, que roda depois dele. Como
+# `app/pacote.txt` é ignorado pelo git, em máquina que nunca compilou o
+# build morria aqui com "Unable to find app/pacote.txt" — foi o que
+# aconteceu no primeiro build depois que este manifesto entrou. Quem lê o
+# conteúdo é o COLLECT, lá no fim, e aí ele já está escrito.
+Path("app/pacote.txt").touch()
 datas += [("app/pacote.txt", "app")]
 # App icon (all sizes) — needed at runtime for QApplication.setWindowIcon().
 # A interface inteira é UM arquivo HTML — sem ele o app abre uma janela em
