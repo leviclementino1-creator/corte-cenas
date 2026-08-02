@@ -2445,12 +2445,22 @@ class Ponte(QObject):
                 [self.ffmpeg, "-v", "error", "-y", "-i", str(clipe),
                  "-vf", "scale=640:-2", "-c:v", "libvpx", "-crf", "30", "-b:v", "0",
                  "-cpu-used", "8", "-deadline", "realtime", "-an", str(destino)],
-                capture_output=True, text=True,
+                # BYTES, não `text=True`. O ffmpeg escreve em UTF-8 e o
+                # `text=True` decodifica na codepage do console (cp1252
+                # aqui), em modo estrito: com kanji no caminho do episódio a
+                # leitura da saída morre com UnicodeDecodeError, `r.stderr`
+                # volta None e o `[:150]` da linha de baixo levanta TypeError
+                # DENTRO deste slot — a prévia some sem dizer por quê. Todo o
+                # resto do app já captura bytes e decodifica com "replace"
+                # (curation.py, ffmpeg_locate.py, shot_detection.py); este
+                # era o único fora do padrão.
+                capture_output=True,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             gasto = (time.perf_counter() - t0) * 1000
             if r.returncode != 0:
-                print(f"    [python] ffmpeg falhou: {r.stderr[:150]}")
+                erro = (r.stderr or b"").decode("utf-8", "replace")
+                print(f"    [python] ffmpeg falhou: {erro[:150]}")
                 return ""
             print(f"    [python] prévia {idx:04d} em {gasto:.0f} ms "
                   f"({destino.stat().st_size // 1024} KB)")

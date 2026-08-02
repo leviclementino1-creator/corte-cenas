@@ -91,6 +91,35 @@ def ensure_yolo_anime_head() -> Path:
     return Path(hf_hub_download(repo_id=_HEAD_REPO, filename=_HEAD_FILE))
 
 
+def _carrega_cascade(path: Path) -> "cv2.CascadeClassifier":
+    """Carrega o XML pelos BYTES, não deixando o OpenCV abrir o arquivo.
+
+    ARMADILHA MEDIDA: `cv2.CascadeClassifier(str(path))` usa o mesmo
+    FileStorage do `imread` — a API ANSI do Windows. Com o XML intacto no
+    disco (246945 bytes conferidos) numa pasta chamada `José` ou `鬼滅の刃`,
+    `empty()` volta True e a linha seguinte levanta "Failed to load cascade"
+    apontando pra um arquivo que ESTÁ lá. E a pasta de modelos carrega o
+    nome de usuário do Windows: `C:\\Users\\José` já basta.
+
+    Isto é o plano B (só roda quando o YOLO falhou — esse aguenta unicode,
+    medido, porque carrega por `torch.load`). Mas era o plano B virando erro
+    fatal em vez de degradar. Pelos bytes carrega nos três casos.
+    """
+    try:
+        fs = cv2.FileStorage(
+            Path(path).read_bytes().decode("utf-8"),
+            cv2.FILE_STORAGE_READ | cv2.FILE_STORAGE_MEMORY,
+        )
+        c = cv2.CascadeClassifier()
+        c.read(fs.getFirstTopLevelNode())
+        fs.release()
+        if not c.empty():
+            return c
+    except (OSError, ValueError, UnicodeDecodeError, cv2.error) as e:
+        print(f"[CorteCenas] cascade pelos bytes não deu ({e}); tentando pelo caminho.")
+    return cv2.CascadeClassifier(str(path))
+
+
 class AnimeFaceDetector:
     """Anime-face detection. Uses a YOLOv8 model trained on anime faces
     (deepghs/anime_face_detection) when `ultralytics` is available, and
@@ -122,7 +151,7 @@ class AnimeFaceDetector:
             path = cascade_path
             if path is None:
                 path = ensure_cascade(Path("models"))
-            self._cascade = cv2.CascadeClassifier(str(path))
+            self._cascade = _carrega_cascade(path)
             if self._cascade.empty():
                 raise RuntimeError(f"Failed to load cascade: {path}") from e
 
