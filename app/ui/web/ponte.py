@@ -86,6 +86,26 @@ def registra_esquema() -> None:
     QWebEngineUrlScheme.registerScheme(esq)
 
 
+def _chave_da_pasta(p: Path) -> str:
+    """Uma chave que iguala dois caminhos apontando pra MESMA pasta.
+
+    ARMADILHA MEDIDA: o Windows descarta ponto final em nome de pasta, e o
+    `sanitize` deixa um quando o título termina em ponto. Então
+    `…/Kansatsu Kiroku.` e `…/Kansatsu Kiroku` são a MESMA pasta no disco —
+    `exists()` diz True nas duas e `samefile()` confirma — e são duas
+    strings diferentes.
+
+    Isso derrubou a primeira versão da proteção abaixo: comparando string,
+    dois registros da mesma pasta apareciam como donos de pastas
+    diferentes, ninguém "sobrava", e a pasta ia pra lixeira com os clipes de
+    quem ficou. `resolve()` iguala os dois (medido).
+    """
+    try:
+        return str(p.resolve()).lower()
+    except OSError:
+        return str(p).lower()
+
+
 def _com_selo(prefixo: str, caminho: str) -> str:
     """A URL da imagem com a hora do arquivo pendurada no fim.
 
@@ -1072,8 +1092,41 @@ class Ponte(QObject):
                 ids,
             ).fetchall()
 
+        # QUEM MAIS APONTA PRA ESSA PASTA?
+        #
+        # `_raiz_do_episodio` devolve a PRIMEIRA pasta com o mesmo slug quando
+        # a pasta do título não existe — e com isso vários registros dividem
+        # uma pasta só. Acontece sozinho com FILME: o nome não tem SxxExx, o
+        # parser cai no padrão temporada 1 / episódio 1, e cada jeito de
+        # escrever o título vira um anime novo com o seu próprio "Episódio
+        # 01". Um usuário ficou com quatro deles em cima da mesma pasta.
+        #
+        # Apagar um mandava a pasta INTEIRA pra lixeira — 1470 clipes que os
+        # outros três ainda usavam — e o recado dizia "1 episódio fora do
+        # acervo, 1 pasta na lixeira", que é verdade e engana. Agora a pasta
+        # só sai do disco quando não sobra dono; senão vai só o registro.
+        with db.connect() as c:
+            todos = c.execute(
+                """SELECT e.id, e.season, e.episode, a.title
+                     FROM episode e JOIN anime a ON a.id = e.anime_id"""
+            ).fetchall()
+        donos: dict[str, set[int]] = {}
+        for t in todos:
+            chave = _chave_da_pasta(
+                self._raiz_do_episodio(t["title"], t["season"], t["episode"]))
+            donos.setdefault(chave, set()).add(int(t["id"]))
+        pedidos = set(ids)
+        so_registro = 0
+
         for r in linhas:
             raiz = self._raiz_do_episodio(r["title"], r["season"], r["episode"])
+            sobraram = donos.get(_chave_da_pasta(raiz), set()) - pedidos
+            if sobraram:
+                # a pasta é de mais gente: tira só este registro do acervo
+                db.delete_episode(int(r["id"]))
+                apagados += 1
+                so_registro += 1
+                continue
             # O `delete_episode` estava FORA deste try, e isso desmentia a
             # caixinha: ela promete "a pasta vai pra _lixeira, não é apagada
             # de verdade", e quando o move falhava (arquivo aberto no
@@ -1111,6 +1164,10 @@ class Ponte(QObject):
                 "NADA foi apagado do acervo." + aviso_copia})
         msg = (f"{apagados} episódio(s) fora do acervo · "
                f"{movidas} pasta(s) na lixeira (Output/_lixeira)")
+        if so_registro:
+            msg += (f" · {so_registro} era(m) registro repetido apontando pra "
+                    "uma pasta que OUTRO episódio ainda usa: saiu da lista e "
+                    "os clipes ficaram onde estavam")
         if falhas:
             msg += (f" · {len(falhas)} ficaram como estavam "
                     f"({', '.join(falhas)}): a pasta está em uso" + aviso_copia)
