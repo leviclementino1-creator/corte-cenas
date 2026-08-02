@@ -22,6 +22,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from ..imagens import ler_imagem
+
 CCIP_REPO = "deepghs/ccip_onnx"
 CCIP_MODEL = "ccip-caformer-24-randaug-pruned"
 CCIP_FILE = f"{CCIP_MODEL}/model_feat.onnx"
@@ -116,7 +118,7 @@ class CcipEngine:
         ok: list[Path] = []
         for p in paths:
             try:
-                img = cv2.imread(str(p))
+                img = ler_imagem(str(p))
             except Exception:
                 img = None
             if img is None or img.ndim != 3:
@@ -231,7 +233,7 @@ def face_vectors(
         faltam = [b for b in sorted(indices) if b < len(boxes) and not np.isfinite(rows[b, 0])]
         if faltam:
             try:
-                img = cv2.imread(key)
+                img = ler_imagem(key)
             except Exception:
                 img = None
             if img is None:

@@ -10,6 +10,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
+from .imagens import gravar_imagem, ler_imagem
 from .matching.embedding_engine import EmbeddingEngine, from_bytes
 from .matching.face_detector import AnimeFaceDetector
 from .references.reference_store import ReferenceStore
@@ -68,7 +69,7 @@ def harvest_best_crops_for_character(
         kf = episode_root / kf_rel
         if not kf.exists():
             continue
-        img = cv2.imread(str(kf))
+        img = ler_imagem(str(kf))
         if img is None:
             continue
         crops = face_det.crop_faces(img)
@@ -106,7 +107,7 @@ def harvest_best_crops_for_character(
         out = ref_dir / fname
         if out.exists():
             continue
-        if cv2.imwrite(str(out), crop):
+        if gravar_imagem(out, crop):
             kept_embs.append(ne)
             added += 1
     return added

@@ -16,6 +16,7 @@ from .ai_review import (
     classify_group,
 )
 from .config import Config
+from .imagens import ler_imagem
 from .keyframe_extractor import cut_all_shots
 from .matching.character_matcher import (
     CharacterEntry,
@@ -526,7 +527,7 @@ class Pipeline:
             def _img(p: Path) -> np.ndarray | None:
                 if p not in imgs_loaded:
                     try:
-                        imgs_loaded[p] = cv2.imread(str(p))
+                        imgs_loaded[p] = ler_imagem(str(p))
                     except Exception:
                         # o imread do ultralytics LEVANTA em arquivo sumido
                         # (np.fromfile) em vez de devolver None — keyframe
@@ -1833,7 +1834,7 @@ class Pipeline:
                     continue
                 imgs = []
                 for p in paths[:4]:
-                    img = cv2.imread(str(p))
+                    img = ler_imagem(str(p))
                     if img is None:
                         continue
                     crops = get_face_det().crop_faces(img, pad=cfg.face_crop_padding)
@@ -1879,7 +1880,7 @@ class Pipeline:
             def _img(p: Path) -> np.ndarray | None:
                 if p not in imgs_loaded:
                     try:
-                        imgs_loaded[p] = cv2.imread(str(p))
+                        imgs_loaded[p] = ler_imagem(str(p))
                     except Exception:
                         # o imread do ultralytics LEVANTA em arquivo sumido
                         # (np.fromfile) em vez de devolver None — keyframe
@@ -2468,7 +2469,7 @@ class Pipeline:
         if not misses:
             return emb_parts, faces_found
 
-        imgs = [cv2.imread(str(p)) for p in misses]
+        imgs = [ler_imagem(str(p)) for p in misses]
         good = [(p, im) for p, im in zip(misses, imgs) if im is not None]
         if not good:
             return emb_parts, faces_found
@@ -2548,7 +2549,7 @@ class Pipeline:
                 crops: list = []
                 if boxes is not None and len(boxes):
                     try:
-                        img = cv2.imread(key)
+                        img = ler_imagem(key)
                     except Exception:
                         img = None
                     if img is not None:
@@ -2572,7 +2573,7 @@ class Pipeline:
         """Até `max_imgs` refs de um candidato, redimensionadas pro prompt."""
         out: list[bytes] = []
         for p in paths[:6]:
-            img = cv2.imread(str(p))
+            img = ler_imagem(str(p))
             if img is None:
                 continue
             h, w = img.shape[:2]
@@ -2687,7 +2688,7 @@ class Pipeline:
             if not paths:
                 continue
             try:
-                img = cv2.imread(str(paths[0]))
+                img = ler_imagem(str(paths[0]))
                 if img is None:
                     continue
                 h, w = img.shape[:2]
@@ -2831,7 +2832,7 @@ class Pipeline:
                 continue
 
             try:
-                img = cv2.imread(str(main_kf))
+                img = ler_imagem(str(main_kf))
                 if img is None:
                     per_shot_names.append([])
                     continue

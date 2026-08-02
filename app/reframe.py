@@ -9,6 +9,7 @@ import ffmpeg
 import numpy as np
 
 from .ffmpeg_locate import run_ffmpeg_hidden
+from .imagens import ler_imagem
 from .matching.face_detector import AnimeFaceDetector
 
 
@@ -119,7 +120,7 @@ def pick_face_center_multi(
     # 1) face on keyframes
     fallback: tuple[float, int, int] | None = None
     for kf in keyframe_paths:
-        img = cv2.imread(str(kf))
+        img = ler_imagem(str(kf))
         if img is None:
             continue
         if fallback is None:

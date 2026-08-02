@@ -14,7 +14,27 @@ import cv2
 import ffmpeg
 
 from .ffmpeg_locate import ffmpeg_binary, nvenc_available, run_ffmpeg_hidden
+from .imagens import gravar_imagem
 from .shot_detection import ShotBounds
+
+_avisou_escrita = False
+
+
+def _falhou_a_escrita(out: Path) -> None:
+    """Um aviso, uma vez por execução.
+
+    O silêncio aqui é que custou caro: o `cv2.imwrite` devolvia False, o
+    código appendava o caminho do mesmo jeito, e o app terminava a análise
+    dizendo "pronto" com 1470 keyframes que não existiam. Uma linha no log
+    teria resolvido em minutos.
+    """
+    global _avisou_escrita
+    if _avisou_escrita:
+        return
+    _avisou_escrita = True
+    print(f"[CorteCenas] NAO consegui gravar o keyframe em {out} — sem eles a "
+          "analise fica sem imagem pra identificar personagem. Confira espaco "
+          "em disco e permissao da pasta.", flush=True)
 
 
 def _no_window_flag() -> int:
@@ -305,7 +325,13 @@ def extract_keyframes(
                     if not ok:
                         continue
                     out = out_dir / f"{shot.idx:04d}_{k}.jpg"
-                    cv2.imwrite(str(out), frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                    # SÓ ENTRA NA LISTA SE GRAVOU. Isto chamava `cv2.imwrite`
+                    # e appendava o caminho sem olhar o retorno — e o imwrite
+                    # devolve False (sem exceção) quando não consegue
+                    # escrever, que é o que acontece com acento na pasta.
+                    if not gravar_imagem(out, frame, [cv2.IMWRITE_JPEG_QUALITY, 90]):
+                        _falhou_a_escrita(out)
+                        continue
                     paths.append(out)
                 cap.release()
                 if len(paths) == len(offsets):
@@ -329,7 +355,9 @@ def extract_keyframes(
         if not ok:
             continue
         out = out_dir / f"{shot.idx:04d}_{k}.jpg"
-        cv2.imwrite(str(out), frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        if not gravar_imagem(out, frame, [cv2.IMWRITE_JPEG_QUALITY, 90]):
+            _falhou_a_escrita(out)
+            continue
         paths.append(out)
 
     cap.release()

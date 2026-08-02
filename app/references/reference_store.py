@@ -8,6 +8,7 @@ import shutil
 import cv2
 import httpx
 
+from ..imagens import ler_imagem
 from ..providers.anime_provider import AnimeBundle, CharacterRef
 from .image_downloader import _HEADERS, _name_for, download_to
 from .image_filters import HASH_FILENAME, is_monochrome
@@ -101,7 +102,7 @@ class ReferenceStore:
                             continue
                         if not HASH_FILENAME.match(existing.name):
                             continue  # user-added, don't touch
-                        img = cv2.imread(str(existing))
+                        img = ler_imagem(str(existing))
                         if img is not None and is_monochrome(img):
                             filtered_dir.mkdir(exist_ok=True)
                             try:
@@ -121,7 +122,7 @@ class ReferenceStore:
                     if p is None:
                         continue
                     downloaded += 1
-                    img = cv2.imread(str(p))
+                    img = ler_imagem(str(p))
                     if img is not None and is_monochrome(img):
                         filtered_mono += 1
                         filtered_dir.mkdir(exist_ok=True)
