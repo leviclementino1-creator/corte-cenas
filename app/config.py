@@ -300,6 +300,11 @@ class Config:
     erro_ao_carregar: str = ""
     arquivo_quebrado: str = ""
     saida_indisponivel: str = ""   # o caminho configurado que não respondeu
+    # E o que esta sessão está usando NO LUGAR dele. Sem guardar os dois, o
+    # `salvar_config` não conseguia distinguir "o usuário não mexeu no campo"
+    # (o campo mostra o provisório) de "o usuário escolheu outra pasta" — e
+    # acabava devolvendo a saída pro caminho morto no segundo Salvar.
+    saida_provisoria: str = ""
 
     @classmethod
     def load(cls) -> "Config":
@@ -420,6 +425,7 @@ class Config:
                 new_path.mkdir(parents=True, exist_ok=True)
                 if attr == "output_dir":
                     self.saida_indisponivel = str(current)
+                    self.saida_provisoria = str(new_path)
                     print(f"[CorteCenas] A pasta de saída {current} não está "
                           f"acessível — usando {new_path} SÓ nesta sessão "
                           f"(nada foi movido nem gravado)", flush=True)

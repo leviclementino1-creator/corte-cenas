@@ -743,6 +743,12 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
             <div class="campo" id="s_saida">G:\App Corte Cenas\Output</div>
             <div class="btn-campo">Escolher...</div>
           </div>
+          <!-- A ponte devolve `saida_indisponivel` desde sempre e o JS nunca
+               olhou: com o HD do acervo fora do ar, o painel mostrava o
+               caminho PROVISÓRIO como se fosse o salvo, sem marca nenhuma. O
+               único aviso era uma caixinha no arranque, uma vez. -->
+          <div class="nota" id="s_saida_aviso"
+               style="padding-left:0;display:none;color:var(--danger)"></div>
           <div class="nota" style="padding-left:0">Aqui dentro vão nascer subpastas por anime/episódio.
             Ex: <span style="font-family:var(--mono);color:var(--dim)">&lt;saída&gt;/Dr. Stone/S04E25/shots/</span></div>
           <span class="caixa" data-cfg="por_personagem" style="padding-left:0"><span class="qd"></span>Criar pastas por personagem (by_character)</span>
@@ -2324,6 +2330,21 @@ function carregaConfig(){
     document.getElementById('btn_salvar').classList.remove('mole');
     document.getElementById('c_saida').textContent = c.saida;
     document.getElementById('s_saida').textContent = c.saida;
+    // O caminho acima é PROVISÓRIO quando a saída configurada não respondeu
+    // no arranque (HD desconectado). Sem dizer isso, a tela afirma uma saída
+    // que não é a que está salva — e o usuário decide sem saber.
+    const avisoSaida = document.getElementById('s_saida_aviso');
+    if (c.saida_indisponivel){
+      avisoSaida.innerHTML =
+        '⚠ <b>Esta pasta é só desta sessão.</b> A saída configurada — '
+        + `<span style="font-family:var(--mono)">${c.saida_indisponivel}</span>`
+        + ' — não respondeu quando o app abriu (HD desconectado?). Nada foi '
+        + 'movido. Reconecte e reabra o app, ou escolha outra pasta e salve '
+        + 'pra trocar de vez.';
+      avisoSaida.style.display = '';
+    } else {
+      avisoSaida.style.display = 'none';
+    }
     document.getElementById('s_chave').textContent =
       c.tem_chave ? '•••••••••••••••••••••• (configurada)' : 'sem chave';
     document.getElementById('s_modelo').textContent = c.modelo || '—';
@@ -2887,9 +2908,18 @@ new QWebChannel(qt.webChannelTransport, canal => {
       if (!d) return;
       document.getElementById('s_saida').textContent = d;
       document.getElementById('c_saida').textContent = d;
-      if (naAnalise)
-        recado('Saída escolhida. Confirme em Configurações → Salvar '
-             + 'pra ela valer nas próximas análises.');
+      if (!naAnalise) return;
+      // SALVA NA HORA. O recado antigo mandava "Confirme em Configurações →
+      // Salvar", e isso era impossível de cumprir: abrir as Configurações
+      // chama `carregaConfig()`, que reescreve o campo com o valor
+      // PERSISTIDO — a escolha sumia no caminho. E a rodada também ignorava
+      // (o `pedidoDaAnalise` não manda `saida`). Ou seja: o botão não fazia
+      // nada e ainda dava instrução.
+      ponte.salvar_config(JSON.stringify({saida: d}), json => {
+        const r = JSON.parse(json);
+        recado(r.ok ? 'Saída salva: ' + d : (r.msg || 'não deu pra salvar'),
+               !r.ok);
+      });
     }));
   });
 

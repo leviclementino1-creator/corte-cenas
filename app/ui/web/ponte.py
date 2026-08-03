@@ -2391,8 +2391,20 @@ class Ponte(QObject):
                 "deteccao_rapida": bool(c.fast_scene_detect),
                 "danbooru": bool(getattr(c, "use_danbooru", False)),
                 "so_cortar": bool(getattr(c, "cut_only_enabled", False)),
-                "tem_chave": bool(getattr(c, "navyai_api_key", "")),
-                "modelo": getattr(c, "gemini_model", "") or getattr(c, "navyai_model", ""),
+                # AS DUAS CHAVES. Isto olhava só a NavyAI, e o pipeline tem
+                # caminho só-Gemini explícito (`return fallback  # Gemini-only
+                # path`): quem configurou apenas o Gemini lia "sem chave" e a
+                # nota dizendo que a IA "não tem o que chamar" — com a IA
+                # funcionando.
+                "tem_chave": bool(getattr(c, "navyai_api_key", "")
+                                  or getattr(c, "gemini_api_key", "")),
+                # O modelo de QUEM VAI SER CHAMADO. Isto priorizava o
+                # `gemini_model`, que é o FALLBACK — e como ele nunca é vazio
+                # (padrão "gemini-2.5-flash"), o `or` jamais caía no da
+                # NavyAI: trocar o modelo primário não mudava nada na tela.
+                "modelo": (getattr(c, "navyai_model", "")
+                           if getattr(c, "navyai_api_key", "")
+                           else getattr(c, "gemini_model", "")),
             })
         except Exception as e:  # noqa: BLE001 — o PoC não pode morrer por isso
             return json.dumps({"saida": str(self.raiz.parent.parent), "erro": str(e)})
@@ -2442,14 +2454,26 @@ class Ponte(QObject):
                 # Salvar sem mexer nele gravaria o provisório por cima do
                 # caminho real — o mesmo apagão que o `ensure_dirs` deixou de
                 # fazer sozinho, só que pela mão do usuário.
+                #
+                # COMPARA COM O PROVISÓRIO, não com `c.output_path`. Depois do
+                # primeiro Salvar o `output_path` JÁ é a pasta que o usuário
+                # escolheu — então no segundo Salvar a condição ficava
+                # verdadeira e a escolha dele era trocada pelo caminho morto,
+                # em silêncio, com "Configurações salvas." na tela.
+                # Reproduzido: escolher D:\Nova, salvar (ok), salvar de novo
+                # e o config.json voltava pro HD desconectado.
                 if (getattr(c, "saida_indisponivel", "")
-                        and nova == str(c.output_path)):
+                        and nova == getattr(c, "saida_provisoria", "")):
                     print(f"    [python] mantive a saída configurada "
                           f"({c.saida_indisponivel}) — a desta sessão é "
                           f"provisória")
                     c.output_dir = c.saida_indisponivel
                 else:
                     c.output_dir = nova
+                    # Escolha explícita: a memória do que não respondeu deixa
+                    # de valer, senão ela assombra o resto da sessão.
+                    c.saida_indisponivel = ""
+                    c.saida_provisoria = ""
             c.save()
             depois = str(self._saida())
             mudou = depois != antes
