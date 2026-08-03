@@ -2979,9 +2979,12 @@ new QWebChannel(qt.webChannelTransport, canal => {
     const viva = document.querySelector('.radio.viva');
     const novaSaida = document.getElementById('s_saida').textContent.trim();
     const pedido = { preset: viva ? viva.dataset.preset : null, saida: novaSaida };
+    // O `so_cortar` era pulado aqui: ele não tinha campo do outro lado, então
+    // mandar não adiantava. Agora tem (`cut_only_enabled`), e ele vai junto
+    // com o resto — senão a caixinha fica numa tela de AJUSTES se comportando
+    // como marca de uma rodada só.
     document.querySelectorAll('.caixa[data-cfg]').forEach(c => {
-      if (c.dataset.cfg !== 'so_cortar')
-        pedido[c.dataset.cfg] = c.classList.contains('marcada');
+      pedido[c.dataset.cfg] = c.classList.contains('marcada');
     });
     // Os cinco números vão SEMPRE. Com preset marcado eles são os do preset
     // (o clique reescreve os campos), então mandar não muda nada; com

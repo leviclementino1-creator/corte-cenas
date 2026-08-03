@@ -2390,6 +2390,7 @@ class Ponte(QObject):
                 "ccip": bool(c.ccip_enabled),
                 "deteccao_rapida": bool(c.fast_scene_detect),
                 "danbooru": bool(getattr(c, "use_danbooru", False)),
+                "so_cortar": bool(getattr(c, "cut_only_enabled", False)),
                 "tem_chave": bool(getattr(c, "navyai_api_key", "")),
                 "modelo": getattr(c, "gemini_model", "") or getattr(c, "navyai_model", ""),
             })
@@ -2430,6 +2431,7 @@ class Ponte(QObject):
                 ("ccip", "ccip_enabled"),
                 ("deteccao_rapida", "fast_scene_detect"),
                 ("danbooru", "use_danbooru"),
+                ("so_cortar", "cut_only_enabled"),
             ):
                 if chave in d:
                     setattr(c, campo, bool(d[chave]))

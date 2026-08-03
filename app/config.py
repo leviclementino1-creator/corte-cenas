@@ -36,6 +36,7 @@ _PERSISTED_FIELDS = (
     # skip_credit_shots: intentionally NOT persisted — the heuristic is
     # fragile and we keep it OFF by default.
     "use_danbooru",
+    "cut_only_enabled",
     "navyai_api_key",
     "navyai_base_url",
     "navyai_model",
@@ -125,6 +126,16 @@ class Config:
     # Danbooru has wide coverage but often returns fan art with multiple
     # characters in the same image → contaminates centroids. Off by default.
     use_danbooru: bool = False
+
+    # "Só cortar as cenas": pula o reconhecimento inteiro — sai só a pasta
+    # shots/, sem elenco e sem pastas por personagem.
+    #
+    # Era a ÚNICA caixinha das Configurações sem campo aqui. O JS a excluía
+    # de propósito do que manda pra salvar (ela não tinha onde cair do outro
+    # lado), então ela morava numa tela de AJUSTES e se comportava como marca
+    # de uma rodada só: voltava desmarcada toda vez que o app abria — inclusive
+    # pra quem usa o app só pra cortar e marcava ela todas as vezes.
+    cut_only_enabled: bool = False
 
     # Matching
     default_threshold: float = 0.80
