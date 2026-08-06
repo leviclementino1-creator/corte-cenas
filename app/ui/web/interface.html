@@ -611,7 +611,13 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
           <div class="arquivo-atual"></div>
           <div class="linha" style="gap:8px">
             <div class="btn perigo" id="btn_cancelar" style="display:none">✕&nbsp; Cancelar</div>
-            <div class="btn fantasma">📂&nbsp; Abrir pasta de saída</div>
+            <!-- Este não tinha id nem listener: `:hover` acendia, o clique não
+                 fazia nada. E o `abrir_especial('saida')` já existia do outro
+                 lado, sem ninguém chamar — a mesma espécie dos sete botões
+                 mortos que a auditoria da v0.5.0 achou nas Configurações.
+                 Terminar uma análise e clicar aqui pra ver o que saiu era
+                 justamente o momento em que ele devia funcionar. -->
+            <div class="btn fantasma" id="btn_saida">📂&nbsp; Abrir pasta de saída</div>
           </div>
         </div>
         <div class="etapas" id="etapas" style="display:none"></div>
@@ -3177,6 +3183,9 @@ new QWebChannel(qt.webChannelTransport, canal => {
   liga('s_abrir_refs', () => ponte.abrir_especial('refs', eco));
   liga('s_abrir_cache', () => ponte.abrir_especial('cache', eco));
   liga('s_abrir_logs', () => ponte.abrir_especial('logs', eco));
+  // Eram sete; sobrou um oitavo escondido na aba Analisar, sem id nenhum. O
+  // `abrir_especial` já sabia abrir 'saida' desde que nasceu.
+  liga('btn_saida', () => ponte.abrir_especial('saida', eco));
 
   liga('s_refs_resumo', () => ponte.resumo_refs(json => {
     const r = JSON.parse(json);
