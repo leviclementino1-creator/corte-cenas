@@ -186,7 +186,10 @@ respondem aos mesmos comandos.
   fez e passa a lembrar disso. Mostra o plano antes de aplicar
 - **▯ Exportar vertical 1080×1920** — versão Reels/TikTok focada no rosto do
   personagem selecionado. Cena sem rosto visível é enquadrada pelo movimento;
-  nenhuma é descartada
+  nenhuma é descartada. Depois de exportar, a Biblioteca ganha uma **pílula
+  `▯ <Nome>`** ao lado das de personagem: clica e a grade mostra só as cenas
+  que já têm 9:16 — e ali é o vertical que toca no painel e que sai no
+  arrasto pro editor
 - **⤓ Exportar refs (.zip)** — o banco de referências deste anime, pra compartilhar
 - **✚ Reforçar refs com este ep** — os rostos que a análise acertou com folga
   (≥ 0.90) viram referência e melhoram o **próximo** episódio
