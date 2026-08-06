@@ -357,6 +357,13 @@ class Ponte(QObject):
         self._batismo_pendente: str | None = None
         self._shots: dict[int, dict] = {}     # idx -> linha do shot
         self._donos: dict[int, list] = {}     # shot_id -> personagens
+        # Tarefa longa da aba Resultados (vertical / reforçar refs). Separada
+        # do `_thread` da análise DE PROPÓSITO: compartilhar o campo faria a
+        # tela de progresso da análise acender no meio de uma exportação.
+        self._tarefa: dict | None = None
+        self._tarefa_thread = None
+        self._tarefa_worker = None
+        self._n_tarefa = 0
 
     @property
     def db(self):
@@ -2022,8 +2029,12 @@ class Ponte(QObject):
 
         try:
             loja = ReferenceStore(self.cfg.cache_path)
-            cache_id = (f"al{r['anilist_id']}" if r["anilist_id"]
-                        else f"local_{r['title']}")
+            # Era `al<anilist_id>` calculado aqui, e isso erra na 2ª
+            # temporada de uma franquia: as refs ficam na pasta da 1ª e o zip
+            # saía vazio ou faltando gente. O `_cache_id_do_anime` lê a pasta
+            # que a análise REALMENTE usou.
+            cache_id = self._cache_id_do_anime() or (
+                f"al{r['anilist_id']}" if r["anilist_id"] else f"local_{r['title']}")
             src = loja.anime_dir(cache_id) / "characters"
         except Exception as e:  # noqa: BLE001
             return json.dumps({"ok": False, "msg": f"cache de refs: {e}"})
@@ -2059,6 +2070,248 @@ class Ponte(QObject):
             "ok": True,
             "msg": f"{n_arq} imagens de {n_pers} personagens em {Path(destino).name}",
         })
+
+    # ---- as duas que só existiam no app clássico -------------------------
+    #
+    # "Exportar vertical" e "Reforçar refs com este ep" mandavam abrir
+    # `CorteCenas.exe --classico` — outra janela, outro banco, outro estado,
+    # e a pessoa tendo que reabrir lá o episódio que já estava aberto aqui.
+    # O motor das duas (`app/reframe.py`, `app/harvest.py`) e os workers
+    # (`ReframeWorker`, `HarvestWorker`) são os MESMOS que a aba Resultados
+    # do Qt usa desde a v0.2.0; o que faltava era só o fio.
+    #
+    # PROGRESSO SE PUXA, NÃO SE EMPURRA. O sentido Python→JS morre enquanto
+    # há trabalho pesado rodando — foi isso que obrigou o `progresso_atual`
+    # da análise a existir, e aqui é o mesmo cenário (ffmpeg em cada cena,
+    # CLIP em cada rosto). O estado fica em `self._tarefa` e a página
+    # pergunta de tempos em tempos.
+
+    def _cache_id_do_anime(self) -> str | None:
+        """Qual pasta do cache de refs é a DESTE anime.
+
+        A análise grava em `episode.cache_id` a pasta que realmente usou, e
+        essa é a fonte da verdade — é o que o app clássico lê
+        (results_tab.py:298). O palpite `al<anilist_id>` só serve de reserva
+        pra episódio de versão antiga, e ele ERRA quando a franquia tem
+        raiz: a 2ª temporada guarda as refs na pasta da 1ª. Gravar reforço
+        na pasta errada é pior do que não gravar, porque a próxima análise
+        não lê de lá e ninguém descobre.
+        """
+        linha = None
+        with self.db.connect() as c:
+            if self.ep_id is not None:
+                linha = c.execute(
+                    """SELECT e.cache_id, a.anilist_id, a.mal_id, a.title
+                         FROM episode e JOIN anime a ON a.id = e.anime_id
+                        WHERE e.id = ?""",
+                    (self.ep_id,),
+                ).fetchone()
+            if linha is None and self.anime_id is not None:
+                linha = c.execute(
+                    "SELECT NULL AS cache_id, anilist_id, mal_id, title "
+                    "FROM anime WHERE id = ?",
+                    (self.anime_id,),
+                ).fetchone()
+        if linha is None:
+            return None
+        if linha["cache_id"]:
+            return str(linha["cache_id"])
+        if linha["anilist_id"]:
+            alvo = int(linha["anilist_id"])
+            try:
+                for p in (Path(self.cfg.cache_path) / "anime_db").glob("*/metadata.json"):
+                    try:
+                        d = json.loads(p.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    if alvo == d.get("anilist_id") or alvo in (d.get("franchise_ids") or []):
+                        raiz = d.get("franchise_root_id") or d.get("anilist_id")
+                        if raiz:
+                            return f"al{raiz}"
+            except OSError:
+                pass
+            return f"al{alvo}"
+        if linha["mal_id"]:
+            return f"mal{int(linha['mal_id'])}"
+        return f"local_{linha['title']}"
+
+    def _tarefa_ocupada(self) -> str | None:
+        """O motivo pra recusar, ou None se dá pra começar."""
+        if getattr(self, "_thread", None) is not None:
+            return ("Tem uma análise rodando. Espere ela terminar — as duas "
+                    "brigam pela mesma GPU.")
+        t = getattr(self, "_tarefa_thread", None)
+        if t is not None and t.isRunning():
+            rot = (self._tarefa or {}).get("rotulo", "outra tarefa")
+            return f"Ainda estou no meio de: {rot}."
+        return None
+
+    def _comeca_tarefa(self, worker, tipo: str, rotulo: str) -> None:
+        from PySide6.QtCore import QThread
+
+        self._tarefa = {
+            "rodando": True, "tipo": tipo, "rotulo": rotulo,
+            "feito": 0, "total": 0, "pct": 0, "detalhe": "começando…",
+            "n": getattr(self, "_n_tarefa", 0),
+        }
+        self._tarefa_thread = QThread()
+        self._tarefa_worker = worker
+        worker.moveToThread(self._tarefa_thread)
+        self._tarefa_thread.started.connect(worker.run)
+        # MÉTODO, nunca lambda — a mesma armadilha do `_fim_falhou`: conexão
+        # com lambda não tem objeto receptor, o Qt escolhe direta, e o fim
+        # roda na thread de trabalho, que então se destrói de dentro de si.
+        worker.failed.connect(self._tarefa_falhou)
+        self._tarefa_thread.start()
+        print(f"    [python] tarefa começou: {rotulo}")
+
+    def _anda_tarefa(self, feito: int, total: int, detalhe: str) -> None:
+        if not self._tarefa:
+            return
+        self._tarefa.update({
+            "feito": feito, "total": total, "detalhe": detalhe,
+            "pct": int(100 * feito / max(total, 1)),
+        })
+
+    def _tarefa_progresso_vertical(self, feito: int, total: int) -> None:
+        self._anda_tarefa(feito, total, f"cena {feito} de {total}")
+
+    def _tarefa_progresso_refs(self, nome: str, feito: int, total: int) -> None:
+        self._anda_tarefa(feito, total, f"{nome} ({feito} de {total})")
+
+    def _fim_da_tarefa(self, carga: dict) -> None:
+        from PySide6.QtCore import QThread, QTimer
+
+        t = getattr(self, "_tarefa_thread", None)
+        if t is not None and t is QThread.currentThread():
+            QTimer.singleShot(0, self, lambda: self._fim_da_tarefa(carga))
+            return
+        if t is not None:
+            t.quit()
+            t.wait(4000)
+        self._tarefa_thread = None
+        self._tarefa_worker = None
+        # Número do fim, pelo mesmo motivo do `_n_fim` da análise: a página
+        # puxa em laço e trataria o mesmo fim várias vezes.
+        self._n_tarefa = getattr(self, "_n_tarefa", 0) + 1
+        carga = dict(carga)
+        carga["rodando"] = False
+        carga["n"] = self._n_tarefa
+        self._tarefa = carga
+        print(f"    [python] tarefa terminou: {carga.get('msg', '')[:120]}")
+
+    def _tarefa_falhou(self, msg: str) -> None:
+        primeira = (msg or "erro desconhecido").splitlines()[0]
+        self._fim_da_tarefa({"ok": False, "msg": f"Não deu: {primeira}",
+                             "detalhado": msg})
+
+    @Slot(str, result=str)
+    def exportar_vertical(self, pedido: str = "") -> str:
+        """Recorta em 9:16 as cenas de UM personagem, centralizado no rosto.
+
+        Sai em `<episódio>/vertical/<Nome>/`. O `reframe_one` tem uma
+        cascata: rosto detectado → centro de movimento → centro da imagem,
+        então cena sem rosto sai enquadrada em vez de falhar.
+        """
+        d = json.loads(pedido or "{}")
+        nome = (d.get("nome") or "").strip()
+        ocupado = self._tarefa_ocupada()
+        if ocupado:
+            return json.dumps({"ok": False, "msg": ocupado})
+        if self.ep_id is None or self.anime_id is None:
+            return json.dumps({"ok": False, "msg": "nenhum episódio aberto"})
+        # "sem identificação" não é personagem: não tem id no banco e nem
+        # pasta pra receber. Dizer isso é melhor do que exportar em silêncio
+        # uma pasta chamada "__sem__".
+        if not nome or nome == "__sem__":
+            return json.dumps({"ok": False, "msg":
+                "Escolha alguém no Elenco primeiro — a saída vertical é uma "
+                "pasta por pessoa, e as cenas sem identificação não têm dono."})
+        cid = self._id_do_personagem(nome)
+        if cid is None:
+            return json.dumps({"ok": False,
+                               "msg": f"{nome} não está no banco deste anime"})
+        cenas = self.db.shots_for_character(cid, episode_id=self.ep_id)
+        if not cenas:
+            return json.dumps({"ok": False,
+                               "msg": f"{nome} não tem cena neste episódio"})
+
+        from app.ui.worker import ReframeWorker
+
+        w = ReframeWorker(self.cfg, self.raiz, cid, nome, cenas)
+        w.progress.connect(self._tarefa_progresso_vertical)
+        w.finished.connect(self._fim_do_vertical)
+        self._comeca_tarefa(w, "vertical", f"Vertical de {nome}")
+        return json.dumps({
+            "ok": True, "rodando": True,
+            "msg": f"Gerando {len(cenas)} cena(s) de {nome} em 1080×1920…",
+        })
+
+    def _fim_do_vertical(self, info: dict) -> None:
+        ok, total = int(info.get("ok", 0)), int(info.get("total", 0))
+        nome = info.get("name", "")
+        # `ok < total` acontece de verdade: cena cujo arquivo sumiu da pasta
+        # é pulada em silêncio pelo `reframe_character`. Contar as duas
+        # coisas é o que separa "deu certo" de "deu certo pela metade".
+        msg = f"{nome}: {ok} de {total} cena(s) em 1080×1920."
+        if ok < total:
+            msg += " O resto não tinha arquivo na pasta do episódio."
+        self._fim_da_tarefa({"ok": ok > 0, "msg": msg, "nome": nome,
+                             "pasta": info.get("folder", "")})
+
+    @Slot(result=str)
+    def reforcar_refs(self) -> str:
+        """Guarda como referência os rostos que a análise acertou com folga.
+
+        Pega as cenas com confiança ≥ 0.90 deste episódio, recorta o rosto e
+        salva na pasta de refs do personagem com prefixo `auto_`. É o jeito
+        barato de melhorar o reconhecimento nos PRÓXIMOS episódios.
+        """
+        ocupado = self._tarefa_ocupada()
+        if ocupado:
+            return json.dumps({"ok": False, "msg": ocupado})
+        if self.ep_id is None:
+            return json.dumps({"ok": False, "msg": "nenhum episódio aberto"})
+        cache_id = self._cache_id_do_anime()
+        if not cache_id:
+            return json.dumps({"ok": False, "msg":
+                "Este anime não tem pasta de referências no cache — não há "
+                "onde guardar o reforço."})
+
+        from app.ui.worker import HarvestWorker
+
+        w = HarvestWorker(self.cfg, self.ep_id, self.raiz, cache_id)
+        w.progress.connect(self._tarefa_progresso_refs)
+        w.finished.connect(self._fim_do_reforco)
+        self._comeca_tarefa(w, "refs", "Reforçar refs")
+        return json.dumps({
+            "ok": True, "rodando": True,
+            "msg": "Procurando as cenas que a análise acertou com folga…",
+        })
+
+    def _fim_do_reforco(self, resultados: dict) -> None:
+        resultados = dict(resultados or {})
+        total = sum(resultados.values())
+        if not total:
+            # NÃO é sucesso silencioso: zero refs novas com a barra chegando
+            # em 100% é o formato exato de um botão que não fez nada.
+            self._fim_da_tarefa({"ok": False, "msg":
+                "Nenhuma cena passou de 0.90 de confiança COM rosto visível "
+                "neste episódio — não há o que reforçar."})
+            return
+        topo = sorted(resultados.items(), key=lambda x: -x[1])[:6]
+        detalhe = ", ".join(f"{n} +{k}" for n, k in topo)
+        if len(resultados) > len(topo):
+            detalhe += " …"
+        self._fim_da_tarefa({
+            "ok": True,
+            "msg": f"+{total} refs em {len(resultados)} personagem(ns): {detalhe}",
+        })
+
+    @Slot(result=str)
+    def tarefa_atual(self) -> str:
+        """O que a página puxa enquanto uma tarefa longa roda."""
+        return json.dumps(self._tarefa or {"rodando": False, "n": 0})
 
     @Slot(str, result=str)
     def abrir_pasta(self, qual: str) -> str:
@@ -2103,6 +2356,13 @@ class Ponte(QObject):
                 return json.dumps({"ok": False, "msg":
                     "Abra um episódio na árvore primeiro."})
             alvo = self.raiz
+        elif qual.startswith("vertical:"):
+            # A saída do 9:16. Vai pelo NOME e não por um caminho vindo do
+            # JS: caminho solto atravessando a ponte é como se abre pasta
+            # fora do Output.
+            from app.storage.organizer import sanitize
+
+            alvo = self.raiz / "vertical" / sanitize(qual[len("vertical:"):])
         else:
             alvo = self.raiz / "by_character" / qual
 
@@ -2407,6 +2667,13 @@ class Ponte(QObject):
                 # funcionando.
                 "tem_chave": bool(getattr(c, "navyai_api_key", "")
                                   or getattr(c, "gemini_api_key", "")),
+                # UMA POR UMA, porque agora os campos são editáveis e a tela
+                # precisa saber QUAL das duas está posta. A chave em si nunca
+                # atravessa a ponte: só o fato de existir.
+                "tem_navy": bool(getattr(c, "navyai_api_key", "")),
+                "tem_gemini": bool(getattr(c, "gemini_api_key", "")),
+                "modelo_navy": getattr(c, "navyai_model", ""),
+                "modelo_gemini": getattr(c, "gemini_model", ""),
                 # O modelo de QUEM VAI SER CHAMADO. Isto priorizava o
                 # `gemini_model`, que é o FALLBACK — e como ele nunca é vazio
                 # (padrão "gemini-2.5-flash"), o `or` jamais caía no da
@@ -2456,6 +2723,23 @@ class Ponte(QObject):
             ):
                 if chave in d:
                     setattr(c, campo, bool(d[chave]))
+            # AS CHAVES DE IA, que só existiam no app clássico. Elas chegam
+            # aqui SÓ quando a pessoa digitou — a tela não manda o campo que
+            # não foi mexido, senão todo Salvar apagaria a chave (a máscara
+            # não é a chave). Campo esvaziado de propósito manda "" e apaga,
+            # que é como se tira uma chave sem ter que achar o config.json.
+            for chave, campo in (("chave_navy", "navyai_api_key"),
+                                 ("chave_gemini", "gemini_api_key"),
+                                 ("modelo_navy", "navyai_model"),
+                                 ("modelo_gemini", "gemini_model")):
+                if chave not in d:
+                    continue
+                v = str(d[chave] or "").strip()
+                # Modelo vazio não é "apagar": é uma chamada que vai falhar
+                # com model_not_found. Sem valor, fica o que estava.
+                if campo.endswith("_model") and not v:
+                    continue
+                setattr(c, campo, v)
             if d.get("saida"):
                 nova = str(d["saida"])
                 # Saída inacessível nesta sessão (HD desconectado): o app está

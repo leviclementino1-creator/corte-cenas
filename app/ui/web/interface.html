@@ -353,6 +353,15 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .elenco .btn-acao.destaque{border-color:var(--accent-dim);color:var(--accent);
                            font-weight:600}
 .elenco .btn-acao:hover{border-color:var(--line-bright);color:var(--txt)}
+.elenco .btn-acao.mole{opacity:.4;pointer-events:none}
+.tarefa{margin-top:10px;padding:8px 10px;border-radius:4px;background:var(--well);
+        border:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.tarefa .rot{display:flex;align-items:baseline;gap:6px;font-size:12px;color:var(--txt)}
+.tarefa .rot span:first-child{flex:1;min-width:0;overflow:hidden;
+                              text-overflow:ellipsis;white-space:nowrap}
+.tarefa .pct{font-family:var(--mono);color:var(--time);font-variant-numeric:tabular-nums}
+.tarefa .det{font-size:11px;color:var(--faint);min-height:14px;
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .res-dir{flex:1;min-width:0;display:flex;flex-direction:column}
 .res-dir .quem{padding:14px 20px 10px;display:flex;align-items:baseline;gap:10px;
                border-bottom:1px solid var(--line-soft)}
@@ -686,6 +695,13 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
         <div class="btn-acao" data-res="refs">⤓ Exportar refs (.zip)</div>
         <div class="btn-acao" data-res="reforcar">✚ Reforçar refs com este ep</div>
         <div class="btn-acao" data-res="vertical">▯ Exportar vertical 1080×1920</div>
+        <!-- Vertical e reforço levam MINUTOS. Sem isto, o único sinal de vida
+             era um recado de 4 s no começo, e depois o app parecia parado. -->
+        <div class="tarefa" id="r_tarefa" style="display:none">
+          <div class="rot"><span id="r_tarefa_rot"></span><span class="pct" id="r_tarefa_pct">0%</span></div>
+          <div class="barra"><i id="r_tarefa_barra" style="width:0"></i></div>
+          <div class="det" id="r_tarefa_det"></div>
+        </div>
       </aside>
       <div class="res-dir">
         <div class="quem">
@@ -791,13 +807,30 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
           <!-- A máscara era fixa: sem chave nenhuma o campo mostrava 28
                bolinhas, e o modelo vinha cravado no HTML. O `config()` já
                devolvia `tem_chave` e `modelo` e o JS não usava nem um nem
-               outro — a tela afirmava uma configuração que não existia. -->
-          <div class="linha"><span class="rot">API key</span>
-            <div class="campo" id="s_chave" style="font-family:var(--mono)">—</div></div>
-          <div class="linha"><span class="rot">Modelo</span><div class="campo" id="s_modelo">—</div></div>
+               outro — a tela afirmava uma configuração que não existia.
+
+               E os campos eram só de LEITURA: a única forma de pôr a chave
+               era abrir o app clássico. Um botão de IA na tela nova, um
+               aviso dizendo "sem chave", e nenhum jeito de resolver aqui.
+
+               A chave NUNCA volta do Python: o `config()` manda só
+               `tem_navy`/`tem_gemini`. O campo mostra a máscara, e o que
+               for digitado por cima é o que vai. -->
+          <div class="linha"><span class="rot">Chave NavyAI</span>
+            <div class="campo" id="s_chave" contenteditable spellcheck="false"
+                 style="font-family:var(--mono)">—</div></div>
+          <div class="linha"><span class="rot">Modelo</span>
+            <div class="campo" id="s_modelo" contenteditable spellcheck="false">—</div></div>
+          <div class="linha"><span class="rot">Chave Gemini</span>
+            <div class="campo" id="s_chave_g" contenteditable spellcheck="false"
+                 style="font-family:var(--mono)">—</div></div>
+          <div class="linha"><span class="rot">Modelo</span>
+            <div class="campo" id="s_modelo_g" contenteditable spellcheck="false">—</div></div>
           <div class="nota" style="padding-left:0">Sem chave, o botão
             <b>Analisar + IA nos duvidosos</b> não tem o que chamar: a análise roda
-            só com o CLIP. A chave se configura no app clássico por enquanto.</div>
+            só com o CLIP. Com as duas, a Gemini é a reserva de quando a NavyAI
+            falha.<br>Apagar o campo e salvar remove a chave. O que já está
+            guardado nunca é mostrado de volta — só a máscara.</div>
         </div>
       </div>
 
@@ -2326,6 +2359,33 @@ document.addEventListener('keydown', e => {
 });
 
 // ---- Configurações ----------------------------------------------------
+// ---- as chaves de IA --------------------------------------------------
+// A chave guardada NUNCA volta do Python — o `config()` manda só um
+// booleano. O campo mostra a máscara, e só o que for digitado por cima é
+// mandado de volta. Mandar a máscara seria gravar bolinhas como chave.
+const MASCARA_CHAVE = '•••••••••••••••••••••• (configurada)';
+const SEM_CHAVE = 'cole a chave aqui';
+
+function poeChave(id, tem){
+  const el = document.getElementById(id);
+  el.textContent = tem ? MASCARA_CHAVE : SEM_CHAVE;
+  el.classList.toggle('fraco', !tem);
+}
+
+function chaveDigitada(id){
+  // null = não mexeram, e o campo nem vai no pedido.
+  const el = document.getElementById(id);
+  const t = el.textContent.trim();
+  if (t === MASCARA_CHAVE || t === SEM_CHAVE) return null;
+  return t;                       // '' aqui é apagar de propósito
+}
+
+document.querySelectorAll('#s_chave, #s_chave_g').forEach(el => {
+  el.addEventListener('focus', () => {
+    if (el.classList.contains('fraco')){ el.textContent = ''; el.classList.remove('fraco'); }
+  });
+});
+
 function carregaConfig(){
   ponte.config(json => {
     const c = JSON.parse(json);
@@ -2359,9 +2419,10 @@ function carregaConfig(){
     } else {
       avisoSaida.style.display = 'none';
     }
-    document.getElementById('s_chave').textContent =
-      c.tem_chave ? '•••••••••••••••••••••• (configurada)' : 'sem chave';
-    document.getElementById('s_modelo').textContent = c.modelo || '—';
+    poeChave('s_chave', c.tem_navy);
+    poeChave('s_chave_g', c.tem_gemini);
+    document.getElementById('s_modelo').textContent = c.modelo_navy || '';
+    document.getElementById('s_modelo_g').textContent = c.modelo_gemini || '';
     document.querySelectorAll('.radio[data-preset]').forEach(r =>
       r.classList.toggle('viva', r.dataset.preset === c.preset));
     document.querySelectorAll('.caixa[data-cfg]').forEach(x => {
@@ -2806,26 +2867,112 @@ document.querySelectorAll('.elenco [data-res]').forEach(b =>
       });
       return;
     }
-    // "use o app atual pra isso" mandava procurar um programa que não
-    // existe: o app "atual" é o MESMO executável com --classico, e isso não
-    // estava escrito em nenhum lugar. E some junto a explicação do que a
-    // função faz, que era tooltip no Qt.
-    pergunta({
-      titulo: 'Ainda não migrado',
-      texto: (b.textContent.includes('efor')
-        ? '<b>Reforçar refs com este episódio</b> guarda como referência os '
-          + 'crops que a análise acertou com folga (≥0.90). É o jeito barato '
-          + 'de melhorar o reconhecimento nos próximos episódios.'
-        : '<b>Exportar vertical</b> recorta cada cena em 9:16 centralizado no '
-          + 'rosto, pra Shorts/Reels.')
-        + '<br><br>Isto ainda só existe na interface antiga. Pra abrir ela:'
-        + '<br><br><span style="font-family:var(--mono);font-size:12px">'
-        + 'CorteCenas.exe --classico</span><br><br>'
-        + '(ou defina a variável de ambiente '
-        + '<span style="font-family:var(--mono)">CORTECENAS_UI=classico</span>)',
-      confirmar: 'Entendi', negar: 'Fechar',
-    }, () => {});
+    // Estas duas mandavam abrir `CorteCenas.exe --classico`: outra janela,
+    // outro banco carregado, e a pessoa reabrindo lá o episódio que já
+    // estava aberto aqui. O motor sempre existiu (app/reframe.py e
+    // app/harvest.py); faltava o fio.
+    if (acao === 'reforcar'){
+      pergunta({
+        titulo: 'Reforçar refs com este episódio',
+        texto: 'Pega as cenas que a análise acertou com folga (confiança '
+             + '<b>≥ 0.90</b>), recorta o rosto e guarda na pasta de '
+             + 'referências do personagem, até 3 por pessoa.<br><br>'
+             + '• Melhora o reconhecimento nos <b>próximos</b> episódios — '
+             + 'este aqui já está pronto<br>'
+             + '• Os arquivos novos começam com <span style="font-family:var(--mono)">auto_</span>, '
+             + 'pra separar dos que você pôs à mão<br>'
+             + '• ⚠ Se este episódio identificou alguém <b>errado</b> com '
+             + 'confiança alta, o erro vira referência. Vale conferir o '
+             + 'elenco antes',
+        confirmar: 'Reforçar', negar: 'Cancelar',
+      }, () => ponte.reforcar_refs(json => {
+        const r = JSON.parse(json);
+        if (r.rodando) vigiaTarefa(); else recado(r.msg, !r.ok);
+      }));
+      return;
+    }
+    if (acao === 'vertical'){
+      const p = document.querySelector('#r_elenco .pessoa.viva');
+      const nome = p ? p.dataset.nome : '';
+      if (!nome || nome === '__sem__'){
+        recado('Escolha alguém no Elenco primeiro — a saída vertical é uma '
+             + 'pasta por pessoa.', true);
+        return;
+      }
+      // O custo é por CENA e cada uma passa por ffmpeg. Dizer quantas são
+      // antes é a diferença entre "vai demorar" e um app travado.
+      ponte.cenas_do_personagem(nome, jc => {
+        const c = JSON.parse(jc);
+        pergunta({
+          titulo: 'Exportar vertical 1080×1920',
+          texto: `Recorta em 9:16 as <b>${c.cenas || 0}</b> cena(s) de `
+               + `<b>${nome}</b>, centralizado no rosto detectado — pra `
+               + 'Shorts/Reels/TikTok.<br><br>'
+               + '• Sai em <span style="font-family:var(--mono)">'
+               + 'vertical/' + nome + '/</span>, dentro da pasta do episódio<br>'
+               + '• Cena sem rosto visível é enquadrada pelo movimento, '
+               + 'e no pior caso pelo centro — nenhuma é descartada<br>'
+               + '• Nada é apagado: os clipes originais ficam onde estão',
+          confirmar: 'Exportar', negar: 'Cancelar',
+        }, () => ponte.exportar_vertical(JSON.stringify({nome}), json => {
+          const r = JSON.parse(json);
+          if (r.rodando) vigiaTarefa(); else recado(r.msg, !r.ok);
+        }));
+      });
+      return;
+    }
   }));
+
+// ---- tarefas longas da aba Resultados ---------------------------------
+// O progresso se PUXA. O sentido Python→JS morre enquanto há trabalho
+// pesado rodando — foi isso que obrigou o `progresso_atual` da análise a
+// existir, e aqui é o mesmo cenário (ffmpeg em cada cena, CLIP em cada
+// rosto). Se eu tivesse ligado num sinal, a barra ficaria em 0% e a pessoa
+// não teria como distinguir isso de um app travado.
+let relogioTarefa = null;
+let ultimaTarefa = 0;
+
+function travaTarefa(travar){
+  document.querySelectorAll('.elenco [data-res="reforcar"], .elenco [data-res="vertical"]')
+    .forEach(b => b.classList.toggle('mole', travar));
+}
+
+function vigiaTarefa(){
+  clearInterval(relogioTarefa);
+  travaTarefa(true);
+  document.getElementById('r_tarefa').style.display = '';
+  document.getElementById('r_tarefa_det').textContent = 'começando…';
+  relogioTarefa = setInterval(() => {
+    if (!ponte) return;
+    ponte.tarefa_atual(json => {
+      const t = JSON.parse(json);
+      if (t.rodando){
+        document.getElementById('r_tarefa_rot').textContent = t.rotulo || '';
+        document.getElementById('r_tarefa_pct').textContent = (t.pct || 0) + '%';
+        document.getElementById('r_tarefa_barra').style.width = (t.pct || 0) + '%';
+        document.getElementById('r_tarefa_det').textContent = t.detalhe || '';
+        return;
+      }
+      clearInterval(relogioTarefa);
+      relogioTarefa = null;
+      travaTarefa(false);
+      document.getElementById('r_tarefa').style.display = 'none';
+      // O número do fim existe pelo mesmo motivo do `n_fim` da análise: o
+      // laço puxa em intervalo e trataria o mesmo fim várias vezes.
+      if (!t.n || t.n === ultimaTarefa) return;
+      ultimaTarefa = t.n;
+      if (t.ok && t.pasta){
+        pergunta({titulo: 'Exportação vertical pronta', texto: t.msg,
+                  confirmar: 'Abrir pasta', negar: 'Fechar'},
+          () => ponte.abrir_pasta('vertical:' + (t.nome || ''), j2 => {
+            const r = JSON.parse(j2); if (!r.ok) recado(r.msg, true);
+          }));
+      } else {
+        recado(t.msg, !t.ok);
+      }
+    });
+  }, 700);
+}
 document.getElementById('aviso_esquecidas').addEventListener('click', () => {
   pergunta({
     titulo: 'Pastas esquecidas',
@@ -3038,6 +3185,14 @@ new QWebChannel(qt.webChannelTransport, canal => {
       const v = parseFloat(i.value);
       if (!Number.isNaN(v)) pedido.valores[i.id.slice(2)] = v;
     });
+    // As chaves só entram no pedido quando FORAM DIGITADAS. Mandar sempre
+    // gravaria a máscara por cima da chave de verdade no primeiro Salvar
+    // feito por outro motivo qualquer.
+    const kn = chaveDigitada('s_chave'), kg = chaveDigitada('s_chave_g');
+    if (kn !== null) pedido.chave_navy = kn;
+    if (kg !== null) pedido.chave_gemini = kg;
+    pedido.modelo_navy = document.getElementById('s_modelo').textContent.trim();
+    pedido.modelo_gemini = document.getElementById('s_modelo_g').textContent.trim();
 
     const grava = () => ponte.salvar_config(JSON.stringify(pedido), json => {
       const r = JSON.parse(json);
