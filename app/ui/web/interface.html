@@ -535,17 +535,24 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
           <div class="giro" data-giro="episodio"><span class="v">1</span><span class="setas"><span data-d="1">▲</span><span data-d="-1">▼</span></span></div>
           <span style="flex:1"></span>
           <span class="rot" style="width:52px;flex:0 0 52px">OP/ED</span>
-          <div class="campo campo-curto" id="c_op" contenteditable spellcheck="false">1:30</div>
-          <div class="campo campo-curto" id="c_ed" contenteditable spellcheck="false">1:30</div>
+          <div class="campo campo-curto" id="c_op" contenteditable spellcheck="false">0:00</div>
+          <div class="campo campo-curto" id="c_ed" contenteditable spellcheck="false">0:00</div>
         </div>
-        <!-- O 1:30 já vem posto e ninguém dizia o que ele faz: 90 s do
-             começo e 90 s do fim eram jogados fora — nem cortados, nem
-             analisados — e o único registro era um print. Em recap, especial
-             ou episódio 1 isso come cena de verdade. -->
+        <!-- NASCE EM 0:00, e isso é uma decisão.
+             Vinha 1:30 nos dois, e ninguém dizia o que aquilo fazia: 90 s do
+             começo e 90 s do fim de TODO episódio eram jogados fora — nem
+             cortados, nem analisados. Em série normal isso quase sempre
+             acerta; em filme, recap, especial ou episódio 1 come cena de
+             verdade, e o usuário nunca soube que perdeu. Um filme de 97 min
+             analisado por um usuário perdeu 3 minutos assim.
+             O padrão passa a ser "não jogue nada fora"; quem tem abertura
+             digita a duração dela, e o erro fica do lado de sobrar cena em
+             vez de sumir cena. -->
         <div class="nota" style="padding-left:0">Esses trechos são a
           <b>duração</b> da abertura e do encerramento, não o horário em que
-          eles acabam. Eles não são cortados nem analisados —
-          deixe <b>0:00</b> se o episódio não tiver.</div>
+          eles acabam. O que estiver aqui <b>não é cortado nem analisado</b> —
+          por isso vem <b>0:00</b>: preencha só se o episódio tiver mesmo OP/ED
+          que você queira pular.</div>
         <div class="linha">
           <span class="rot">Saída</span>
           <div class="campo" id="c_saida">G:\App Corte Cenas\Output</div>
