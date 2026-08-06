@@ -36,6 +36,9 @@ Você arrasta um episódio pra janela. O app:
 4. 🤖 Opcional: uma **IA generativa revisa só os casos duvidosos** (barato) ou o episódio inteiro
 5. 📁 **Organiza tudo** em `by_character/<Nome>/` e `by_pair/<A>+<B>/` usando hardlinks (sem duplicar espaço em disco)
 6. 📱 Ainda gera **versão vertical 1080×1920** de qualquer personagem pra Reels/TikTok, com enquadramento no rosto
+7. 📚 E guarda tudo numa **Biblioteca** — anime → temporada → episódio — onde
+   você revê as cenas, corrige o que ele errou e **arrasta os clipes direto pro
+   After Effects**
 
 E quando o anime é **novo demais** (sem fotos nas bases) ou **não existe nelas**: o
 **🔍 Modo Descoberta** agrupa os rostos do próprio episódio, você batiza cada grupo
@@ -95,7 +98,7 @@ O badge no topo da janela mostra em que modo você está: 🟢 GPU ou 🟡 CPU.
 
 ### 🔄 Atualizações são automáticas
 
-Toda vez que o app abre, ele confere se saiu versão nova. Se sim, pergunta se quer atualizar — aceita, autoriza no UAC, e em ~30 segundos reabre atualizado. **O update baixa só ~53 MB**, não os 2 GB do instalador. Suas configurações e clipes ficam intactos.
+Toda vez que o app abre, ele confere se saiu versão nova. Se sim, pergunta se quer atualizar — aceita, autoriza no UAC, e em ~30 segundos reabre atualizado. **O update baixa só ~54 MB**, não os 2 GB do instalador. Suas configurações e clipes ficam intactos.
 
 ---
 
@@ -119,12 +122,17 @@ Confira os campos (pra temporadas específicas tipo "Dr. Stone S4", preencher ce
 
 | Botão | O que faz | Custo |
 |---|---|---|
-| **Testar refs (preview)** | Mostra quantas fotos cada personagem tem ANTES de gastar tempo de análise | Grátis |
 | **Analisar episódio** 🟢 | O principal: YOLO + CLIP + segunda passada de resgate | Grátis, ilimitado |
 | **Analisar + IA nos duvidosos** 🔵 | Igual ao verde, mas os shots que ficaram "quase" vão pra IA desempatar | Pouca quota |
 | **🔍 Modo Descoberta** | Agrupa os rostos do próprio episódio pra você batizar — cria/reforça o banco de refs. Foto errada no grupo? **Clica nela** que sai | Grátis |
 
-Presets de rigor: **Auto (recomendado)** equilibra; **Muito Fiel** quase não erra mas marca menos; **Pouco Fiel** marca mais e você filtra depois.
+Antes de gastar tempo de análise, dá pra ver quantas fotos cada personagem tem:
+**⚙ Configurações → Referências e cache → 🔍 Conferir referências**.
+
+Presets de rigor, em **⚙ Configurações**: **Auto (recomendado)** equilibra;
+**Muito Fiel** quase não erra mas marca menos; **Pouco Fiel** marca mais e você
+filtra depois. Ali também fica **Só cortar as cenas**, pra quando você quer só
+os clipes e nenhum reconhecimento.
 
 <div align="center">
 <img src="docs/img/configuracoes.png" alt="As Configurações: os presets de reconhecimento, o cartão Personalizado com os cinco números, a pasta de saída e os botões de referências e cache">
@@ -154,21 +162,41 @@ próximos episódios tudo já funciona direto no verde.
 Se o anime **não for encontrado** nas bases online, o app oferece a Descoberta
 sozinho — e a partir do episódio 2 resolve o anime pelo banco local, sem internet.
 
-### 3. Aba Resultados
+### 3. Abas Resultados e Biblioteca
 
-- Lista de personagens com a contagem de shots de cada um
-- Seção **Duplas** na mesma lista ("Senku + Kohaku (12)") — clica e vê só as
-  cenas em que os dois aparecem juntos
-- **Duplo clique** num thumbnail abre o `.mp4` do shot
-- **Botão direito**: aprovar, remover ou mover pra outro personagem — com
-  **Ctrl/Shift/laço** pra selecionar vários de uma vez
-- 🧠 **Curadoria com memória**: removeu/moveu/aprovou → a decisão **sobrevive à
+**Resultados** é o episódio que você acabou de analisar. **Biblioteca** é tudo
+que já foi cortado: uma árvore anime → temporada → episódio, que continua lá
+quando você fecha e reabre o app. As duas desenham a mesma grade de cenas e
+respondem aos mesmos comandos.
+
+- Lista de personagens com a contagem de cenas de cada um, e **sem
+  identificação** pra ver o que sobrou
+- **Clica numa cena** e ela toca em loop no painel da direita, com o tempo, a
+  duração, quem o app reconheceu e com **quanta confiança**
+- **Botão direito** (ou os botões do painel): remover desta pasta, mover pra
+  outro personagem, **⛓ juntar com a próxima** (e desfazer a junção), mostrar
+  no Explorer — com **Ctrl/Shift** pra selecionar várias de uma vez
+- **Arrasta as cenas pra fora da janela** e elas caem no After Effects, no
+  Premiere ou onde você largar — várias de uma vez
+- 🧠 **Curadoria com memória**: removeu/moveu/juntou → a decisão **sobrevive à
   reanálise** — e o bloqueio vale **desde o começo** da análise seguinte (a
   cena removida não vira "referência interna" nem espalha o erro). Pode
   reanalisar quanto quiser que o app não desfaz teu trabalho
-- **Exportar vertical 1080×1920** — versão Reels/TikTok focada no rosto do personagem selecionado
-- **Exportar refs deste anime** — zip do banco de referências pra compartilhar
-- **Reforçar refs com este ep** — usa os shots identificados pra engordar o banco de referências (melhora o próximo episódio)
+- 🔄 **Sincronizar pastas** — arrumou os clipes no Explorer? O app lê o que você
+  fez e passa a lembrar disso. Mostra o plano antes de aplicar
+- **▯ Exportar vertical 1080×1920** — versão Reels/TikTok focada no rosto do
+  personagem selecionado. Cena sem rosto visível é enquadrada pelo movimento;
+  nenhuma é descartada
+- **⤓ Exportar refs (.zip)** — o banco de referências deste anime, pra compartilhar
+- **✚ Reforçar refs com este ep** — os rostos que a análise acertou com folga
+  (≥ 0.90) viram referência e melhoram o **próximo** episódio
+
+> ⚠️ Reforçar refs guarda o que a análise achou. Se ela identificou alguém
+> **errado** com confiança alta, o erro vira referência — vale conferir o
+> elenco antes.
+
+As pastas de **duplas** (`by_pair/Senku+Kohaku/`) continuam sendo criadas no
+disco; ligue ou desligue em ⚙ Configurações.
 
 ---
 
@@ -195,14 +223,17 @@ Situações conhecidas:
 
 ## 🤖 Modo IA (opcional)
 
-Duas providers configuráveis em **⚙ Configurações**, com fallback automático:
+Duas providers, em **⚙ Configurações → IA de apoio**, com fallback automático:
 
 - **NavyAI** (principal) — gateway OpenAI-compatível; key `sk-navy-...`
-- **Gemini direto** (fallback) — key gratuita em [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+- **Gemini direto** (reserva) — key gratuita em [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 Se as duas estiverem preenchidas, a NavyAI é usada primeiro e o Gemini assume automaticamente quando ela falha (quota, erro, timeout). Modelo padrão: `gemini-2.5-flash` (modelos aposentados pelos provedores são migrados sozinhos).
 
-> 💡 **Free tier é apertado pra episódio inteiro**: ~400 shots ≈ 2 milhões de tokens só de prompt. Se a quota diária acabar no meio, o app para na hora e explica — não fica moendo à toa. O pipeline local (botão verde) não tem esse limite.
+A chave guardada nunca é mostrada de volta — o campo exibe uma máscara, e só o
+que você digitar por cima é gravado. Apagar o campo e salvar remove a chave.
+
+> 💡 **Free tier é apertado pra episódio inteiro**: ~400 shots ≈ 2 milhões de tokens só de prompt. O botão azul **Analisar + IA nos duvidosos** não faz isso: o CLIP decide, e só a zona cinzenta vai pro LLM, com teto de shots. O modo "episódio inteiro" é o caro. Se a quota diária acabar no meio, o app para na hora e explica — não fica moendo à toa. O pipeline local (botão verde) não tem esse limite.
 
 ---
 
@@ -263,7 +294,7 @@ app/
   pipeline_types.py        tipos leves (sem torch) pra UI importar
   applog.py                log persistente + tee de stdout/stderr
   config.py                config persistente + migrações
-  updater.py               auto-update via GitHub Releases (delta ~53 MB)
+  updater.py               auto-update via GitHub Releases (delta ~54 MB)
   ai_review.py             NavyAI + Gemini fallback + circuit breaker de quota
   video_ingest.py          parse do nome do arquivo
   shot_detection.py        PySceneDetect com callback de progresso
@@ -271,6 +302,11 @@ app/
   ffmpeg_locate.py         resolve ffmpeg embutido vs PATH
   reframe.py               vertical 9:16 com face-tracking
   harvest.py               reforço de refs a partir de shots identificados
+  curation.py              remover/mover/juntar com memória entre reanálises
+  naming.py                casa nomes por conjunto de palavras (anti-duplicata)
+  cache_tools.py           faxina do cache (com lixeira, nunca rmtree)
+  imagens.py               IO de imagem à prova de acento (o OpenCV do Windows
+                           é ANSI: cv2.imwrite devolve False, sem exceção)
 
   no_console.py            nenhum subprocesso pisca janela de CMD (global)
 
@@ -278,17 +314,24 @@ app/
                            anime_provider.py (orquestra fontes + reservas)
   references/              downloader async, filtros, reference_store
   matching/                face_detector (YOLO + cascata head, em lote),
-                           embedding_engine (CLIP), character_matcher
-                           (multi-protótipo), feature_cache (boxes+embeddings),
-                           second_pass (resgate), face_clustering (Descoberta),
-                           cooccurrence
+                           embedding_engine (CLIP), ccip (2ª opinião local),
+                           character_matcher (multi-protótipo), feature_cache
+                           (boxes+embeddings), second_pass (resgate),
+                           group_rescue, face_clustering (Descoberta),
+                           credit_detector, cooccurrence
   storage/                 db (SQLite), metadata_writer, organizer (hardlinks)
-  ui/                      main_window, analyze_tab, results_tab,
-                           character_grid, settings_dialog, worker (QThreads)
+  ui/web/                  A INTERFACE DE HOJE — janela.py (QWebEngineView),
+                           ponte.py (tudo que o JS enxerga do Python),
+                           interface.html (a tela inteira)
+  ui/                      a interface antiga, ainda alcançável por
+                           `CorteCenas.exe --classico`: main_window,
+                           analyze_tab, results_tab, library_tab,
+                           settings_dialog — e worker.py (QThreads), que as
+                           DUAS usam
   assets/                  ícone (7 tamanhos)
 
 fetch_ffmpeg.py            baixa FFmpeg pro ./bin/ (embutido no instalador)
-pack_delta.py              gera o zip de update (~53 MB)
+pack_delta.py              gera o zip de update (~54 MB)
 apply_update.ps1           helper elevado que aplica o delta
 _build_all.bat             build completo: FFmpeg → PyInstaller → delta → Inno
 build.spec                 PyInstaller (onedir, console=False)
@@ -335,7 +378,7 @@ Precisa de [Inno Setup 6](https://jrsoftware.org/isdl.php). Depois:
 _build_all.bat
 ```
 
-Roda em ordem: `fetch_ffmpeg.py` → PyInstaller (~10 min) → `pack_delta.py` (zip de update ~53 MB) → Inno Setup (~8 min). Saída em `releases/`: o setup completo **e** o zip de delta.
+Roda em ordem: `fetch_ffmpeg.py` → PyInstaller (~10 min) → `pack_delta.py` (zip de update ~54 MB) → Inno Setup (~8 min). Saída em `releases/`: o setup completo **e** o zip de delta.
 
 ### Publicar uma release
 
@@ -346,22 +389,40 @@ Roda em ordem: `fetch_ffmpeg.py` → PyInstaller (~10 min) → `pack_delta.py` (
    gh release create vX.Y.Z releases/CorteCenas-Setup-X.Y.Z.exe releases/CorteCenas-Update-X.Y.Z.zip --title "Corte Cenas vX.Y.Z" --notes-file notas.md
    ```
 
-Todo mundo com o app instalado recebe a oferta de update (delta de ~53 MB) no próximo abrir.
+Todo mundo com o app instalado recebe a oferta de update (delta de ~54 MB) no próximo abrir.
 
 ---
 
 ## 🗺️ Roadmap
 
+### Pra fazer
+
 - [ ] **Banco de refs curadas no GitHub** — fonte de fotos controlada por nós, imune a queda de API e com designs atuais das temporadas novas (o botão "Exportar refs" já gera o insumo)
-- [ ] **Resultados em tempo real** — shots aparecendo na aba Resultados enquanto a análise roda
+- [ ] **Resultados em tempo real** — cenas aparecendo na aba Resultados enquanto a análise roda
 - [ ] **Contador de uso do free tier** + estimativa de custo antes de rodar com IA
 - [ ] **Barra de progresso do download do CLIP** (~890 MB na primeira análise)
-- [ ] **Benchmark CCIP × CLIP** — testar o embedding da DeepGHS treinado especificamente pra "mesmo personagem de anime?" contra o CLIP atual, usando o cache de features
 - [ ] Transcrição (Whisper) pra reforçar identificação por fala
-- [x] ~~Ponte verde→Descoberta (batismo dos grupos que sobraram)~~ (v0.4.1)
-- [x] ~~Cascade de detecção de rosto~~ (v0.2.0)
+
+### Pronto no código, sai na próxima versão
+
+> A última publicada é a **v0.5.4** — estes três estão no `main` e ainda não
+> foram pra uma release.
+
+- [x] ~~**Vertical e reforçar refs na tela nova**~~ — os dois últimos botões que ainda mandavam abrir o app clássico. Junto, a chave de IA passou a ser configurável ali
+- [x] ~~**IA nos duvidosos cobrando o episódio inteiro**~~ — o botão barato rodava o modo caro
+- [x] ~~**OP/ED nascendo em 1:30**~~ — toda análise descartava 3 minutos que ninguém pediu
+
+### Feito
+
+- [x] ~~**Nova interface** (Chromium + QWebChannel)~~ — abas Analisar/Resultados/**Biblioteca**, prévia em loop, arrastar clipes pro editor, juntar cenas, sincronizar com o Explorer (v0.5.0 → v0.5.4)
+- [x] ~~**CCIP** — embedding da DeepGHS treinado pra "mesmo personagem de anime?"~~ — entrou como híbrido (veto + resgate + âncora), medido no benchmark-gabarito, e vem ligado por padrão (v0.4.8)
+- [x] ~~Nomes duplicados (pasta de refs, banco e batismo) + fundidor de duplicados~~ (v0.4.2)
+- [x] ~~Resgate por grupo + ponte verde→Descoberta (batismo dos grupos que sobraram)~~ (v0.4.1)
+- [x] ~~Cache de features por episódio — reanálise em segundos~~ (v0.4.0)
+- [x] ~~Curadoria com memória (sobrevive à reanálise)~~ (v0.3.2)
 - [x] ~~Revisão em lote (Ctrl/Shift na grade)~~ (v0.3.1)
 - [x] ~~Modo Descoberta~~ (v0.3.0)
+- [x] ~~Cascade de detecção de rosto~~ (v0.2.0)
 
 ---
 
