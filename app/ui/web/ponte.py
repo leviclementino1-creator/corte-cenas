@@ -910,19 +910,26 @@ class Ponte(QObject):
         print(f"    [python] {len(foram)} cena(s) pra lixeira: {alvos}")
         return json.dumps({"ok": True, "msg": msg, "apagadas": len(foram)})
 
-    def caminhos_das_cenas(self, idxs) -> list[str]:
+    def caminhos_das_cenas(self, idxs, vertical: str = "") -> list[str]:
         """Os arquivos das cenas pedidas, só os que existem no disco.
 
         Separado do `arrastar_cenas` porque o `QDrag.exec()` BLOQUEIA até a
         pessoa soltar o mouse — não dá pra testar o que foi arrastado depois
         que ele já rodou. Aqui dá.
+
+        Com `vertical`, entrega o 9:16 daquele personagem em vez do clipe
+        original. Arrastar da grade de verticais e cair o horizontal no
+        editor seria o pior tipo de erro: só se descobre depois de montar.
         """
+        pasta_v = self._pasta_vertical(vertical) if vertical else None
+        if vertical and pasta_v is None:
+            return []
         fora = []
         for i in idxs:
             r = self._shots.get(int(i))
             if r is None:
                 continue
-            p = self.raiz / r["file"]
+            p = (pasta_v / Path(r["file"]).name) if pasta_v else (self.raiz / r["file"])
             if p.exists():
                 fora.append(str(p))
         return fora
@@ -949,11 +956,14 @@ class Ponte(QObject):
         vista = getattr(self, "vista", None)
         if vista is None:
             return json.dumps({"ok": False, "msg": "sem vista pra arrastar"})
-        idxs = [int(i) for i in (json.loads(pedido).get("idxs") or [])]
-        caminhos = self.caminhos_das_cenas(idxs)
+        d = json.loads(pedido)
+        idxs = [int(i) for i in (d.get("idxs") or [])]
+        vertical = str(d.get("vertical") or "")
+        caminhos = self.caminhos_das_cenas(idxs, vertical)
         if not caminhos:
-            return json.dumps({"ok": False, "msg":
-                "Não achei o clipe desta cena em shots/."})
+            return json.dumps({"ok": False, "msg": (
+                f"Não achei o 9:16 desta cena em vertical/{vertical}/."
+                if vertical else "Não achei o clipe desta cena em shots/.")})
 
         mime = QMimeData()
         mime.setUrls([QUrl.fromLocalFile(c) for c in caminhos])
@@ -2796,6 +2806,95 @@ class Ponte(QObject):
 
         d = QFileDialog.getExistingDirectory(None, "Pasta de saída", str(self._saida()))
         return d or ""
+
+    # ---- os verticais na Biblioteca --------------------------------------
+    #
+    # Exportar vertical criava arquivo que NÃO existia em lugar nenhum da
+    # tela: pra ver o resultado a pessoa tinha que abrir o Explorer. A pasta
+    # `vertical/` fica dentro do episódio e nenhum dos varredores a enxerga
+    # (nem devia — ela viraria cena duplicada na grade).
+    #
+    # O encaixe barato existe porque o `reframe_character` grava com o MESMO
+    # nome do clipe original (`vertical/<Nome>/0042.mp4`, reframe.py:271): o
+    # número da cena volta do nome do arquivo, e o cartão que a grade já tem
+    # — keyframe, tempo, quem, confiança — serve pros dois.
+
+    def _pasta_vertical(self, nome: str) -> Path | None:
+        """A pasta de um personagem dentro de `vertical/`, ou None.
+
+        O nome vem do JS. Ele saiu do `verticais()` daqui, mas caminho que
+        atravessa a ponte e vira `Path` sem conferência é como se lê arquivo
+        fora do Output: o `resolve()` + comparação com a raiz fecha isso.
+        """
+        raiz = (self.raiz / "vertical").resolve()
+        try:
+            alvo = (raiz / (nome or "")).resolve()
+            alvo.relative_to(raiz)
+        except (OSError, ValueError):
+            return None
+        return alvo if alvo.is_dir() else None
+
+    @Slot(result=str)
+    def verticais(self) -> str:
+        """Quais cenas deste episódio já têm versão 9:16, por personagem."""
+        raiz = self.raiz / "vertical"
+        por: dict[str, list[int]] = {}
+        if raiz.exists():
+            try:
+                pastas = sorted(p for p in raiz.iterdir() if p.is_dir())
+            except OSError:
+                pastas = []
+            for pasta in pastas:
+                idxs = []
+                for f in pasta.glob("*.mp4"):
+                    try:
+                        idxs.append(int(f.stem))
+                    except ValueError:
+                        continue      # arquivo que não é cena nossa
+                if idxs:
+                    por[pasta.name] = sorted(idxs)
+        return json.dumps({"por": por, "total": sum(len(v) for v in por.values())})
+
+    @Slot(int, str, result=str)
+    def previa_vertical(self, idx: int, nome: str) -> str:
+        """A prévia do 9:16 — mesma história da `previa`.
+
+        Este Chromium não traz H.264, então apontar o <video> pro mp4
+        vertical dá SRC_NOT_SUPPORTED igualzinho ao horizontal. O nome do
+        personagem entra na chave do arquivo: sem isso a prévia vertical
+        sobrescreveria a normal da mesma cena, e clicar na cena #42 na grade
+        comum passaria a mostrar o 9:16 sem nada explicar.
+        """
+        pasta = self._pasta_vertical(nome)
+        if pasta is None:
+            return ""
+        clipe = pasta / f"{idx:04d}.mp4"
+        if not clipe.exists():
+            return ""
+        destino = self.previas / f"v_{pasta.name}_{idx:04d}.webm"
+        if not destino.exists():
+            import subprocess
+
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            t0 = time.perf_counter()
+            r = subprocess.run(
+                # ALTURA 640, não largura: o clipe é 1080x1920, e limitar a
+                # largura daria uma prévia de 640x1138 — cara de codificar e
+                # grande demais pro painel, que é deitado.
+                [self.ffmpeg, "-v", "error", "-y", "-i", str(clipe),
+                 "-vf", "scale=-2:640", "-c:v", "libvpx", "-crf", "30",
+                 "-b:v", "0", "-cpu-used", "8", "-deadline", "realtime",
+                 "-an", str(destino)],
+                capture_output=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if r.returncode != 0:
+                erro = (r.stderr or b"").decode("utf-8", "replace")
+                print(f"    [python] ffmpeg (vertical) falhou: {erro[:150]}")
+                return ""
+            print(f"    [python] prévia vertical {pasta.name}/{idx:04d} em "
+                  f"{(time.perf_counter() - t0) * 1000:.0f} ms")
+        return "file:///" + str(destino).replace("\\", "/")
 
     # ---- prévia -----------------------------------------------------------
     @Slot(int, result=str)

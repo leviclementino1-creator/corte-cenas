@@ -239,6 +239,10 @@ body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13p
 .pilula.viva{background:var(--accent-ink);border-color:var(--accent-dim);color:var(--accent)}
 .pilula .n{font-family:var(--mono);font-size:11px;color:var(--time)}
 .pilula.viva .n{color:var(--accent)}
+/* a de vertical se separa das de personagem: senão "▯ Nina" ao lado de
+   "Nina" são duas pílulas iguais que filtram coisas diferentes */
+.pilula.vert{border-style:dashed}
+.pilula.vert.viva{border-style:solid}
 
 /* --- ordenação: controle segmentado, sem a palavra "primeiro" --------- */
 .ordem{display:flex;align-items:center;gap:10px;flex:0 0 auto}
@@ -1105,9 +1109,17 @@ document.getElementById(qual).addEventListener('click', e => {
   vazio.textContent = 'gerando prévia…';
   const pedida = c.idx;
   cenaNoPainel = c.idx;
+  // Qual arquivo tocar sai do CARTÃO (`data-vert`), não do filtro global: as
+  // duas grades usam este mesmo handler, e um filtro de vertical esquecido
+  // na Biblioteca faria a aba Resultados pedir a prévia 9:16 de uma cena que
+  // ela está mostrando na horizontal.
+  const vert = el.dataset.vert || '';
   // O clipe é H.264 e este Chromium não toca — o Python devolve uma prévia
   // WebM feita na hora (ver Ponte.previa).
-  ponte.previa(c.idx, url => {
+  const pedePrevia = vert
+    ? cb => ponte.previa_vertical(c.idx, vert, cb)
+    : cb => ponte.previa(c.idx, cb);
+  pedePrevia(url => {
     // Clicou noutra cena enquanto esta era gerada: a resposta velha não pode
     // sobrescrever a nova.
     //
@@ -1980,7 +1992,11 @@ document.addEventListener('contextmenu', e => {
     const idx = +el.dataset.idx;
     const sel = selecionadas();
     const idxs = (sel.includes(idx) && sel.length > 1) ? sel : [idx];
-    ponte.arrastar_cenas(JSON.stringify({idxs}), json => {
+    // Arrastar da grade de verticais tem que soltar o 9:16 no editor. Sem
+    // isto cairia o clipe horizontal — o pior tipo de erro, porque só
+    // aparece depois de montar.
+    const vertical = el.dataset.vert || '';
+    ponte.arrastar_cenas(JSON.stringify({idxs, vertical}), json => {
       const r = JSON.parse(json);
       if (!r.ok) recado(r.msg, true);
     });
@@ -2483,15 +2499,74 @@ let filtro = null;      // null = todas · '__sem__' = sem identificação
 let ordem = 'crono';
 let epAberto = null;
 
+// ---- os verticais exportados ------------------------------------------
+// A pasta `vertical/<Nome>/` nasce dentro do episódio e NADA na tela a
+// mostrava: exportar produzia arquivo que só existia no Explorer.
+//
+// Eles não viram cena nova — isso duplicaria a grade e inflaria a contagem
+// do episódio. Viram um FILTRO, e sai barato porque o `reframe_character`
+// grava com o mesmo nome do clipe original: o cartão que já está desenhado
+// (keyframe, tempo, quem, confiança) vale pros dois, e só muda o arquivo
+// que toca e o que é arrastado.
+//
+// Uma pílula por PERSONAGEM, não uma só pro episódio: o vertical mora numa
+// pasta por pessoa, e uma pílula única não saberia qual arquivo tocar numa
+// cena exportada pra dois.
+const EMPTY = new Set();
+let verticaisDoEp = {};        // pasta -> Set(idx das cenas com 9:16)
+
+const nomeVertical = f => (f && f.startsWith('vert:')) ? f.slice(5) : null;
+
+function carregaVerticais(){
+  verticaisDoEp = {};
+  if (!ponte) return;
+  ponte.verticais(json => {
+    const d = JSON.parse(json);
+    for (const [nome, idxs] of Object.entries(d.por || {}))
+      verticaisDoEp[nome] = new Set(idxs);
+    const filtros = document.getElementById('filtros');
+    // Tira as antigas antes de pôr as novas: o `carregaCenas` reconstrói o
+    // `innerHTML` inteiro, mas a chamada de depois de exportar não — e sem
+    // isto exportar duas vezes deixaria duas pílulas iguais.
+    filtros.querySelectorAll('.pilula.vert').forEach(x => x.remove());
+    for (const [nome, s] of Object.entries(verticaisDoEp)){
+      const el = document.createElement('div');
+      el.className = 'pilula vert';
+      el.dataset.nome = 'vert:' + nome;
+      el.innerHTML = `▯ ${nome} <span class="n">${s.size}</span>`;
+      el.title = `As ${s.size} cena(s) de ${nome} que já têm versão 1080×1920`;
+      filtros.appendChild(el);
+    }
+    // A pílula só existe AGORA: o `recarregaEpisodio` restaura o filtro antes
+    // desta resposta chegar, e sem isto curar uma cena com o filtro de
+    // vertical ligado devolvia a vista pra "Todas" em silêncio.
+    if (nomeVertical(filtro)){
+      const p = filtros.querySelector(`.pilula[data-nome="${filtro}"]`);
+      if (p){
+        filtros.querySelectorAll('.pilula').forEach(x => x.classList.remove('viva'));
+        p.classList.add('viva');
+        desenhaGrade();
+      }
+    }
+  });
+}
+
 function desenhaGrade(){
   let lista = cenas;
-  if (filtro === '__sem__') lista = cenas.filter(c => !c.quem.length);
+  const vNome = nomeVertical(filtro);
+  if (vNome) lista = cenas.filter(c => (verticaisDoEp[vNome] || EMPTY).has(c.idx));
+  else if (filtro === '__sem__') lista = cenas.filter(c => !c.quem.length);
   else if (filtro) lista = cenas.filter(c => c.quem.includes(filtro));
   if (ordem === 'duvidosas')
     lista = [...lista].sort((a,b) => (a.quem.length?1:0) - (b.quem.length?1:0));
   else if (ordem === 'longas')
     lista = [...lista].sort((a,b) => b.dur - a.dur);
   const ms = monta(lista, 'grade');
+  // O cartão carrega DE QUEM é o vertical. Ler o filtro global na hora do
+  // clique vazaria pra aba Resultados, que desenha com o mesmo `monta`.
+  document.querySelectorAll('#grade .cartao').forEach(el => {
+    if (vNome) el.dataset.vert = vNome; else delete el.dataset.vert;
+  });
   document.getElementById('meta').innerHTML = resumo(lista);
   return ms;
 }
@@ -2499,12 +2574,15 @@ function desenhaGrade(){
 function resumo(lista){
   const semDono = lista.filter(c => !c.quem.length).length;
   const quantos = new Set(lista.flatMap(c => c.quem)).size;
-  const quem = filtro === '__sem__' ? 'sem identificação' : (filtro || 'todas');
+  const vNome = nomeVertical(filtro);
+  const quem = vNome ? `vertical de ${vNome}`
+             : filtro === '__sem__' ? 'sem identificação' : (filtro || 'todas');
   const total = lista.reduce((s,c) => s + c.dur, 0);
   return `<b>${lista.length}</b> cenas · <b>${quantos}</b> personagens · `
        + `<b>${relogio(total)}</b> · `
        + `<span class="duv">${semDono} duvidosas</span>`
-       + (filtro ? ` · filtrando por <b>${quem}</b>` : '');
+       + (filtro ? ` · filtrando por <b>${quem}</b>` : '')
+       + (vNome ? ' · <b>1080×1920</b>, e é o 9:16 que toca e que arrasta' : '');
 }
 
 document.getElementById('filtros').addEventListener('click', e => {
@@ -2752,6 +2830,7 @@ function carregaCenas(id, depois){
       nomes.map(([n,k]) =>
         `<div class="pilula" data-nome="${n}">${n} <span class="n">${k}</span></div>`).join('') +
       (semDono ? `<div class="pilula" data-nome="__sem__">sem identificação <span class="n">${semDono}</span></div>` : '');
+    carregaVerticais();
 
     const t0Grade = performance.now();
     const ms = desenhaGrade();
@@ -2962,6 +3041,10 @@ function vigiaTarefa(){
       if (!t.n || t.n === ultimaTarefa) return;
       ultimaTarefa = t.n;
       if (t.ok && t.pasta){
+        // A Biblioteca ganhou uma pílula. Sem isto ela só apareceria na
+        // próxima vez que o episódio fosse aberto — e "exportei e não achei"
+        // é exatamente a queixa que fez isto existir.
+        if (epAberto) carregaVerticais();
         pergunta({titulo: 'Exportação vertical pronta', texto: t.msg,
                   confirmar: 'Abrir pasta', negar: 'Fechar'},
           () => ponte.abrir_pasta('vertical:' + (t.nome || ''), j2 => {
