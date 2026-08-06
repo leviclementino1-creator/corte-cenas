@@ -403,17 +403,11 @@ Todo mundo com o app instalado recebe a oferta de update (delta de ~54 MB) no pr
 - [ ] **Barra de progresso do download do CLIP** (~890 MB na primeira análise)
 - [ ] Transcrição (Whisper) pra reforçar identificação por fala
 
-### Pronto no código, sai na próxima versão
-
-> A última publicada é a **v0.5.4** — estes três estão no `main` e ainda não
-> foram pra uma release.
-
-- [x] ~~**Vertical e reforçar refs na tela nova**~~ — os dois últimos botões que ainda mandavam abrir o app clássico. Junto, a chave de IA passou a ser configurável ali
-- [x] ~~**IA nos duvidosos cobrando o episódio inteiro**~~ — o botão barato rodava o modo caro
-- [x] ~~**OP/ED nascendo em 1:30**~~ — toda análise descartava 3 minutos que ninguém pediu
-
 ### Feito
 
+- [x] ~~**Vertical e reforçar refs na tela nova**~~ — eram os dois últimos botões que ainda mandavam abrir o app clássico. Junto, a chave de IA passou a ser configurável ali (v0.5.5)
+- [x] ~~**IA nos duvidosos cobrando o episódio inteiro**~~ — o botão barato rodava o modo caro (v0.5.5)
+- [x] ~~**OP/ED nascendo em 1:30**~~ — toda análise descartava 3 minutos que ninguém pediu (v0.5.5)
 - [x] ~~**Nova interface** (Chromium + QWebChannel)~~ — abas Analisar/Resultados/**Biblioteca**, prévia em loop, arrastar clipes pro editor, juntar cenas, sincronizar com o Explorer (v0.5.0 → v0.5.4)
 - [x] ~~**CCIP** — embedding da DeepGHS treinado pra "mesmo personagem de anime?"~~ — entrou como híbrido (veto + resgate + âncora), medido no benchmark-gabarito, e vem ligado por padrão (v0.4.8)
 - [x] ~~Nomes duplicados (pasta de refs, banco e batismo) + fundidor de duplicados~~ (v0.4.2)
