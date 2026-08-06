@@ -1316,7 +1316,7 @@ function comeca(extra){
   if (!pedido.anime){ recado('Falta o nome do anime.', true); return; }
   // "Só cortar" não pode valer numa ação que identifica gente: o
   // `pipeline.run` testa cut_only primeiro e saía antes da IA, em silêncio.
-  if ((pedido.ia || pedido.descoberta) && pedido.so_cortar){
+  if ((pedido.ia || pedido.revisar || pedido.descoberta) && pedido.so_cortar){
     pedido.so_cortar = false;
     recado('"Só cortar" foi ignorado — esta ação identifica personagens.', true);
   }
@@ -1775,7 +1775,14 @@ document.getElementById('bat_sim').addEventListener('click', () => {
 const COM_DONO = ['btn_analisar', 'btn_reabrir_batismo'];
 document.querySelectorAll('.acoes .btn').forEach(b => {
   if (COM_DONO.includes(b.id)) return;
-  if (b.textContent.includes('IA')) b.addEventListener('click', () => comeca({ia: true}));
+  // `revisar`, NÃO `ia`. O botão diz "IA nos duvidosos" e mandava `ia: true`,
+  // que do outro lado vira `use_ai_recognition` — o modo em que CADA cena vai
+  // pro LLM, sem CLIP e sem YOLO. O modo barato (CLIP decide, a IA só
+  // desempata o que ficou na zona cinzenta) é `ai_review_ambiguous`, e a
+  // palavra `revisar` não existia em lugar nenhum desta tela: o botão cobrava
+  // o episódio inteiro em silêncio. O app clássico sempre chamou
+  // `_start(ai_review=True)`, com `use_ai=False` (analyze_tab.py:325).
+  if (b.textContent.includes('IA')) b.addEventListener('click', () => comeca({revisar: true}));
   else b.addEventListener('click', () => comeca({descoberta: true}));
 });
 // Cancelar dá sinal de vida. Ele era mudo: o botão continuava ativo, a barra

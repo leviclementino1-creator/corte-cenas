@@ -1285,16 +1285,25 @@ class Ponte(QObject):
         # sai antes de identificar: com a caixa marcada, clicar em
         # "Analisar + IA" ignorava a IA inteira em silêncio — o usuário
         # esperava o dobro do tempo e recebia cenas sem dono.
+        # DOIS MODOS DE IA, e eles custam ordens de grandeza diferentes:
+        #   `ia`      -> `use_ai_recognition`: CADA cena vai pro LLM, sem CLIP
+        #                e sem YOLO (pipeline.py:296). Episódio inteiro.
+        #   `revisar` -> `ai_review_ambiguous`: o CLIP decide, e só o que ficou
+        #                na zona cinzenta vai pro LLM, com teto de shots.
+        # O botão "Analisar + IA nos duvidosos" mandava `ia` e o `revisar`
+        # nunca era mandado por ninguém: o botão barato rodava o caro.
         usa_ia = bool(d.get("ia"))
+        revisar = bool(d.get("revisar"))
         descoberta = bool(d.get("descoberta"))
-        so_cortar = bool(d.get("so_cortar")) and not usa_ia and not descoberta
+        so_cortar = (bool(d.get("so_cortar"))
+                     and not usa_ia and not revisar and not descoberta)
 
         self._thread = QThread()
         self._worker = PipelineWorker(
             self.cfg, info,
             use_ai_recognition=usa_ia,
             ai_mode=AIMode.FULL,
-            ai_review_ambiguous=bool(d.get("revisar")),
+            ai_review_ambiguous=revisar,
             discovery=descoberta,
             cut_only=so_cortar,
             # "adicionar" preserva o que a análise anterior já identificou.
