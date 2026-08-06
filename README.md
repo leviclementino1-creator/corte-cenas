@@ -55,6 +55,20 @@ Output/Dr Stone/S04E25/
 
 ---
 
+## 👀 Como ele fica
+
+<div align="center">
+<img src="docs/img/biblioteca.png" alt="A Biblioteca do Corte Cenas: a grade de cenas de um episódio, com filtro por personagem e o painel da cena escolhida">
+</div>
+
+A **Biblioteca** depois de analisar um episódio: 393 cenas cortadas, 4
+personagens identificados, e as pílulas em cima filtram a grade por quem
+aparece. Clicando numa cena, o painel da direita mostra a prévia em loop, o
+tempo, quem o app reconheceu e com quanta confiança — e os botões pra corrigir
+o que ele errou.
+
+---
+
 ## 📥 Instalar
 
 **1 arquivo, 3 cliques, ~1 minuto:**
@@ -89,6 +103,10 @@ Toda vez que o app abre, ele confere se saiu versão nova. Se sim, pergunta se q
 
 ### 1. Carregar o episódio
 
+<div align="center">
+<img src="docs/img/analisar.png" alt="A aba Analisar: campos do episódio, tempos de OP/ED, pasta de saída e os botões de análise">
+</div>
+
 **Arraste o arquivo do episódio** (`.mp4`, `.mkv`...) pra qualquer lugar da janela — o app preenche anime, temporada e episódio a partir do nome do arquivo. Ou use o botão **Selecionar**.
 
 Arquivo sem o nome do anime (tipo `S01E01-Titulo do Episodio.mkv`)? O app
@@ -107,6 +125,14 @@ Confira os campos (pra temporadas específicas tipo "Dr. Stone S4", preencher ce
 | **🔍 Modo Descoberta** | Agrupa os rostos do próprio episódio pra você batizar — cria/reforça o banco de refs. Foto errada no grupo? **Clica nela** que sai | Grátis |
 
 Presets de rigor: **Auto (recomendado)** equilibra; **Muito Fiel** quase não erra mas marca menos; **Pouco Fiel** marca mais e você filtra depois.
+
+<div align="center">
+<img src="docs/img/configuracoes.png" alt="As Configurações: os presets de reconhecimento, o cartão Personalizado com os cinco números, a pasta de saída e os botões de referências e cache">
+</div>
+
+Mexeu nos cinco números na mão? Aparece um quarto cartão — **Personalizado** —
+mostrando o que está valendo, em vez de deixar os três apagados e você sem
+saber em que modo está.
 
 Mudou de ideia no meio? **✕ Cancelar análise** — os shots já cortados ficam em cache e a próxima rodada continua de onde parou.
 
